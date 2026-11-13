@@ -65,6 +65,8 @@ The fork has an independent version line and records its exact upstream base in 
 
 Upstream updates should arrive through reviewed integration changes, retaining the documented cleanup and export contracts. Contributions suitable for upstream remain in separate PR branches. Published ReallyMe history should remain stable. See the [fork policy](FORK.md) for the sync and release process.
 
+Our preference is to use upstream Buffa. If upstream provides equivalent secret-handling capabilities and guarantees, and our applications can migrate safely, we intend to migrate back upstream and retire active development of this fork. Published ReallyMe versions would remain available for reproducible builds.
+
 ## Validation and releases
 
 CI covers formatting, Clippy, default and all-feature tests, strict documentation, code generation freshness, Rust 1.75/1.77, `no_std`, 32-bit compilation and protobuf conformance. Runtime MSRV is Rust 1.75; the opt-in table codec requires Rust 1.77.

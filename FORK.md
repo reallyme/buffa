@@ -86,6 +86,12 @@ The default branch of `reallyme/buffa` carries the maintained fork. The upstream
 remote and its tracking refs retain upstream history; updating the ReallyMe
 default branch must not update upstream or alter the submitted PR branches.
 
+Our preference is to use upstream Buffa. If upstream provides equivalent
+secret-handling capabilities and guarantees, and our applications can migrate
+safely, we intend to migrate back upstream and retire active development of
+this fork. Published ReallyMe versions would remain available for reproducible
+builds. There is no scheduled retirement date.
+
 ## Release procedure
 
 See [RELEASE.md](RELEASE.md) for the initial `CARGO_REGISTRY_TOKEN` setup,
