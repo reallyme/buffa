@@ -41,7 +41,7 @@ use crate::CodeGenError;
 /// Fields resolving to **extern** types (WKTs via `buffa-types`,
 /// `extern_path`-mapped crates) also stay eager: the target crate may not
 /// ship a lazy family, and WKT JSON needs the hand-written eager impls.
-fn is_lazy_field(scope: MessageScope<'_>, field: &FieldDescriptorProto) -> bool {
+pub(crate) fn is_lazy_field(scope: MessageScope<'_>, field: &FieldDescriptorProto) -> bool {
     let features = crate::features::resolve_field(scope.ctx, field, scope.features);
     if effective_type(scope.ctx, field, &features) != Type::TYPE_MESSAGE {
         return false;
@@ -236,7 +236,8 @@ pub(crate) fn generate_lazy_view_with_nesting(
     let custom_default_impl =
         custom_view_default_impl(view_scope, msg, &lazy_ident, has_phantom_field)?;
     let has_custom_default_impl = custom_default_impl.is_some();
-    let any_redacted = lazy_fields.iter().any(|(_, _, redacted)| *redacted);
+    let any_redacted =
+        ctx.zeroizes_message(proto_fqn) || lazy_fields.iter().any(|(_, _, redacted)| *redacted);
     let (debug_derive, debug_impl) = if any_redacted {
         let placeholder = crate::message::DEBUG_REDACT_PLACEHOLDER;
         let name_str = lazy_ident.to_string();
@@ -252,7 +253,11 @@ pub(crate) fn generate_lazy_view_with_nesting(
         }
         for (_, ident) in &oneof_view_fields {
             names.push(ident.to_string().trim_start_matches("r#").to_string());
-            values.push(quote! { &self.#ident });
+            values.push(if ctx.zeroizes_message(proto_fqn) {
+                quote! { &::core::format_args!(#placeholder) }
+            } else {
+                quote! { &self.#ident }
+            });
         }
         (
             if has_custom_default_impl {
@@ -282,7 +287,10 @@ pub(crate) fn generate_lazy_view_with_nesting(
     // the inherent impl too, which holds the `has_<name>` methods.
     let non_snake_attr = ctx.message_non_snake_attr(msg);
 
+    let cleanup_impl = crate::sensitive::view_impl(view_scope, msg, &lazy_ident, true)?;
+    let owned_body = crate::sensitive::owned_from_view(ctx, proto_fqn, &owned_path, &owned_fields);
     Ok(quote! {
+        #cleanup_impl
         #[doc = #doc]
         #debug_derive
         #non_snake_attr
@@ -377,7 +385,7 @@ pub(crate) fn generate_lazy_view_with_nesting(
                 self._merge_lazy(buf, ctx)
             }
 
-            #[allow(clippy::useless_conversion, clippy::needless_update)]
+            #[allow(clippy::useless_conversion, clippy::needless_update, clippy::field_reassign_with_default)]
             #deprecated_field_allow
             fn to_owned_message(
                 &self,
@@ -391,10 +399,7 @@ pub(crate) fn generate_lazy_view_with_nesting(
                 let __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes> =
                     ::core::option::Option::None;
                 let _ = __buffa_src;
-                ::core::result::Result::Ok(#owned_path {
-                    #(#owned_fields)*
-                    ..::core::default::Default::default()
-                })
+                #owned_body
             }
         }
 
@@ -601,7 +606,7 @@ fn lazy_struct_field(
         return Ok(Some((
             quote! { #doc #deprecated_attr pub #ident: #map_ty, },
             ident,
-            crate::message::is_debug_redacted(field),
+            crate::message::is_debug_redacted(field) || ctx.zeroizes_message(proto_fqn),
         )));
     }
 
@@ -641,7 +646,7 @@ fn lazy_struct_field(
     Ok(Some((
         quote! { #doc #deprecated_attr pub #ident: #rust_type, },
         ident,
-        crate::message::is_debug_redacted(field),
+        crate::message::is_debug_redacted(field) || ctx.zeroizes_message(proto_fqn),
     )))
 }
 
@@ -800,7 +805,7 @@ fn build_lazy_to_owned_fields(
     view_oneof_prefix: &TokenStream,
     owned_oneof_prefix: &TokenStream,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
-) -> Result<Vec<TokenStream>, CodeGenError> {
+) -> Result<Vec<(proc_macro2::Ident, TokenStream)>, CodeGenError> {
     let MessageScope { ctx, features, .. } = scope;
     let mut out = Vec::new();
 
@@ -816,21 +821,29 @@ fn build_lazy_to_owned_fields(
         let is_repeated = field.label.unwrap_or_default() == Label::LABEL_REPEATED;
         if is_repeated && is_map_field(msg, field) {
             let expr = map_to_owned_expr(scope, msg, field, &ident)?;
-            out.push(quote! { #ident: #expr, });
+            out.push((ident, expr));
             continue;
         }
         let ty = effective_type(ctx, field, features);
         let init = if is_lazy_field(scope, field) {
             if is_repeated {
-                quote! {
-                    {
-                        let mut __out =
-                            ::buffa::alloc::vec::Vec::with_capacity(self.#ident.len());
-                        for __r in self.#ident.iter() {
-                            __out.push(__r?.to_owned_message()?);
-                        }
+                if let crate::RepeatedRepr::Custom(template) =
+                    crate::impl_message::field_repeated_repr(scope.ctx, scope.proto_fqn, name)
+                {
+                    let owned = rust_path_to_tokens(&resolve_owned_path(scope, field)?);
+                    let collection =
+                        crate::parse_custom_type_path(&template.replace('*', &owned.to_string()))?;
+                    quote! {{
+                        let mut __out:#collection=::core::default::Default::default();
+                        for __r in self.#ident.iter() {::buffa::ProtoList::push(&mut __out,__r?.to_owned_message()?);}
                         __out
-                    }
+                    }}
+                } else {
+                    quote! {{
+                        let mut __out=::buffa::alloc::vec::Vec::with_capacity(self.#ident.len());
+                        for __r in self.#ident.iter() {__out.push(__r?.to_owned_message()?);}
+                        __out
+                    }}
                 }
             } else {
                 let owned_path = resolve_owned_path(scope, field)?;
@@ -852,7 +865,7 @@ fn build_lazy_to_owned_fields(
         } else {
             singular_to_owned(scope, field, ty, &ident, name)?
         };
-        out.push(quote! { #ident: #init, });
+        out.push((ident, init));
     }
 
     for (idx, oneof) in msg.oneof_decl.iter().enumerate() {
@@ -902,28 +915,36 @@ fn build_lazy_to_owned_fields(
             t == Type::TYPE_MESSAGE || t == Type::TYPE_GROUP
         });
         if has_fallible_variant {
-            out.push(quote! {
-                #field_ident: match self.#field_ident.as_ref() {
-                    ::core::option::Option::Some(v) => {
-                        ::core::option::Option::Some(match v { #(#match_arms)* })
+            out.push((
+                field_ident.clone(),
+                quote! {
+                    match self.#field_ident.as_ref() {
+                        ::core::option::Option::Some(v) => {
+                            ::core::option::Option::Some(match v { #(#match_arms)* })
+                        }
+                        ::core::option::Option::None => ::core::option::Option::None,
                     }
-                    ::core::option::Option::None => ::core::option::Option::None,
                 },
-            });
+            ));
         } else {
-            out.push(quote! {
-                #field_ident: self.#field_ident.as_ref().map(|v| match v { #(#match_arms)* }),
-            });
+            out.push((
+                field_ident.clone(),
+                quote! {
+                    self.#field_ident.as_ref().map(|v| match v { #(#match_arms)* })
+                },
+            ));
         }
     }
 
     if scope.preserve_unknown_fields() {
-        out.push(quote! {
-            __buffa_unknown_fields: self
-                .__buffa_unknown_fields
-                .to_owned()?
-                .into(),
-        });
+        out.push((
+            quote::format_ident!("__buffa_unknown_fields"),
+            quote! { self
+                    .__buffa_unknown_fields
+                    .to_owned()?
+                    .into()
+            },
+        ));
     }
 
     Ok(out)
@@ -938,6 +959,9 @@ fn generate_lazy_view_serialize(
     view_oneof_prefix: &TokenStream,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
 ) -> Result<TokenStream, CodeGenError> {
+    if scope.ctx.denies_view_json(scope.proto_fqn) {
+        return Ok(crate::json_policy::denied_view_serialize(lazy_ident));
+    }
     let mut stmts: Vec<TokenStream> = Vec::new();
 
     for field in &msg.field {

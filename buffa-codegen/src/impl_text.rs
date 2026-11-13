@@ -745,7 +745,7 @@ fn repeated_merge_arm(
     let bytes_repr = field_bytes_repr(ctx, proto_fqn, proto_name);
     // Enumerated so that a new `Type` variant is a compile error here, not a
     // field that takes the scalar rule by default.
-    let read_repeated = match ty {
+    let mut read_repeated = match ty {
         Type::TYPE_MESSAGE | Type::TYPE_GROUP => format_ident!("read_repeated_into"),
         Type::TYPE_ENUM
         | Type::TYPE_BOOL
@@ -764,6 +764,14 @@ fn repeated_merge_arm(
         | Type::TYPE_STRING
         | Type::TYPE_BYTES => format_ident!("read_repeated_scalar_into"),
     };
+
+    if !crate::impl_message::field_repeated_repr(ctx, proto_fqn, proto_name).is_default() {
+        read_repeated = if matches!(ty, Type::TYPE_MESSAGE | Type::TYPE_GROUP) {
+            format_ident!("read_repeated_into_storage")
+        } else {
+            format_ident!("read_repeated_scalar_into_storage")
+        };
+    }
 
     // The type-specific repeated reader handles both `f: [a, b]` and `f: a`
     // forms. The closure takes `&mut TextDecoder` as `__d` (not `dec`, which
@@ -1143,6 +1151,30 @@ fn map_merge_arm(
             return Err(CodeGenError::Other("map value is a group".into()));
         }
     };
+
+    if ctx.zeroizes_message(proto_fqn) {
+        return Ok(quote! {
+            #name_lit => {
+                dec.read_repeated_with(|(__k,__v)| {
+                    ::buffa::map_codec::MapStorage::storage_insert(&mut self.#ident,__k,__v);
+                },|__d| {
+                    let mut __k=::buffa::sensitive::Zeroizing::new(::core::option::Option::None);
+                    let mut __v=::buffa::sensitive::Zeroizing::new(::core::option::Option::None);
+                    __d.merge_map_entry(|__d| {
+                        while let ::core::option::Option::Some(__n)=__d.read_field_name()? {
+                            match __n {
+                                "key"=>{::buffa::sensitive::Zeroize::zeroize(&mut *__k);*__k=Some(#key_read);},
+                                "value"=>{::buffa::sensitive::Zeroize::zeroize(&mut *__v);*__v=Some(#val_read);},
+                                _=>return Err(__d.unknown_field()),
+                            }
+                        }
+                        Ok(())
+                    })?;
+                    Ok((__k.take().unwrap_or_default(),__v.take().unwrap_or_default()))
+                })?;
+            }
+        });
+    }
 
     // read_repeated_into handles both `f: [{...}, {...}]` and `f: {...}`
     // forms. Each call merges one entry via `merge_map_entry` (closure-taking

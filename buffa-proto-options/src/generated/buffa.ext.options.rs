@@ -4,7 +4,6 @@
 /// Settings for the code generated from one `.proto` file.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FileOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -236,7 +235,6 @@ pub const __FILE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buff
 /// Settings for the code generated from one message.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct MessageOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -468,7 +466,6 @@ pub const __MESSAGE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::b
 /// Settings for the code generated from one field.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FieldOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -700,7 +697,6 @@ pub const __FIELD_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buf
 /// Settings for the code generated from one oneof.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct OneofOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -932,7 +928,6 @@ pub const __ONEOF_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buf
 /// Settings for the code generated from one enum.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -1164,7 +1159,6 @@ pub const __ENUM_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buff
 /// Settings for the code generated from one enum value.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumValueOptions {
     #[cfg_attr(feature = "json", serde(skip))]

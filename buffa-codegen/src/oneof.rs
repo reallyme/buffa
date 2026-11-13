@@ -453,7 +453,8 @@ fn collect_variant_info(
                 bytes_repr,
                 string_repr,
                 pointer_repr: ctx.pointer_repr(&dotted_fqn),
-                debug_redact: crate::message::is_debug_redacted(field),
+                debug_redact: (crate::message::is_debug_redacted(field)
+                    || ctx.zeroizes_message(proto_fqn)),
             })
         })
         .collect::<Result<_, _>>()?;
@@ -531,10 +532,13 @@ pub fn generate_oneof_enum(
             // selected by kind rather than concrete type, so the substituted
             // type needs no native `Arbitrary` impl.
             let arbitrary_field_attr = if ctx.config.generate_arbitrary
+                && !ctx.zeroizes_message(proto_fqn)
                 && !v.bytes_repr.is_default()
             {
                 quote! { #[cfg_attr(feature = "arbitrary", arbitrary(with = ::buffa::__private::arbitrary_proto_bytes))] }
-            } else if ctx.config.generate_arbitrary && !v.string_repr.is_default() {
+            } else if ctx.config.generate_arbitrary
+                && !ctx.zeroizes_message(proto_fqn)
+                && !v.string_repr.is_default() {
                 quote! { #[cfg_attr(feature = "arbitrary", arbitrary(with = ::buffa::__private::arbitrary_proto_string))] }
             } else {
                 quote! {}
@@ -628,8 +632,41 @@ pub fn generate_oneof_enum(
     } else {
         quote! {}
     };
-    let arbitrary_derive = if ctx.config.generate_arbitrary {
+    let arbitrary_derive = if ctx.config.generate_arbitrary && !ctx.zeroizes_message(proto_fqn) {
         quote! { #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))] }
+    } else {
+        quote! {}
+    };
+    let guarded_arbitrary = if ctx.config.generate_arbitrary && ctx.zeroizes_message(proto_fqn) {
+        let last = variants_info
+            .len()
+            .checked_sub(1)
+            .ok_or(CodeGenError::MissingField("oneof.variant"))?;
+        let arms = variants_info
+            .iter()
+            .enumerate()
+            .map(|(index, variant)| {
+                let name = &variant.variant_ident;
+                let ty = &variant.rust_type;
+                let value = crate::guarded_arbitrary::value(variant.field_type, ty);
+                let value = if variant.is_boxed {
+                    variant.pointer_repr.pointer_new(ty, &value)?
+                } else {
+                    value
+                };
+                Ok(quote! { #index => Ok(Self::#name(#value)), })
+            })
+            .collect::<Result<Vec<_>, CodeGenError>>()?;
+        crate::guarded_arbitrary::implementation(
+            &rust_enum_ident,
+            quote! {
+                match __u.int_in_range(0usize..=#last)? {
+                    #(#arms)*
+                    _ => Err(::arbitrary::Error::IncorrectFormat),
+                }
+            },
+            &quote! {},
+        )
     } else {
         quote! {}
     };
@@ -665,6 +702,18 @@ pub fn generate_oneof_enum(
     let any_redacted = variants_info.iter().any(|v| v.debug_redact);
     let (debug_derive, debug_impl) = if ctx.skip_debug(proto_fqn) {
         (quote! { #[derive(Clone, PartialEq)] }, quote! {})
+    } else if ctx.zeroizes_message(proto_fqn) {
+        let label = format!("{}([REDACTED])", rust_enum_ident);
+        (
+            quote! { #[derive(Clone, PartialEq)] },
+            quote! {
+                impl ::core::fmt::Debug for #rust_enum_ident {
+                    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                        f.write_str(#label)
+                    }
+                }
+            },
+        )
     } else if any_redacted {
         let placeholder = crate::message::DEBUG_REDACT_PLACEHOLDER;
         let arms: Vec<TokenStream> = variants_info
@@ -702,6 +751,14 @@ pub fn generate_oneof_enum(
         (quote! { #[derive(Clone, PartialEq, Debug)] }, quote! {})
     };
 
+    let sensitive_impl = crate::sensitive::oneof_impl(
+        ctx,
+        proto_fqn,
+        &rust_enum_ident,
+        variants_info
+            .iter()
+            .map(|variant| (variant.variant_ident.clone(), variant.is_boxed)),
+    );
     Ok(quote! {
         #oneof_doc
         #debug_derive
@@ -715,6 +772,8 @@ pub fn generate_oneof_enum(
 
         #debug_impl
 
+        #sensitive_impl
+        #guarded_arbitrary
         impl ::buffa::Oneof for #rust_enum_ident {}
 
         #(#from_impls)*
@@ -835,6 +894,8 @@ fn generate_oneof_serialize(
 
 /// Parameters for generating a single oneof variant deserialization match arm.
 pub(crate) struct OneofVariantDeserInput<'a> {
+    /// Cleanup-enabled enum variants use streaming enum deserialization.
+    pub guarded_enum: Option<bool>,
     pub variant_ident: &'a Ident,
     pub variant_type: &'a TokenStream,
     pub json_name: &'a str,
@@ -855,7 +916,7 @@ pub(crate) struct OneofVariantDeserInput<'a> {
     pub enum_ident: &'a TokenStream,
     /// The identifier of the `Option<EnumIdent>` accumulator
     /// (e.g. `result` or `__oneof_foo`).
-    pub result_var: &'a Ident,
+    pub result_var: &'a TokenStream,
     /// The proto name of the oneof, for error messages.
     pub oneof_name: &'a str,
 }
@@ -901,6 +962,7 @@ pub(crate) fn oneof_variant_deser_arm(
         result_var,
         oneof_name,
         json_policy,
+        guarded_enum,
         ..
     } = input;
     let dup_err_msg = format!("multiple oneof fields set for '{oneof_name}'");
@@ -915,20 +977,55 @@ pub(crate) fn oneof_variant_deser_arm(
     // not "variant absent". Deserialize directly without NullableDeserializeSeed
     // so `null` reaches the type's own Deserialize impl.
     let (deser, set_result) = if *null_forward {
-        let deser = quote! {
-            let v: #variant_type = map.next_value_seed(
-                ::buffa::json_helpers::DefaultDeserializeSeed::<#variant_type>::new()
-            )?;
+        let deser = if let Some(closed) = guarded_enum {
+            let helper = if *closed {
+                quote! { ::buffa::json_helpers::guarded_enum::closed }
+            } else {
+                quote! { ::buffa::json_helpers::guarded_enum::open }
+            };
+            quote! {
+                struct _DeserSeed;
+                impl<'de> ::serde::de::DeserializeSeed<'de> for _DeserSeed {
+                    type Value = #variant_type;
+                    fn deserialize<__D: ::serde::Deserializer<'de>>(self, d: __D)
+                        -> ::core::result::Result<Self::Value, __D::Error>
+                    { #helper::deserialize(d) }
+                }
+                let v = map.next_value_seed(_DeserSeed)?;
+            }
+        } else {
+            quote! {
+                let v: #variant_type = map.next_value_seed(
+                    ::buffa::json_helpers::DefaultDeserializeSeed::<#variant_type>::new()
+                )?;
+            }
         };
         let set = quote! {
+            let __variant = #enum_ident::#variant_ident(#wrapped_v);
             if #result_var.is_some() {
                 return Err(::serde::de::Error::custom(#dup_err_msg));
             }
-            #result_var = Some(#enum_ident::#variant_ident(#wrapped_v));
+            #result_var = Some(__variant);
         };
         (deser, set)
     } else {
-        let deser = if let Some(policy) = json_policy {
+        let deser = if let Some(closed) = guarded_enum {
+            let helper = if *closed {
+                quote! { ::buffa::json_helpers::guarded_enum::optional_closed }
+            } else {
+                quote! { ::buffa::json_helpers::guarded_enum::optional_open }
+            };
+            quote! {
+                struct _DeserSeed;
+                impl<'de> ::serde::de::DeserializeSeed<'de> for _DeserSeed {
+                    type Value = ::core::option::Option<#variant_type>;
+                    fn deserialize<__D: ::serde::Deserializer<'de>>(self, d: __D)
+                        -> ::core::result::Result<Self::Value, __D::Error>
+                    { #helper::deserialize(d) }
+                }
+                let v = map.next_value_seed(_DeserSeed)?;
+            }
+        } else if let Some(policy) = json_policy {
             // A JSON policy type deserializes through its policy trait; JSON
             // `null` leaves the variant unset before the policy runs.
             let seed = policy.seed(variant_type);
@@ -965,10 +1062,11 @@ pub(crate) fn oneof_variant_deser_arm(
         };
         let set = quote! {
             if let Some(v) = v {
+                let __variant = #enum_ident::#variant_ident(#wrapped_v);
                 if #result_var.is_some() {
                     return Err(::serde::de::Error::custom(#dup_err_msg));
                 }
-                #result_var = Some(#enum_ident::#variant_ident(#wrapped_v));
+                #result_var = Some(__variant);
             }
         };
         (deser, set)

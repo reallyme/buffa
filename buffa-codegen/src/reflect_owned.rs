@@ -67,15 +67,28 @@ pub(crate) fn reflect_owned_impls(
     let oneof_idents = scope.oneof_idents;
     let oneof_prefix = scope.oneof_prefix;
     let nesting = scope.nesting;
-    let vr = quote! { ::buffa_descriptor::reflect::ValueRef };
-    let cow = quote! { ::buffa_descriptor::reflect::ReflectCow };
+    let guarded = ctx.zeroizes_message(proto_fqn);
+    let vr = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectValueRef }
+    } else {
+        quote! { ::buffa_descriptor::reflect::ValueRef }
+    };
+    let cow = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectMessageRef }
+    } else {
+        quote! { ::buffa_descriptor::reflect::ReflectCow }
+    };
     // Message-typed fields route through the field type's own
     // `Reflectable::reflect()` rather than `ReflectCow::Borrowed` directly:
     // a vtable-grade field returns `Borrowed` (zero-cost, same as before),
     // while a bridge-grade field from another compilation degrades to an
     // owned `DynamicMessage` snapshot at the boundary — the mixed-mode
     // behavior the reflection design promises.
-    let reflectable = quote! { ::buffa_descriptor::reflect::Reflectable };
+    let reflect = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectMessageRef::new }
+    } else {
+        quote! { ::buffa_descriptor::reflect::Reflectable::reflect }
+    };
 
     let mut get_arms: Vec<TokenStream> = Vec::new();
     let mut has_arms: Vec<TokenStream> = Vec::new();
@@ -164,7 +177,7 @@ pub(crate) fn reflect_owned_impls(
                 Type::TYPE_MESSAGE | Type::TYPE_GROUP => (
                     // `MessageField` derefs to the inner message, or the static
                     // default instance when unset, so the borrow is always valid.
-                    quote! { #vr::Message(#reflectable::reflect(&*self.#id)) },
+                    quote! { #vr::Message(#reflect(&*self.#id)) },
                     quote! { self.#id.is_set() },
                 ),
                 Type::TYPE_ENUM => {
@@ -250,9 +263,9 @@ pub(crate) fn reflect_owned_impls(
                         quote! { v }
                     };
                     (
-                        quote! { #vr::Message(#reflectable::reflect(#borrowed)) },
+                        quote! { #vr::Message(#reflect(#borrowed)) },
                         quote! {
-                            #vr::Message(#reflectable::reflect(
+                            #vr::Message(#reflect(
                                 <#owned_ty as ::buffa::DefaultInstance>::default_instance(),
                             ))
                         },
@@ -291,6 +304,17 @@ pub(crate) fn reflect_owned_impls(
     }
 
     let pool = quote! { #buffa_path::reflect::descriptor_pool() };
+
+    if guarded {
+        return Ok(crate::inspect::message_impl(
+            &quote! {},
+            &quote! { #name_ident },
+            &pool,
+            &get_arms,
+            &has_arms,
+            &deprecated_field_allow,
+        ));
+    }
 
     // Preserve unknown fields through reflection, matching the bridge path
     // (`DynamicMessage` carries them). Without this override the trait default

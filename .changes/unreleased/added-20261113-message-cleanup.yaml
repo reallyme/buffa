@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+    Opt-in recursive generated message cleanup, guarded scalar collections and wipe-owning temporal and dynamic well-known types. Guarded JSON visitors wipe owned field-name strings and reject unknown fields with fixed diagnostics. Reflection uses borrowed inspection without snapshots; arbitrary construction retains an early cleanup owner and explicit depth budget.
+time: 2026-11-13T09:04:51+01:00

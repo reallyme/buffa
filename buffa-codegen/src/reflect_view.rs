@@ -97,8 +97,17 @@ pub(crate) fn reflect_view_impls(
 ) -> Result<TokenStream, CodeGenError> {
     let MessageScope { ctx, .. } = view_scope;
     let features = view_scope.features;
-    let vr = quote! { ::buffa_descriptor::reflect::ValueRef };
-    let cow = quote! { ::buffa_descriptor::reflect::ReflectCow };
+    let guarded = ctx.zeroizes_message(view_scope.proto_fqn);
+    let vr = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectValueRef }
+    } else {
+        quote! { ::buffa_descriptor::reflect::ValueRef }
+    };
+    let cow = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectMessageRef }
+    } else {
+        quote! { ::buffa_descriptor::reflect::ReflectCow }
+    };
 
     let mut get_arms: Vec<TokenStream> = Vec::new();
     let mut has_arms: Vec<TokenStream> = Vec::new();
@@ -124,12 +133,20 @@ pub(crate) fn reflect_view_impls(
 
         if is_repeated && is_map_field(msg, field) {
             get_arms.push(quote! { #number => #vr::Map(&self.#id), });
-            has_arms.push(quote! { #number => !::buffa::MapView::is_empty(&self.#id), });
+            has_arms.push(if guarded {
+                quote! { #number => !self.#id.is_empty(), }
+            } else {
+                quote! { #number => !::buffa::MapView::is_empty(&self.#id), }
+            });
             continue;
         }
         if is_repeated {
             get_arms.push(quote! { #number => #vr::List(&self.#id), });
-            has_arms.push(quote! { #number => !::buffa::RepeatedView::is_empty(&self.#id), });
+            has_arms.push(if guarded {
+                quote! { #number => !self.#id.is_empty(), }
+            } else {
+                quote! { #number => !::buffa::RepeatedView::is_empty(&self.#id), }
+            });
             continue;
         }
 
@@ -318,6 +335,16 @@ pub(crate) fn reflect_view_impls(
 
     let deprecated_field_allow =
         crate::message::deprecated_field_allow(ctx, msg, view_scope.proto_fqn);
+    if guarded {
+        return Ok(crate::inspect::message_impl(
+            &quote! { <'a> },
+            &quote! { #view_ident<'a> },
+            &pool,
+            &get_arms,
+            &has_arms,
+            &deprecated_field_allow,
+        ));
+    }
     Ok(quote! {
         #deprecated_field_allow
         impl<'a> ::buffa_descriptor::reflect::ReflectMessage for #view_ident<'a> {

@@ -62,7 +62,11 @@ impl<'a> ::buffa::MessageView<'a> for DoubleValueView<'a> {
     ) -> ::core::result::Result<super::super::DoubleValue, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -384,7 +388,11 @@ impl<'a> ::buffa::MessageView<'a> for FloatValueView<'a> {
     ) -> ::core::result::Result<super::super::FloatValue, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -706,7 +714,11 @@ impl<'a> ::buffa::MessageView<'a> for Int64ValueView<'a> {
     ) -> ::core::result::Result<super::super::Int64Value, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -1028,7 +1040,11 @@ impl<'a> ::buffa::MessageView<'a> for UInt64ValueView<'a> {
     ) -> ::core::result::Result<super::super::UInt64Value, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -1350,7 +1366,11 @@ impl<'a> ::buffa::MessageView<'a> for Int32ValueView<'a> {
     ) -> ::core::result::Result<super::super::Int32Value, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -1672,7 +1692,11 @@ impl<'a> ::buffa::MessageView<'a> for UInt32ValueView<'a> {
     ) -> ::core::result::Result<super::super::UInt32Value, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -1994,7 +2018,11 @@ impl<'a> ::buffa::MessageView<'a> for BoolValueView<'a> {
     ) -> ::core::result::Result<super::super::BoolValue, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -2316,7 +2344,11 @@ impl<'a> ::buffa::MessageView<'a> for StringValueView<'a> {
     ) -> ::core::result::Result<super::super::StringValue, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -2638,7 +2670,11 @@ impl<'a> ::buffa::MessageView<'a> for BytesValueView<'a> {
     ) -> ::core::result::Result<super::super::BytesValue, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,

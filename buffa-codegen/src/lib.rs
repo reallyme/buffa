@@ -489,8 +489,10 @@ pub enum StringRepr {
     /// - With `generate_reflection_vtable`, a *foreign* custom type used as a
     ///   `repeated` element or as a `map` key or value fails to compile (the
     ///   emitted `ReflectElement` / `ReflectMapKey` impl violates the orphan
-    ///   rule). Wrap it in a crate-local newtype for those cases; singular /
-    ///   optional / oneof uses work with a foreign type directly.
+    ///   rule). Wrap it in a crate-local newtype, or set
+    ///   [`CodeGenConfig::emit_custom_type_impls`] to `false` when the defining
+    ///   crate supplies those integrations. Singular / optional / oneof uses
+    ///   work with a foreign type directly.
     /// - A custom type used as a `map` key must implement `Hash + Eq` for
     ///   [`MapRepr::HashMap`], or `Ord` for [`MapRepr::BTreeMap`].
     /// - With `generate_json`, a custom type on an `optional`, `repeated` or
@@ -502,8 +504,9 @@ pub enum StringRepr {
     /// - The per-element impls are deduplicated within a single generation, but
     ///   the *same* crate-local type used as a `repeated` element across two
     ///   separate `compile()` invocations in one crate emits the impl twice (a
-    ///   duplicate-impl `E0119`). Generate from a single `compile()`, or use
-    ///   distinct element types.
+    ///   duplicate-impl `E0119`). Generate from a single `compile()`, use
+    ///   distinct element types, or disable generated integrations and provide
+    ///   them once in the defining crate.
     Custom(String),
 }
 
@@ -571,20 +574,23 @@ pub enum BytesRepr {
     ///
     /// - A *foreign* custom type used as a `repeated` element fails to compile
     ///   (the emitted `ReflectElement` / `ProtoElemJson` impls violate the
-    ///   orphan rule). Wrap it in a crate-local newtype for that case; singular
-    ///   / optional / oneof uses work with a foreign type directly.
+    ///   orphan rule). Wrap it in a crate-local newtype, or set
+    ///   [`CodeGenConfig::emit_custom_type_impls`] to `false` when the defining
+    ///   crate supplies those integrations. Singular / optional / oneof uses
+    ///   work with a foreign type directly.
     /// - A `Custom` rule applies to `map<K, bytes>` values, as
     ///   [`Bytes`](BytesRepr::Bytes) does. With `generate_json` or
     ///   `generate_reflection_vtable`, codegen emits `ProtoElemJson` /
     ///   `ReflectElement` impls for the value type, so it must be a
-    ///   crate-local type.
+    ///   crate-local type unless generated integrations are disabled.
     /// - A path that does not parse as a Rust type surfaces as
     ///   [`CodeGenError::InvalidTypePath`] at generation (`.compile()`) time.
     /// - The per-element impls are deduplicated within a single generation, but
     ///   the *same* crate-local type used as a `repeated` element across two
     ///   separate `compile()` invocations in one crate emits the impl twice (a
-    ///   duplicate-impl `E0119`). Generate from a single `compile()`, or use
-    ///   distinct element types.
+    ///   duplicate-impl `E0119`). Generate from a single `compile()`, use
+    ///   distinct element types, or disable generated integrations and provide
+    ///   them once in the defining crate.
     Custom(String),
 }
 
@@ -1175,6 +1181,27 @@ pub struct TableCodecFallbackReason {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CodeGenConfig {
+    /// Generate recursive `Zeroize`, `ZeroizeOnDrop` and `Drop` for messages,
+    /// oneofs and the owned storage of their views. Borrowed input is not wiped.
+    /// Requires the runtime's `zeroize` feature, guarded custom bytes/string
+    /// representations, and unknown-field storage disabled. Collections default
+    /// to wipe-owning runtime collections; referenced messages must also support cleanup.
+    /// Reflection uses borrowed `InspectMessage` access without snapshots.
+    /// Arbitrary construction uses an early cleanup owner and a depth bound.
+    pub generate_zeroize: bool,
+    /// Proto path prefixes selecting messages for recursive cleanup.
+    /// `.` selects every generated message, including nested messages.
+    pub zeroize_messages: Vec<String>,
+    /// Message prefixes whose views reject JSON serialization before writing output.
+    /// The restriction propagates to containing messages, including through maps
+    /// and imported descriptors. Owned-message JSON is unchanged. `.` selects all.
+    /// Every rule must match a known message, including imported messages.
+    pub deny_view_json: Vec<String>,
+    /// Permit message selectors that belong to another directory-scoped plugin
+    /// request. Such selectors still produce warnings. Keep this disabled when
+    /// validating the complete project so misspelled security rules are errors.
+    pub allow_unmatched_message_rules: bool,
+
     /// Whether to generate borrowed view types (`MyMessageView<'a>`) in
     /// addition to owned types.
     pub generate_views: bool,
@@ -1394,9 +1421,18 @@ pub struct CodeGenConfig {
     /// Paths are compared as parsed Rust types, so whitespace does not matter.
     /// A listed type that no unshadowed representation rule names produces
     /// [`CodeGenError::JsonPolicyTypeMatchedNothing`]; a listed `string` type
-    /// used as a `map` key is a [`CodeGenError::JsonPolicyMapKey`]. Unlisted
+    /// used as a key of an enum-valued `map` is a
+    /// [`CodeGenError::JsonPolicyMapKey`]. Unlisted
     /// custom types keep their existing JSON behavior.
     pub json_policy_types: Vec<String>,
+    /// Emit element JSON/reflection impls for custom bytes/string types.
+    ///
+    /// Disable this when the representation's defining crate already supplies
+    /// `ProtoElemJson`, `ReflectElement`, `ReflectMapKey` and `InspectElement` as needed. This
+    /// permits shared foreign representations and separate generation calls
+    /// without violating coherence or emitting duplicate implementations.
+    /// Missing implementations remain compile errors in the generated code.
+    pub emit_custom_type_impls: bool,
     /// Ordered (proto-path-prefix, [`MapRepr`]) rules selecting the owned Rust
     /// map collection for `map` fields. Later rules win, with the same
     /// proto-segment-aware prefix matching as [`bytes_fields`](Self::bytes_fields)
@@ -2037,6 +2073,10 @@ pub struct CodeGenConfig {
 impl Default for CodeGenConfig {
     fn default() -> Self {
         Self {
+            generate_zeroize: false,
+            zeroize_messages: Vec::new(),
+            deny_view_json: Vec::new(),
+            allow_unmatched_message_rules: false,
             generate_views: true,
             lazy_views: false,
             preserve_unknown_fields: true,
@@ -2050,6 +2090,7 @@ impl Default for CodeGenConfig {
             bytes_fields: Vec::new(),
             string_fields: Vec::new(),
             json_policy_types: Vec::new(),
+            emit_custom_type_impls: true,
             map_fields: Vec::new(),
             pointer_fields: Vec::new(),
             repeated_fields: Vec::new(),
@@ -2293,6 +2334,15 @@ pub struct AliasConflict {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CodeGenWarning {
+    /// An explicitly permitted selector was absent from this scoped request.
+    #[non_exhaustive]
+    ZeroizeRuleMatchedNothing { rule: String },
+    /// An explicitly permitted view selector was absent from this scoped request.
+    #[non_exhaustive]
+    ViewJsonRuleMatchedNothing { rule: String },
+    /// View JSON restrictions cannot apply without both JSON and view generation.
+    #[non_exhaustive]
+    ViewJsonRulesRequireJsonAndViews,
     /// Idiomatic CamelCase aliases were suppressed for an enum because two or
     /// more proto values collide after conversion, or a value would convert to
     /// an invalid identifier. The enum's `SHOUTY_SNAKE_CASE` variants are
@@ -2335,6 +2385,7 @@ pub enum CodeGenWarning {
     DenyUnknownJsonFieldsRequiresJson,
     /// [`json_policy_types`](CodeGenConfig::json_policy_types) is non-empty but
     /// JSON generation is off, so no field uses a policy.
+    #[non_exhaustive]
     JsonPolicyTypesRequireJson,
     /// `idiomatic_field_names` found two or more members of one message whose
     /// snake_case conversions collide, and adjusted the affected Rust names
@@ -2544,6 +2595,15 @@ fn field_type_rule_builders(option: &str) -> &'static str {
 impl core::fmt::Display for CodeGenWarning {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::ViewJsonRulesRequireJsonAndViews => f.write_str(
+                "deny_view_json requires both generate_json and generate_views; the configured restrictions are inactive"
+            ),
+            Self::ZeroizeRuleMatchedNothing { rule } => write!(
+                f, "zeroize_in rule '{rule}' matches no message in this scoped request; validate the full project with allow_unmatched_message_rules=false"
+            ),
+            Self::ViewJsonRuleMatchedNothing { rule } => write!(
+                f, "deny_view_json rule '{rule}' matches no message in this scoped request; validate the full project with allow_unmatched_message_rules=false"
+            ),
             Self::IdiomaticAliasesSuppressed {
                 enum_name,
                 conflicts,
@@ -2966,6 +3026,7 @@ fn collect_custom_elements(
     ctx: &context::CodeGenContext,
     file_descriptors: &[FileDescriptorProto],
     files_to_generate: &[String],
+    all_fields: bool,
 ) -> CustomElements {
     use crate::generated::descriptor::field_descriptor_proto::{Label, Type};
 
@@ -2975,8 +3036,17 @@ fn collect_custom_elements(
         scope: &str,
         parent_features: &crate::features::ResolvedFeatures,
         out: &mut CustomElements,
+        all_fields: bool,
     ) {
         for msg in messages {
+            if msg
+                .options
+                .as_option()
+                .and_then(|options| options.map_entry)
+                .unwrap_or(false)
+            {
+                continue;
+            }
             let name = msg.name.as_deref().unwrap_or("");
             let fqn = if scope.is_empty() {
                 name.to_string()
@@ -2988,7 +3058,7 @@ fn collect_custom_elements(
                 crate::features::message_features(msg),
             );
             for field in &msg.field {
-                if field.label.unwrap_or_default() != Label::LABEL_REPEATED {
+                if !all_fields && field.label.unwrap_or_default() != Label::LABEL_REPEATED {
                     continue;
                 }
                 let field_name = field.name.as_deref().unwrap_or("");
@@ -3008,14 +3078,18 @@ fn collect_custom_elements(
                             ctx, key_ty, val_ty, &fqn, field_name,
                         )
                     {
-                        out.elements.entry(path).or_insert(CustomElemKind::Bytes);
+                        out.elements
+                            .entry(context::rust_type_key(&path))
+                            .or_insert(CustomElemKind::Bytes);
                     }
                     if let crate::StringRepr::Custom(path) = ctx.string_repr(&field_fqn) {
                         if key_ty == Some(Type::TYPE_STRING) {
-                            out.map_keys.insert(path.clone());
+                            out.map_keys.insert(context::rust_type_key(&path));
                         }
                         if val_ty == Some(Type::TYPE_STRING) {
-                            out.elements.entry(path).or_insert(CustomElemKind::String);
+                            out.elements
+                                .entry(context::rust_type_key(&path))
+                                .or_insert(CustomElemKind::String);
                         }
                     }
                     continue;
@@ -3026,18 +3100,22 @@ fn collect_custom_elements(
                 match ty {
                     Type::TYPE_STRING => {
                         if let crate::StringRepr::Custom(path) = ctx.string_repr(&field_fqn) {
-                            out.elements.entry(path).or_insert(CustomElemKind::String);
+                            out.elements
+                                .entry(context::rust_type_key(&path))
+                                .or_insert(CustomElemKind::String);
                         }
                     }
                     Type::TYPE_BYTES => {
                         if let crate::BytesRepr::Custom(path) = ctx.bytes_repr(&field_fqn) {
-                            out.elements.entry(path).or_insert(CustomElemKind::Bytes);
+                            out.elements
+                                .entry(context::rust_type_key(&path))
+                                .or_insert(CustomElemKind::Bytes);
                         }
                     }
                     _ => {}
                 }
             }
-            walk(ctx, &msg.nested_type, &fqn, &msg_features, out);
+            walk(ctx, &msg.nested_type, &fqn, &msg_features, out, all_fields);
         }
     }
 
@@ -3051,7 +3129,14 @@ fn collect_custom_elements(
         };
         let pkg = file.package.as_deref().unwrap_or("");
         let file_features = crate::features::for_file(file);
-        walk(ctx, &file.message_type, pkg, &file_features, &mut out);
+        walk(
+            ctx,
+            &file.message_type,
+            pkg,
+            &file_features,
+            &mut out,
+            all_fields,
+        );
     }
     out
 }
@@ -3067,6 +3152,9 @@ fn render_custom_elem_impls(
     ctx: &context::CodeGenContext,
     elems: &CustomElements,
 ) -> Result<TokenStream, CodeGenError> {
+    if !ctx.config.emit_custom_type_impls {
+        return Ok(TokenStream::new());
+    }
     let json_gate = ctx.config.feature_gates().json;
     let reflect_gate = ctx.config.feature_gates().reflect;
     let mut out = TokenStream::new();
@@ -3159,12 +3247,37 @@ fn render_custom_elem_impls(
                 reflect_gate,
             ));
         }
+        if ctx.config.generate_reflection
+            && (ctx.config.generate_zeroize || !ctx.config.zeroize_messages.is_empty())
+        {
+            let value = match kind {
+                CustomElemKind::String => quote! {
+                    ::buffa_descriptor::reflect::InspectValueRef::String(self.as_ref())
+                },
+                CustomElemKind::Bytes => quote! {
+                    ::buffa_descriptor::reflect::InspectValueRef::Bytes(self.as_ref())
+                },
+            };
+            out.extend(feature_gates::cfg_block(
+                quote! {
+                    impl ::buffa_descriptor::reflect::InspectElement for #ty {
+                        fn as_inspect_value(&self) -> ::buffa_descriptor::reflect::InspectValueRef<'_> {
+                            #value
+                        }
+                    }
+                },
+                reflect_gate,
+            ));
+        }
     }
     // A custom `string` type used as a `map` key needs `ReflectMapKey` for
     // vtable reflection (the bridge path keys maps by the borrowed `&str` view,
     // which already implements it). Like the element impls above, this compiles
     // only when the type is local to the generating crate (the orphan rule).
-    if ctx.config.generate_reflection_vtable {
+    if ctx.config.generate_reflection_vtable
+        || (ctx.config.generate_reflection
+            && (ctx.config.generate_zeroize || !ctx.config.zeroize_messages.is_empty()))
+    {
         for path in &elems.map_keys {
             let ty = parse_custom_type_path(path)?;
             out.extend(feature_gates::cfg_block(
@@ -3595,6 +3708,39 @@ pub fn generate_with_diagnostics(
         }
     }
 
+    let known_files = file_descriptors
+        .iter()
+        .filter_map(|file| file.name.clone())
+        .collect::<Vec<_>>();
+    for rule in &config.zeroize_messages {
+        if rule.trim().is_empty() {
+            return Err(CodeGenError::ZeroizeRuleMatchedNothing { rule: rule.clone() });
+        }
+        if !rule_matches_generated_message(rule, file_descriptors, &known_files) {
+            if config.allow_unmatched_message_rules {
+                ctx.warn(CodeGenWarning::ZeroizeRuleMatchedNothing { rule: rule.clone() });
+            } else {
+                return Err(CodeGenError::ZeroizeRuleMatchedNothing { rule: rule.clone() });
+            }
+        }
+    }
+    for rule in &config.deny_view_json {
+        if rule.trim().is_empty() {
+            return Err(CodeGenError::ViewJsonRuleMatchedNothing { rule: rule.clone() });
+        }
+        if !rule_matches_generated_message(rule, file_descriptors, &known_files) {
+            if config.allow_unmatched_message_rules {
+                ctx.warn(CodeGenWarning::ViewJsonRuleMatchedNothing { rule: rule.clone() });
+            } else {
+                return Err(CodeGenError::ViewJsonRuleMatchedNothing { rule: rule.clone() });
+            }
+        }
+    }
+
+    if !config.deny_view_json.is_empty() && (!config.generate_json || !config.generate_views) {
+        ctx.warn(CodeGenWarning::ViewJsonRulesRequireJsonAndViews);
+    }
+
     // A JSON policy needs generated JSON, and a listed type must be one that a
     // representation rule actually selects.
     if !config.json_policy_types.is_empty() && !config.generate_json {
@@ -3859,7 +4005,7 @@ pub fn generate_with_diagnostics(
     // cannot provide for a foreign type (orphan rule). Collect them once across
     // the whole request, render the impls, and hand them to the first package so
     // they are emitted exactly once (a per-package emit would collide, E0119).
-    let custom_elems = collect_custom_elements(&ctx, file_descriptors, files_to_generate);
+    let custom_elems = collect_custom_elements(&ctx, file_descriptors, files_to_generate, false);
     let custom_elem_impls = render_custom_elem_impls(&ctx, &custom_elems)?;
 
     let empty_impls = TokenStream::new();
@@ -5648,16 +5794,57 @@ pub fn apply_companions(files: &mut Vec<GeneratedFile>, companions: Vec<Generate
     files.extend(companions);
 }
 
+/// Why a selected message cannot use recursive cleanup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ZeroizeConfigurationErrorReason {
+    /// Ordinary reflection would copy a guarded descendant into a dynamic snapshot.
+    #[error(
+        "containing messages need cleanup too so reflection cannot snapshot a guarded descendant"
+    )]
+    ReflectionParent,
+    /// Unknown payload storage is not a wipe owner.
+    #[error("requires unknown_fields=false")]
+    UnknownFieldStorage,
+    /// Strict UTF-8 mapping cannot select a custom raw map key.
+    #[error("raw byte map keys under strict_utf8_mapping cannot use guarded representations")]
+    RawMapKey,
+    /// A buffer still has its ordinary representation.
+    #[error("every bytes/string slot requires a custom Zeroize + ZeroizeOnDrop representation")]
+    BufferRepresentation,
+    /// A guarded representation could use default JSON decoding.
+    #[error(
+        "requires json_policy_type for each custom bytes/string representation when json=true"
+    )]
+    JsonPolicy,
+}
+
 /// Code generation error.
 #[derive(Debug, Clone, thiserror::Error)]
 #[non_exhaustive]
 pub enum CodeGenError {
+    /// A view-export restriction matches no known message.
+    #[error("deny_view_json rule '{rule}' matches no known message")]
+    ViewJsonRuleMatchedNothing { rule: String },
+    /// A cleanup selector matches no message in the request's descriptors.
+    #[error("zeroize_in rule '{rule}' matches no known message")]
+    ZeroizeRuleMatchedNothing { rule: String },
+
     /// A listed policy type is not selected by any unshadowed representation rule.
     #[error("json_policy_type '{rust_type}' is not selected by any unshadowed bytes/string rule; match the representation type spelling exactly")]
     JsonPolicyTypeMatchedNothing { rust_type: String },
     /// A representation has the same final type name as a listed policy, but a different spelling.
     #[error("representation type '{selected}' has the same name as json_policy_type '{listed}', but a different spelling; list the exact type or correct the representation rule")]
     JsonPolicyTypeNearMiss { selected: String, listed: String },
+
+    /// A selected message cannot satisfy the recursive cleanup contract.
+    #[error("zeroize message '{message}': {reason}")]
+    InvalidZeroizeConfiguration {
+        /// Protobuf message name from the schema.
+        message: String,
+        /// A fixed, typed configuration reason.
+        reason: ZeroizeConfigurationErrorReason,
+    },
 
     /// A required field was absent in a descriptor, or a message or enum name
     /// was empty.
@@ -5670,12 +5857,12 @@ pub enum CodeGenError {
     #[error("invalid Rust type path: '{0}'")]
     InvalidTypePath(String),
     /// A [`json_policy_types`](CodeGenConfig::json_policy_types) `string`
-    /// type is the key type of a `map` field. Protobuf JSON map keys are object
-    /// member names, which a value-level policy cannot govern. The string is the
-    /// map field's proto path.
+    /// type is the key type of an enum-valued `map`. Policy keys do not yet
+    /// support the enum map helpers' unknown-value filtering. The string is
+    /// the map field's proto path.
     #[error(
-        "map field '{0}' has a json_policy_type string key; a JSON policy applies \
-         to values only, so select another key representation for this map"
+        "enum-valued map field '{0}' has a json_policy_type string key; \
+         policy keys do not support enum map filtering, so select another key representation"
     )]
     JsonPolicyMapKey(String),
     /// A `box_type_custom` pointer template did not contain the `*` placeholder.
@@ -5910,3 +6097,7 @@ pub enum CodeGenError {
 
 #[cfg(test)]
 mod tests;
+
+mod guarded_arbitrary;
+mod inspect;
+mod sensitive;

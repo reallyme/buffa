@@ -1,0 +1,13 @@
+syntax = "proto2";
+package drop_defaults;
+message Declared {
+ required string label = 1 [default = "configured"];
+ required int64 count = 2 [default = 17];
+ optional string note = 3 [default = "optional"];
+ repeated bytes values = 4;
+}
+message CallerDefaults {
+ required string label = 1 [default = "schema"];
+ repeated int32 values = 2;
+ required string conditional = 3 [default = "schema-fallback"];
+}

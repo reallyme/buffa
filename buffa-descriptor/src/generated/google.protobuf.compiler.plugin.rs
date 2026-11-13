@@ -4,7 +4,6 @@
 /// The version number of protocol compiler.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct Version {
     /// Field 1: `major`
@@ -16,6 +15,7 @@ pub struct Version {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub major: ::core::option::Option<i32>,
     /// Field 2: `minor`
     #[cfg_attr(
@@ -26,6 +26,7 @@ pub struct Version {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub minor: ::core::option::Option<i32>,
     /// Field 3: `patch`
     #[cfg_attr(
@@ -36,6 +37,7 @@ pub struct Version {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub patch: ::core::option::Option<i32>,
     /// A suffix for alpha, beta or rc release, e.g., "alpha-1", "rc2". It should
     /// be empty for mainline stable releases.
@@ -45,6 +47,7 @@ pub struct Version {
         feature = "json",
         serde(rename = "suffix", skip_serializing_if = "::core::option::Option::is_none")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub suffix: ::core::option::Option<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -309,7 +312,6 @@ pub const __VERSION_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buffa::ty
 /// An encoded CodeGeneratorRequest is written to the plugin's stdin.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct CodeGeneratorRequest {
     /// The .proto files that were explicitly listed on the command-line.  The
@@ -326,6 +328,7 @@ pub struct CodeGeneratorRequest {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub file_to_generate: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// The generator parameter passed on the command-line.
     ///
@@ -337,6 +340,7 @@ pub struct CodeGeneratorRequest {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub parameter: ::core::option::Option<::buffa::alloc::string::String>,
     /// FileDescriptorProtos for all files in files_to_generate and everything
     /// they import.  The files will appear in topological order, so each file
@@ -368,6 +372,7 @@ pub struct CodeGeneratorRequest {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub proto_file: ::buffa::alloc::vec::Vec<super::FileDescriptorProto>,
     /// File descriptors with all options, including source-retention options.
     /// These descriptors are only provided for the files listed in
@@ -383,6 +388,7 @@ pub struct CodeGeneratorRequest {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source_file_descriptors: ::buffa::alloc::vec::Vec<super::FileDescriptorProto>,
     /// The version number of protocol compiler.
     ///
@@ -395,6 +401,7 @@ pub struct CodeGeneratorRequest {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub compiler_version: ::buffa::MessageField<Version, ::buffa::Inline<Version>>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -727,7 +734,6 @@ pub const __CODE_GENERATOR_REQUEST_TEXT_ANY: ::buffa::type_registry::TextAnyEntr
 /// The plugin writes an encoded CodeGeneratorResponse to stdout.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct CodeGeneratorResponse {
     /// Error message.  If non-empty, code generation failed.  The plugin process
@@ -744,6 +750,7 @@ pub struct CodeGeneratorResponse {
         feature = "json",
         serde(rename = "error", skip_serializing_if = "::core::option::Option::is_none")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub error: ::core::option::Option<::buffa::alloc::string::String>,
     /// A bitmask of supported features that the code generator supports.
     /// This is a bitwise "or" of values from the Feature enum.
@@ -758,6 +765,7 @@ pub struct CodeGeneratorResponse {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub supported_features: ::core::option::Option<u64>,
     /// The minimum edition this plugin supports.  This will be treated as an
     /// Edition enum, but we want to allow unknown values.  It should be specified
@@ -774,6 +782,7 @@ pub struct CodeGeneratorResponse {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub minimum_edition: ::core::option::Option<i32>,
     /// The maximum edition this plugin supports.  This will be treated as an
     /// Edition enum, but we want to allow unknown values.  It should be specified
@@ -790,6 +799,7 @@ pub struct CodeGeneratorResponse {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub maximum_edition: ::core::option::Option<i32>,
     /// Field 15: `file`
     #[cfg_attr(
@@ -800,6 +810,7 @@ pub struct CodeGeneratorResponse {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub file: ::buffa::alloc::vec::Vec<code_generator_response::File>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -1280,7 +1291,6 @@ pub mod code_generator_response {
     /// Represents a single generated file.
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct File {
         /// The file name, relative to the output directory.  The name must not
@@ -1303,6 +1313,7 @@ pub mod code_generator_response {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub name: ::core::option::Option<::buffa::alloc::string::String>,
         /// If non-empty, indicates that the named file should already exist, and the
         /// content here is to be inserted into that file at a defined insertion
@@ -1351,6 +1362,7 @@ pub mod code_generator_response {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub insertion_point: ::core::option::Option<::buffa::alloc::string::String>,
         /// The file contents.
         ///
@@ -1362,6 +1374,7 @@ pub mod code_generator_response {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub content: ::core::option::Option<::buffa::alloc::string::String>,
         /// Information describing the file content being inserted. If an insertion
         /// point is used, this information will be appropriately offset and inserted
@@ -1376,6 +1389,7 @@ pub mod code_generator_response {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub generated_code_info: ::buffa::MessageField<
             super::super::GeneratedCodeInfo,
             ::buffa::Inline<super::super::GeneratedCodeInfo>,

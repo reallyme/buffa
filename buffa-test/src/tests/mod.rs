@@ -133,3 +133,5 @@ mod with_setters;
 mod wkt;
 
 mod guarded;
+
+mod drop_serde;

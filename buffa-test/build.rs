@@ -1545,4 +1545,27 @@ fn main() {
             println!("cargo:warning=editions_2024.proto skipped (protoc too old?): {e}");
         }
     }
+    buffa_build::Config::new()
+        .files(&["protos/drop_defaults.proto"])
+        .includes(&["protos/"])
+        .generate_views(false)
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .generate_text(true)
+        .generate_arbitrary(true)
+        .deny_unknown_json_fields(true)
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.label",
+            "#[serde(default = \"crate::drop_defaults::custom_label\")]",
+        )
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.values",
+            "#[serde(default = \"crate::drop_defaults::custom_values\")]",
+        )
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.conditional",
+            "#[cfg_attr(feature = \"arbitrary\", serde(default = \"crate::drop_defaults::custom_label\"))]",
+        )
+        .compile()
+        .expect("drop-compatible serde fixture generation failed");
 }

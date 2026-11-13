@@ -182,6 +182,19 @@ fn policy_types_without_json_warn_and_change_nothing() {
 }
 
 #[test]
+fn custom_repeated_scalars_decode_directly_into_their_collection() {
+    let mut config = policy_config();
+    config.repeated_fields.push((
+        ".policy.test.Holder.embedding".to_string(),
+        RepeatedRepr::Custom("crate::SecretList<*>".to_string()),
+    ));
+    let (code, warnings) = generate_policy(&config).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(code.contains("json_helpers::proto_list\""), "{code}");
+    assert!(code.contains("json_helpers::proto_seq\""), "{code}");
+}
+
+#[test]
 fn a_policy_string_key_over_enum_values_is_rejected() {
     let mut config = policy_config();
     config.string_fields.push((

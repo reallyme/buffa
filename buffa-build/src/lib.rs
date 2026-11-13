@@ -293,6 +293,21 @@ impl Config {
         self
     }
 
+    /// Reject JSON serialization of the selected messages' eager, lazy and owned
+    /// views before writing any output. Owned-message JSON remains available.
+    /// The restriction propagates to containing messages, including map values.
+    /// `.` selects every message; unmatched rules cause a code generation error.
+    /// Empty paths are errors. Disabling JSON or views warns that the rule is inactive.
+    #[must_use]
+    pub fn deny_view_json(mut self, paths: &[impl AsRef<str>]) -> Self {
+        self.codegen_config.deny_view_json.extend(
+            paths
+                .iter()
+                .map(|path| normalize_override_path(path.as_ref())),
+        );
+        self
+    }
+
     /// Wrap generated `impl`s in `#[cfg(feature = "...")]` instead of
     /// emitting them unconditionally (default: false).
     ///
@@ -760,6 +775,27 @@ impl Config {
     #[must_use]
     pub fn preserve_unknown_fields(mut self, enabled: bool) -> Self {
         self.codegen_config.preserve_unknown_fields = enabled;
+        self
+    }
+
+    /// Generate recursive cleanup for every owned message.
+    /// Requires `buffa/zeroize` and guarded field representations; see the guarded-fields guide.
+    #[must_use]
+    pub fn generate_zeroize(mut self, enabled: bool) -> Self {
+        self.codegen_config.generate_zeroize = enabled;
+        self
+    }
+
+    /// Generate recursive cleanup for messages under these proto path prefixes.
+    /// `.` matches every message. Calls accumulate. Empty or unmatched paths
+    /// are errors; scoped requests can explicitly allow unmatched rules.
+    #[must_use]
+    pub fn zeroize_in(mut self, paths: &[impl AsRef<str>]) -> Self {
+        self.codegen_config.zeroize_messages.extend(
+            paths
+                .iter()
+                .map(|path| normalize_override_path(path.as_ref())),
+        );
         self
     }
 
@@ -1276,8 +1312,10 @@ impl Config {
     /// - A **foreign** custom type used as a `repeated` element — or a
     ///   `map<K, bytes>` value — fails to compile: codegen emits
     ///   `ReflectElement` / `ProtoElemJson` impls for it, which the orphan rule
-    ///   forbids for a foreign type. Wrap it in a crate-local newtype for those
-    ///   cases; singular / optional / oneof uses work directly.
+    ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
+    ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
+    ///   the defining crate supplies those integrations. Singular / optional /
+    ///   oneof uses work directly.
     /// - A `Custom` rule **does** apply to `map<K, bytes>` values (honored like
     ///   the built-in [`BytesRepr::Bytes`]); only the `map<bytes, bytes>`
     ///   carve-out keeps `Vec<u8>` values.
@@ -1415,8 +1453,10 @@ impl Config {
     ///   `ReflectMode::VTable`), a **foreign** custom type used as a `repeated`
     ///   element or as a `map` key or value fails to compile: codegen emits a
     ///   `ReflectElement` or `ReflectMapKey` impl for it, which the orphan rule
-    ///   forbids for a foreign type. Wrap it in a crate-local newtype for
-    ///   those cases; singular / optional / oneof uses work directly.
+    ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
+    ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
+    ///   the defining crate supplies those integrations. Singular / optional /
+    ///   oneof uses work directly.
     /// - **JSON of a custom string with explicit presence (proto3 or proto2
     ///   `optional`, and the edition 2023 default), in a `repeated` field, in
     ///   a oneof, or in a `map`,** serializes through the type's own `serde`
@@ -1458,14 +1498,37 @@ impl Config {
     ///   compile error in the generated code, naming the trait.
     /// - A listed `string` type used as the key of a `map` with enum values
     ///   is a codegen error from [`compile`](Self::compile).
-    /// - A type that no representation rule names, or a listed type while
-    ///   [`generate_json`](Self::generate_json) is off, produces a
-    ///   `cargo:warning`.
+    /// - A type that no effective representation rule selects is an error.
+    ///   Binding and spelling errors remain errors with JSON disabled. A valid
+    ///   listed type while [`generate_json`](Self::generate_json) is off
+    ///   produces a `cargo:warning` because its policy is inactive.
     #[must_use]
     pub fn json_policy_type(mut self, path: &str) -> Self {
         self.codegen_config
             .json_policy_types
             .push(path.trim().to_string());
+        self
+    }
+
+    /// Control emission of custom bytes/string element integration impls.
+    ///
+    /// Set this to `false` when shared representation types provide their
+    /// `ProtoElemJson`, `ReflectElement`, `ReflectMapKey` and `InspectElement` implementations in
+    /// their defining crate. This permits foreign types and multiple generation
+    /// calls without orphan-rule or duplicate-impl errors. Missing traits fail
+    /// compilation; JSON policy selection is still required separately.
+    #[must_use]
+    pub fn emit_custom_type_impls(mut self, enabled: bool) -> Self {
+        self.codegen_config.emit_custom_type_impls = enabled;
+        self
+    }
+
+    /// Permit global message selectors absent from a scoped generation request.
+    /// Unmatched selectors still warn. Validate the complete project with this
+    /// disabled to catch misspelled cleanup or view-export rules as errors.
+    #[must_use]
+    pub fn allow_unmatched_message_rules(mut self, enabled: bool) -> Self {
+        self.codegen_config.allow_unmatched_message_rules = enabled;
         self
     }
 
@@ -3395,6 +3458,15 @@ mod tests {
     }
 
     #[test]
+    fn deny_view_json_normalizes_and_accumulates_paths() {
+        let config = Config::new()
+            .deny_view_json(&["demo.Private.", " .demo.Other "])
+            .deny_view_json(&["."])
+            .codegen_config;
+        assert_eq!(config.deny_view_json, [".demo.Private", ".demo.Other", "."]);
+    }
+
+    #[test]
     fn codec_strategy_in_normalizes_paths_and_keeps_rule_order() {
         let config = Config::new()
             .codec_strategy(CodecStrategy::Table)
@@ -4051,6 +4123,21 @@ mod tests {
 
         write_if_changed(&path, b"new").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    }
+
+    #[test]
+    fn security_rule_normalization_never_turns_an_empty_path_into_a_catch_all() {
+        let config = Config::new()
+            .zeroize_in(&["", " . ", " demo.Record. "])
+            .deny_view_json(&["", " . ", " demo.Record. "]);
+        assert_eq!(
+            config.codegen_config.zeroize_messages,
+            ["", ".", ".demo.Record"]
+        );
+        assert_eq!(
+            config.codegen_config.deny_view_json,
+            ["", ".", ".demo.Record"]
+        );
     }
 
     #[test]

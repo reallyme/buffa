@@ -1367,3 +1367,14 @@ pub mod guarded_repr;
 pub mod guarded {
     buffa::include_proto!("guarded");
 }
+
+/// Messages exercising serde defaults in the presence of Drop.
+pub mod drop_defaults {
+    buffa::include_proto!("drop_defaults");
+    pub(crate) fn custom_label() -> String {
+        "caller-default".to_owned()
+    }
+    pub(crate) fn custom_values() -> Vec<i32> {
+        vec![37]
+    }
+}

@@ -587,6 +587,11 @@ pub fn generate_message_impl(
         }
     };
 
+    let sensitive_clear = if ctx.zeroizes_message(proto_fqn) {
+        quote! { ::buffa::sensitive::Zeroize::zeroize(self); }
+    } else {
+        quote! {}
+    };
     let unknown_fields_clear_stmt = if preserve_unknown_fields {
         quote! { self.__buffa_unknown_fields.clear(); }
     } else {
@@ -644,7 +649,7 @@ pub fn generate_message_impl(
         .is_some_and(|o| o.map_entry.unwrap_or(false));
     let reflectable_impl = if ctx.config.generate_reflection && !is_map_entry {
         let gate = ctx.config.feature_gates().reflect;
-        if ctx.config.generate_reflection_vtable {
+        if ctx.config.generate_reflection_vtable || ctx.zeroizes_message(proto_fqn) {
             let buffa_path = quote! { __buffa };
             let owned = crate::reflect_owned::reflect_owned_impls(
                 &crate::reflect_owned::OwnedReflectScope {
@@ -660,7 +665,11 @@ pub fn generate_message_impl(
                     nesting,
                 },
             )?;
-            let reflect_body = crate::reflect::reflectable_impl_vtable(&quote! { #name_ident });
+            let reflect_body = if ctx.zeroizes_message(proto_fqn) {
+                quote! {}
+            } else {
+                crate::reflect::reflectable_impl_vtable(&quote! { #name_ident })
+            };
             // Multiple sibling impls (ReflectMessage, ReflectElement, the memo
             // inherent impl, Reflectable) — gate them together with one cfg.
             crate::feature_gates::cfg_const_block(quote! { #owned #reflect_body }, gate)
@@ -730,6 +739,7 @@ pub fn generate_message_impl(
                 }
 
                 fn clear(&mut self) {
+                    #sensitive_clear
                     #(#clear_stmts)*
                     #unknown_fields_clear_stmt
                 }
@@ -2405,7 +2415,7 @@ fn repeated_merge_arm(
     let list_use = if repr.is_default() {
         quote! {}
     } else {
-        quote! { use ::buffa::ProtoList as _; }
+        quote! { #[allow(unused_imports)] use ::buffa::ProtoList as _; }
     };
 
     if ty == Type::TYPE_MESSAGE {

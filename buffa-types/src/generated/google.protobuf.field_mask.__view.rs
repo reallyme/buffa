@@ -286,7 +286,11 @@ impl<'a> ::buffa::MessageView<'a> for FieldMaskView<'a> {
     ) -> ::core::result::Result<super::super::FieldMask, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,

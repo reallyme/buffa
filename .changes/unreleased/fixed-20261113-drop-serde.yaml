@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    Generate per-field JSON defaults so messages with owned fields can implement Drop while preserving protobuf declared defaults. Preserve caller-supplied serde defaults, including conditional overrides, without emitting duplicate attributes.
+time: 2026-11-13T09:04:51+01:00

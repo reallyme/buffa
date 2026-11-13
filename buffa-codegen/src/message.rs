@@ -118,6 +118,7 @@ fn generate_message_with_nesting(
         nesting,
     } = scope;
     let name_ident = format_ident!("{}", rust_name);
+    let sensitive_impl = crate::sensitive::message_impl(scope, msg, &name_ident, resolver)?;
 
     // MessageSet wire format: legacy Google encoding that wraps each extension
     // in a group at field 1. protoc enforces the "no regular fields" invariant
@@ -192,6 +193,9 @@ fn generate_message_with_nesting(
         .into_iter()
         .flatten()
         .collect();
+    let json_default_helpers = generated_fields
+        .iter()
+        .filter_map(|field| field.json_default_helper.as_ref());
     let direct_fields: Vec<&TokenStream> = generated_fields.iter().map(|f| &f.tokens).collect();
 
     // Collect (identifier, redacted) pairs for the manual Debug impl
@@ -201,7 +205,7 @@ fn generate_message_with_nesting(
         .map(|f| (&f.ident, f.debug_redact))
         .collect();
 
-    let setter_methods: TokenStream = generated_fields
+    let mut setter_methods: TokenStream = generated_fields
         .iter()
         .filter_map(|f| f.setter.as_ref().map(|s| (f, s)))
         .map(|(f, s)| {
@@ -210,17 +214,32 @@ fn generate_message_with_nesting(
             let field_name = field_ident.to_string();
             // Raw identifiers (e.g. `r#type`) don't resolve as intra-doc
             // links, so fall back to plain code formatting for those.
+            let assigned = if s.wrap_optional {
+                "Some(value)"
+            } else {
+                "value"
+            };
             let doc = if let Some(stripped) = field_name.strip_prefix("r#") {
-                format!("Sets `{stripped}` to `Some(value)`, consuming and returning `self`.")
+                format!("Sets `{stripped}` to `{assigned}`, consuming and returning `self`.")
             } else {
                 format!(
-                    "Sets [`Self::{field_name}`] to `Some(value)`, consuming and returning `self`."
+                    "Sets [`Self::{field_name}`] to `{assigned}`, consuming and returning `self`."
                 )
             };
-            let body = if s.use_into {
-                quote! { Some(value.into()) }
+            let value = if s.use_into {
+                quote! { value.into() }
             } else {
-                quote! { Some(value) }
+                quote! { value }
+            };
+            let body = if s.wrap_optional {
+                quote! {Some(#value)}
+            } else {
+                value
+            };
+            let erase = if ctx.zeroizes_message(proto_fqn) {
+                quote! {::buffa::sensitive::Zeroize::zeroize(&mut self.#field_ident);}
+            } else {
+                quote! {}
             };
             let param = &s.param_type;
             // The setter writes the deprecated field, so it is deprecated too:
@@ -234,6 +253,7 @@ fn generate_message_with_nesting(
                 #[doc = #doc]
                 #setter_deprecated
                 pub fn #setter_ident(mut self, value: #param) -> Self {
+                    #erase
                     self.#field_ident = #body;
                     self
                 }
@@ -416,7 +436,9 @@ fn generate_message_with_nesting(
     // Extension ranges also force the custom impl so `"[...]"` keys are
     // handled inline without buffering.
     let needs_custom_deserialize = ctx.config.generate_json
-        && (has_real_oneofs || (has_extension_ranges && ctx.preserve_unknown_fields(proto_fqn)));
+        && (has_real_oneofs
+            || ctx.zeroizes_message(proto_fqn)
+            || (has_extension_ranges && ctx.preserve_unknown_fields(proto_fqn)));
 
     // Per-message JSON strictness: the derive path turns it into a serde
     // attribute, the custom visitor into a strict terminal arm. Both ask
@@ -546,7 +568,6 @@ fn generate_message_with_nesting(
             quote! { derive(::serde::Serialize, ::serde::Deserialize) }
         };
         let derive_attr = crate::feature_gates::cfg_attr(derives, gates.json);
-        let default_attr = crate::feature_gates::cfg_attr(quote! { serde(default) }, gates.json);
         // Strictness on the derive path is serde's own attribute. The custom
         // impl reads the same config value instead (it has no derive to
         // attach to), so one option covers both paths.
@@ -563,14 +584,25 @@ fn generate_message_with_nesting(
         };
         quote! {
             #derive_attr
-            #default_attr
             #deny_unknown_attr
         }
     } else {
         quote! {}
     };
-    let arbitrary_derive = if ctx.config.generate_arbitrary {
+    let arbitrary_derive = if ctx.config.generate_arbitrary && !ctx.zeroizes_message(proto_fqn) {
         quote! { #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))] }
+    } else {
+        quote! {}
+    };
+    let guarded_arbitrary = if ctx.config.generate_arbitrary && ctx.zeroizes_message(proto_fqn) {
+        crate::guarded_arbitrary::message(
+            scope,
+            msg,
+            &name_ident,
+            &oneof_idents,
+            &oneof_prefix,
+            resolver,
+        )?
     } else {
         quote! {}
     };
@@ -808,7 +840,7 @@ fn generate_message_with_nesting(
     let debug_field_values: Vec<TokenStream> = debug_fields
         .iter()
         .map(|(id, redacted)| {
-            if *redacted {
+            if *redacted || ctx.zeroizes_message(proto_fqn) {
                 quote! { &::core::format_args!(#DEBUG_REDACT_PLACEHOLDER) }
             } else {
                 quote! { &self.#id }
@@ -842,6 +874,28 @@ fn generate_message_with_nesting(
     // conforming messages, so their output is unchanged. Applied to the
     // struct and to the impls that define per-field methods.
     let non_snake_attr = ctx.message_non_snake_attr(msg);
+    if ctx.zeroizes_message(proto_fqn) {
+        for (index, oneof) in msg.oneof_decl.iter().enumerate() {
+            let Some(enum_ident) = oneof_idents.get(&index) else {
+                continue;
+            };
+            let name = oneof
+                .name
+                .as_deref()
+                .ok_or(CodeGenError::MissingField("oneof.name"))?;
+            let field = ctx.oneof_ident(name);
+            let setter = format_ident!("with_{}", ctx.oneof_rust_name(name));
+            setter_methods.extend(quote! {
+                /// Sets this oneof, wiping an earlier value before replacement.
+                #[must_use]
+                pub fn #setter(mut self,value:#oneof_prefix #enum_ident)->Self {
+                    ::buffa::sensitive::Zeroize::zeroize(&mut self.#field);
+                    self.#field=Some(value);
+                    self
+                }
+            });
+        }
+    }
     let with_setters_impl = if ctx.config.generate_with_setters && !setter_methods.is_empty() {
         quote! {
             #non_snake_attr
@@ -878,9 +932,13 @@ fn generate_message_with_nesting(
             ///
             /// Format: `type.googleapis.com/<fully.qualified.TypeName>`
             pub const TYPE_URL: &'static str = #type_url;
+            #(#json_default_helpers)*
         }
 
         #with_setters_impl
+
+        #sensitive_impl
+        #guarded_arbitrary
 
         #message_impl
 
@@ -1264,32 +1322,104 @@ fn generate_custom_deserialize(
 
     // Terminal arm for keys no field, oneof variant or extension arm claimed.
     //
-    // Under `deny_unknown_json_fields` this reports through serde's own
+    // Ordinary messages report `deny_unknown_json_fields` through serde's own
     // `unknown_field`, which is what `#[serde(deny_unknown_fields)]` calls on
     // the derive path — so a message with a oneof and one without produce the
-    // same diagnostic for the same typo. `"[pkg.ext]"` keys are claimed by
-    // `#ext_arm` above, so extension handling is untouched either way.
+    // same diagnostic for the same typo. Guarded messages use a fixed reason
+    // because a rejected key may itself contain private data. `"[pkg.ext]"`
+    // keys are claimed by `#ext_arm` above, so extension handling is untouched.
     //
     // Lenient (the default) skips the value with `IgnoredAny`, which costs no
     // allocation.
-    let terminal_arm = if scope.deny_unknown_json_fields() {
+    let guarded = ctx.zeroizes_message(proto_fqn);
+    let unknown_error = if guarded {
+        quote! {
+            <__A::Error as ::serde::de::Error>::custom(
+                ::buffa::sensitive::JsonErrorReason::UnknownField
+            )
+        }
+    } else {
         let accepted = &accepted_keys;
         quote! {
+            <__A::Error as ::serde::de::Error>::unknown_field(
+                __unknown, &[#(#accepted),*]
+            )
+        }
+    };
+    let terminal_arm = if scope.deny_unknown_json_fields() {
+        quote! {
             __unknown => {
-                return ::core::result::Result::Err(
-                    <__A::Error as ::serde::de::Error>::unknown_field(
-                        __unknown,
-                        &[#(#accepted),*],
-                    ),
-                );
+                return ::core::result::Result::Err(#unknown_error);
             }
         }
     } else {
         quote! { _ => { map.next_value::<::serde::de::IgnoredAny>()?; } }
     };
 
+    // Unknown field names are untrusted data too. Keep the visitor's owned
+    // copy under cleanup even when strict rejection returns immediately.
+    let guard_key = if guarded {
+        quote! { let key = ::buffa::sensitive::Zeroizing::new(key); }
+    } else {
+        quote! {}
+    };
+
+    let read_fields = if match_arms.is_empty() && ext_arm.is_empty() {
+        if scope.deny_unknown_json_fields() {
+            // An empty strict message can only accept an empty object. A loop
+            // whose sole branch returns would trigger clippy::never_loop.
+            if guarded {
+                quote! {
+                    if let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                        let _key = ::buffa::sensitive::Zeroizing::new(key);
+                        return Err(#unknown_error);
+                    }
+                }
+            } else {
+                quote! {
+                    if let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                        return Err(<__A::Error as ::serde::de::Error>::unknown_field(&key,&[]));
+                    }
+                }
+            }
+        } else {
+            quote! {
+                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                    #guard_key
+                    let _ = key;
+                    map.next_value::<::serde::de::IgnoredAny>()?;
+                }
+            }
+        }
+    } else {
+        quote! {
+            while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                #guard_key
+                match key.as_str() {
+                    #(#match_arms)*
+                    #ext_arm
+                    #terminal_arm
+                }
+            }
+        }
+    };
+
     // Assemble the impl block. The non-snake allow covers the `__f_<name>` /
     // `__oneof_<name>` locals bound inside the visitor.
+    // A cleanup-enabled owner must exist before any field is parsed, so a
+    // later error wipes earlier scalars as well as allocation-owning fields.
+    let result_mut = if msg.field.is_empty() && !scope.ctx.preserve_unknown_fields(proto_fqn) {
+        quote! {}
+    } else {
+        quote! { mut }
+    };
+    let result_init =
+        quote! { let #result_mut __r = <#name_ident as ::core::default::Default>::default(); };
+    let (early_result, late_result) = if ctx.zeroizes_message(proto_fqn) {
+        (result_init, quote! {})
+    } else {
+        (quote! {}, result_init)
+    };
     let expecting_msg = format!("struct {name_ident}");
     let non_snake_attr = ctx.message_non_snake_attr(msg);
     let deprecated_field_allow = deprecated_field_allow(ctx, msg, proto_fqn);
@@ -1312,21 +1442,16 @@ fn generate_custom_deserialize(
                         self,
                         mut map: __A,
                     ) -> ::core::result::Result<#name_ident, __A::Error> {
+                        #early_result
                         #(#field_vars)*
                         #ext_var
 
-                        while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
-                            match key.as_str() {
-                                #(#match_arms)*
-                                #ext_arm
-                                #terminal_arm
-                            }
-                        }
+                        #read_fields
 
                         // Start from the struct's Default (which may be a
                         // custom impl honouring proto2 [default = ...]
                         // annotations), then overwrite fields present in JSON.
-                        let mut __r = <#name_ident as ::core::default::Default>::default();
+                        #late_result
                         #(#field_inits)*
                         #ext_init
                         Ok(__r)
@@ -1436,6 +1561,42 @@ fn custom_deser_regular_field(
         quote! { map.next_value::<#rust_type>()? }
     };
 
+    if ctx.zeroizes_message(scope.proto_fqn) {
+        let keys = if json_name != field_name {
+            vec![json_name.to_owned(), field_name.to_owned()]
+        } else {
+            vec![json_name.to_owned()]
+        };
+        // Before opting into cleanup, a message without real oneofs used
+        // serde's derived visitor, which rejected duplicate fields (including
+        // nulls and aliases). Streaming into an early owner must preserve that
+        // validation contract. Existing oneof visitors retain last-wins for
+        // their regular fields.
+        let (var_decl, duplicate_check) = if msg.field.iter().any(is_real_oneof_member) {
+            (quote! {}, quote! {})
+        } else {
+            (
+                quote! {let mut #var_ident = false;},
+                quote! {
+                    if #var_ident {
+                        return Err(<__A::Error as ::serde::de::Error>::duplicate_field(#field_name));
+                    }
+                    #var_ident = true;
+                },
+            )
+        };
+        return Ok(CustomDeserField {
+            var_decl,
+            field_init: quote! {},
+            accepted_keys: keys.clone(),
+            arm: quote! { #(#keys)|* => {
+                #duplicate_check
+                let value = #deser_expr;
+                ::buffa::sensitive::Zeroize::zeroize(&mut __r.#field_ident);
+                __r.#field_ident = value;
+            } },
+        });
+    }
     // Match arm accepting both json_name and proto_name. `accepted_keys`
     // lists the same two names.
     let (arm, accepted_keys) = if json_name != field_name {
@@ -1495,8 +1656,14 @@ fn custom_deser_oneof_group(
     let var_ident = format_ident!("__oneof_{}", ctx.oneof_rust_name(oneof_name));
     let field_ident = ctx.oneof_ident(oneof_name);
 
-    let var_decl =
-        quote! { let mut #var_ident: ::core::option::Option<#oneof_prefix #enum_ident> = None; };
+    let (var_decl, result_target) = if ctx.zeroizes_message(proto_fqn) {
+        (quote! {}, quote! { __r.#field_ident })
+    } else {
+        (
+            quote! { let mut #var_ident: ::core::option::Option<#oneof_prefix #enum_ident> = None; },
+            quote! { #var_ident },
+        )
+    };
     let mut arms = Vec::new();
     let mut accepted_keys = Vec::new();
 
@@ -1543,6 +1710,8 @@ fn custom_deser_oneof_group(
             &variant_string_repr,
         );
         let deser_input = crate::oneof::OneofVariantDeserInput {
+            guarded_enum: (ctx.zeroizes_message(proto_fqn) && field_type == Type::TYPE_ENUM)
+                .then(|| is_closed_enum(&crate::features::resolve_field(ctx, field, features))),
             json_policy: variant_json_policy,
             variant_ident: &variant_ident,
             variant_type: &variant_type,
@@ -1553,14 +1722,18 @@ fn custom_deser_oneof_group(
             is_boxed: crate::oneof::variant_boxed(ctx, field_type, &variant_fqn),
             pointer_repr: &variant_pointer_repr,
             enum_ident: &qualified_enum,
-            result_var: &var_ident,
+            result_var: &result_target,
             oneof_name,
         };
         accepted_keys.extend(deser_input.accepted_keys());
         arms.push(crate::oneof::oneof_variant_deser_arm(&deser_input)?);
     }
 
-    let field_init = quote! { __r.#field_ident = #var_ident; };
+    let field_init = if ctx.zeroizes_message(proto_fqn) {
+        quote! {}
+    } else {
+        quote! { __r.#field_ident = #var_ident; }
+    };
     Ok(Some(CustomDeserOneof {
         var_decl,
         arms,
@@ -1606,6 +1779,7 @@ fn is_wkt_wrapper_type(type_name: Option<&str>) -> bool {
 /// Resolved Rust type and map-entry metadata for a single field.
 #[derive(Debug)]
 pub(crate) struct FieldInfo {
+    guarded: bool,
     pub(crate) rust_type: TokenStream,
     /// Type to use in the struct field declaration. Differs from `rust_type`
     /// only for self-referential message fields, where it uses `Self` instead
@@ -1614,6 +1788,8 @@ pub(crate) struct FieldInfo {
     /// the wrong type.
     struct_field_type: TokenStream,
     is_repeated: bool,
+    /// Whether the repeated field uses a custom `ProtoList` collection.
+    is_custom_repeated: bool,
     is_map: bool,
     /// Whether the field's resolved presence is explicit: proto3 `optional`
     /// scalars and proto2 `optional` (non-required) scalars, which use
@@ -1686,6 +1862,16 @@ pub(crate) struct FieldInfo {
     /// The bare inner type `T` when `is_optional = true` (`rust_type` is `Option<T>`).
     /// `None` for all non-optional fields.
     inner_opt_type: Option<TokenStream>,
+}
+impl FieldInfo {
+    pub(crate) fn struct_field_type(&self) -> &TokenStream {
+        &self.struct_field_type
+    }
+
+    /// The fully resolved type, without a struct declaration's `Self` shorthand.
+    pub(crate) fn concrete_type(&self) -> &TokenStream {
+        &self.rust_type
+    }
 }
 
 /// Resolve the Rust type and map-entry metadata for a single field.
@@ -1928,9 +2114,11 @@ pub(crate) fn classify_field(
     }
 
     Ok(FieldInfo {
+        guarded: ctx.zeroizes_message(proto_fqn),
         rust_type,
         struct_field_type,
         is_repeated,
+        is_custom_repeated: !repeated_repr.is_default(),
         is_map,
         is_optional,
         is_required,
@@ -2026,6 +2214,7 @@ struct SetterInfo {
     ///   make integer literals ambiguous (`30` could be `i8`/`i16`/...);
     ///   the bare type lets inference settle them.
     use_into: bool,
+    wrap_optional: bool,
 }
 
 /// Generate a single field declaration.
@@ -2036,6 +2225,7 @@ struct SetterInfo {
 /// and the field identifier (for use in the manual `Debug` impl).
 struct GeneratedField {
     tokens: TokenStream,
+    json_default_helper: Option<TokenStream>,
     ident: Ident,
     setter: Option<SetterInfo>,
     /// Field carries `[debug_redact = true]`; the generated `Debug` impl
@@ -2104,7 +2294,11 @@ fn generate_field(
     let arbitrary_field_attr = ctx
         .config
         .generate_arbitrary
-        .then(|| arbitrary_builder(&info))
+        .then(|| {
+            (!ctx.zeroizes_message(proto_fqn))
+                .then(|| arbitrary_builder(&info))
+                .flatten()
+        })
         .flatten()
         .map(|builder| {
             let builder = format_ident!("{builder}");
@@ -2121,11 +2315,73 @@ fn generate_field(
         Some(note) => quote! { #[doc = ""] #[doc = #note] },
         None => quote! {},
     };
+    // Struct-level serde defaults move fields out of a default instance,
+    // which Rust forbids when the message implements Drop. Field defaults
+    // preserve both serde's duplicate detection and protobuf declared defaults
+    // without ever constructing or partially moving such an instance.
+    let caller_defaults = if ctx.config.generate_json {
+        caller_serde_default_conditions(&custom_field_attrs, &field_fqn)?
+    } else {
+        Vec::new()
+    };
+    let (json_default_attr, json_default_helper) = if ctx.config.generate_json
+        && !caller_defaults.iter().any(Vec::is_empty)
+    {
+        let gates = ctx.config.feature_gates();
+        let fallback_condition = (!caller_defaults.is_empty()).then(|| {
+            let conditions = caller_defaults
+                .iter()
+                .map(|parts| match parts.as_slice() {
+                    [condition] => quote! { #condition },
+                    many => quote! { all(#(#many),*) },
+                })
+                .collect::<Vec<_>>();
+            let active = match conditions.as_slice() {
+                [condition] => condition.clone(),
+                many => quote! { any(#(#many),*) },
+            };
+            quote! { not(#active) }
+        });
+        let default_attr = |metadata: TokenStream| {
+            let metadata = match &fallback_condition {
+                Some(condition) => quote! { cfg_attr(#condition, #metadata) },
+                None => metadata,
+            };
+            crate::feature_gates::cfg_attr(metadata, gates.json)
+        };
+        match field_default_expr(scope, field)? {
+            Some(expression) => {
+                let helper = format_ident!("__buffa_default_field_{}", field_number.to_string());
+                let parent = ctx.config.prefixed_type_name(
+                    msg.name
+                        .as_deref()
+                        .ok_or(CodeGenError::MissingField("message.name"))?,
+                );
+                let path = format!("{parent}::{helper}");
+                let attr = default_attr(quote! { serde(default = #path) });
+                let helper_condition = fallback_condition.as_ref().map(|condition| {
+                    quote! { #[cfg(#condition)] }
+                });
+                let method = crate::feature_gates::cfg_block(
+                    quote! {
+                        #helper_condition
+                        fn #helper() -> #rust_type { #expression }
+                    },
+                    gates.json,
+                );
+                (attr, Some(method))
+            }
+            None => (default_attr(quote! { serde(default) }), None),
+        }
+    } else {
+        (quote! {}, None)
+    };
     let tokens = quote! {
         #doc
         #rename_note
         #deprecated_attr
         #serde_attr
+        #json_default_attr
         #arbitrary_field_attr
         #custom_field_attrs
         pub #rust_name: #rust_type,
@@ -2135,34 +2391,101 @@ fn generate_field(
     // actually took the is_optional branch (i.e. the struct field is Option<T>).
     // is_optional alone is not sufficient — proto2 repeated fields can have
     // is_optional=true (explicit-presence default) while is_repeated=true.
-    let setter = if let Some(inner) = &info.inner_opt_type {
+    let target = info.inner_opt_type.as_ref().or_else(|| {
+        ctx.zeroizes_message(proto_fqn)
+            .then_some(&info.struct_field_type)
+    });
+    let setter = target.map(|inner| {
         let field_type = crate::impl_message::effective_type(ctx, field, features);
-        let setter_ident = format_ident!("with_{}", ctx.field_rust_name(field_name, field_number));
-        // impl Into<T> where a common conversion exists:
-        //   String: &str. Vec<u8>: &[u8; N] (From<&[T; N]> stable since Rust 1.74).
-        //   bytes::Bytes: Vec<u8>. EnumValue<E>: E (From<E> impl on EnumValue).
-        let (param_type, use_into) = match field_type {
-            Type::TYPE_STRING | Type::TYPE_BYTES | Type::TYPE_ENUM => {
-                (quote! { impl ::core::convert::Into<#inner> }, true)
-            }
-            _ => (quote! { #inner }, false),
+        let ident = format_ident!("with_{}", ctx.field_rust_name(field_name, field_number));
+        let use_into = info.is_repeated
+            || info.is_map
+            || matches!(
+                field_type,
+                Type::TYPE_STRING
+                    | Type::TYPE_BYTES
+                    | Type::TYPE_ENUM
+                    | Type::TYPE_MESSAGE
+                    | Type::TYPE_GROUP
+            );
+        let param_type = if use_into {
+            quote! {impl ::core::convert::Into<#inner>}
+        } else {
+            quote! {#inner}
         };
-        Some(SetterInfo {
-            ident: setter_ident,
+        SetterInfo {
+            ident,
             param_type,
             use_into,
-        })
-    } else {
-        None
-    };
+            wrap_optional: info.inner_opt_type.is_some(),
+        }
+    });
 
     Ok(Some(GeneratedField {
         tokens,
+        json_default_helper,
         ident: rust_name,
         setter,
-        debug_redact: is_debug_redacted(field),
+        debug_redact: is_debug_redacted(field) || ctx.zeroizes_message(proto_fqn),
         deprecated: option_deprecated || caller_deprecated,
     }))
+}
+
+/// Conditions under which caller attributes provide their own serde default.
+/// An empty condition list denotes an unconditional override. Keep the generated
+/// fallback under the inverse condition so inactive `cfg_attr` overrides retain
+/// protobuf defaults without producing duplicate serde attributes when active.
+fn caller_serde_default_conditions(
+    attributes: &TokenStream,
+    field: &str,
+) -> Result<Vec<Vec<syn::Meta>>, CodeGenError> {
+    use syn::parse::Parser as _;
+    fn collect(
+        metadata: &syn::Meta,
+        conditions: &[syn::Meta],
+        defaults: &mut Vec<Vec<syn::Meta>>,
+    ) -> syn::Result<()> {
+        let syn::Meta::List(list) = metadata else {
+            return Ok(());
+        };
+        if list.path.is_ident("serde") {
+            let options = list.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )?;
+            if options
+                .iter()
+                .any(|option| option.path().is_ident("default"))
+            {
+                defaults.push(conditions.to_vec());
+            }
+        } else if list.path.is_ident("cfg_attr") {
+            let mut options = list
+                .parse_args_with(
+                    syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                )?
+                .into_iter();
+            if let Some(condition) = options.next() {
+                let mut conditions = conditions.to_vec();
+                conditions.push(condition);
+                for nested in options {
+                    collect(&nested, &conditions, defaults)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    let parse = || -> syn::Result<Vec<Vec<syn::Meta>>> {
+        let mut defaults = Vec::new();
+        for attribute in syn::Attribute::parse_outer.parse2(attributes.clone())? {
+            collect(&attribute.meta, &[], &mut defaults)?;
+        }
+        Ok(defaults)
+    };
+    parse().map_err(|error| CodeGenError::InvalidCustomAttribute {
+        path: field.to_owned(),
+        attribute: attributes.to_string(),
+        detail: error.to_string(),
+    })
 }
 
 pub(crate) fn is_map_field(
@@ -2648,7 +2971,11 @@ fn field_deser_modules(
     // singular and optional modules handle `null` before calling the policy.
     if info.json_policy {
         let module = if info.is_repeated {
-            "::buffa::json_helpers::proto_seq"
+            if !info.is_custom_repeated {
+                "::buffa::json_helpers::proto_seq"
+            } else {
+                "::buffa::json_helpers::proto_list"
+            }
         } else {
             match (field_type == Type::TYPE_BYTES, info.is_optional) {
                 (true, true) => "::buffa::json_helpers::opt_bytes_policy",
@@ -2656,6 +2983,15 @@ fn field_deser_modules(
                 (false, true) => "::buffa::json_helpers::opt_string_policy",
                 (false, false) => "::buffa::json_helpers::string_policy",
             }
+        };
+        return (Some(module), None);
+    }
+    if info.guarded && field_type == Type::TYPE_ENUM && !info.is_repeated {
+        let module = match (is_closed_enum(features), info.is_optional) {
+            (false, false) => "::buffa::json_helpers::guarded_enum::open",
+            (true, false) => "::buffa::json_helpers::guarded_enum::closed",
+            (false, true) => "::buffa::json_helpers::guarded_enum::optional_open",
+            (true, true) => "::buffa::json_helpers::guarded_enum::optional_closed",
         };
         return (Some(module), None);
     }
@@ -2729,6 +3065,11 @@ fn map_serde_module(info: &FieldInfo) -> Option<&'static str> {
     if info.map_key_json_policy {
         return Some("::buffa::json_helpers::policy_str_key_map");
     }
+    if info.guarded && info.map_value_enum_closed.is_none() {
+        // A numeric/bool key must not first become an ordinary owned String.
+        // Guarded string keys were routed through their policy above.
+        return Some("::buffa::json_helpers::guarded_map");
+    }
     // A JSON policy value reaches its policy through the `ProtoElemJson` impl
     // emitted for the type.
     if info.map_value_json_policy && !matches!(info.map_key_type, Some(Type::TYPE_BYTES)) {
@@ -2759,6 +3100,13 @@ fn map_serde_module(info: &FieldInfo) -> Option<&'static str> {
     // field's own features (TYPE_MESSAGE → resolve_field skips the
     // enum_type overlay → stale file-level default). See classify_field.
     if let Some(closed) = info.map_value_enum_closed {
+        if info.guarded {
+            return Some(if closed {
+                "::buffa::json_helpers::guarded_enum::map_closed"
+            } else {
+                "::buffa::json_helpers::guarded_enum::map_open"
+            });
+        }
         return Some(if closed {
             "::buffa::json_helpers::map_closed_enum"
         } else {
@@ -2821,23 +3169,34 @@ fn repeated_serde_module(
     info: &FieldInfo,
     features: &ResolvedFeatures,
 ) -> Option<&'static str> {
+    // A custom collection must own elements while parsing, including growth
+    // and cleanup after a later error. Enum filtering has its own helpers.
+    let sequence = if !info.is_custom_repeated {
+        "::buffa::json_helpers::proto_seq"
+    } else {
+        "::buffa::json_helpers::proto_list"
+    };
     match field_type {
         // Enums need ignore_unknown_enum_values filtering.
-        Type::TYPE_ENUM => Some(if is_closed_enum(features) {
+        Type::TYPE_ENUM => Some(if info.is_custom_repeated {
+            if is_closed_enum(features) {
+                "::buffa::json_helpers::enum_list::closed"
+            } else {
+                "::buffa::json_helpers::enum_list::open"
+            }
+        } else if is_closed_enum(features) {
             "::buffa::json_helpers::repeated_closed_enum"
         } else {
             "::buffa::json_helpers::repeated_enum"
         }),
         // WKT wrappers use scalar JSON representations. Route them through
         // ProtoElemJson so repeated null elements are rejected.
-        Type::TYPE_MESSAGE | Type::TYPE_GROUP if info.is_wkt_wrapper => {
-            Some("::buffa::json_helpers::proto_seq")
-        }
+        Type::TYPE_MESSAGE | Type::TYPE_GROUP if info.is_wkt_wrapper => Some(sequence),
         // Other messages/groups: derived Serialize is already proto-JSON.
         Type::TYPE_MESSAGE | Type::TYPE_GROUP => None,
         // Route scalar types needing special parsing or encoding through
         // proto_seq. String/bool can use derive.
-        ty if value_needs_proto_json(ty) => Some("::buffa::json_helpers::proto_seq"),
+        ty if value_needs_proto_json(ty) => Some(sequence),
         _ => None,
     }
 }
@@ -3076,9 +3435,8 @@ fn generate_custom_default(
         return Ok(None);
     }
 
-    // Second pass: build field initializers.
+    // Keep serde and Rust defaults identical, including proto2 declarations.
     let mut field_inits = Vec::new();
-
     for field in &msg.field {
         if is_real_oneof_member(field) {
             continue;
@@ -3088,44 +3446,18 @@ fn generate_custom_default(
             .as_deref()
             .ok_or(CodeGenError::MissingField("field.name"))?;
         let field_ident = ctx.field_ident(field_name, field.number.unwrap_or(0));
-        let field_type = crate::impl_message::effective_type(ctx, field, features);
-        let is_optional = is_explicit_presence_scalar(field, field_type, features);
-        let is_repeated = field.label.unwrap_or_default() == Label::LABEL_REPEATED;
-
-        if is_optional
-            || is_repeated
-            || field_type == Type::TYPE_MESSAGE
-            || field_type == Type::TYPE_GROUP
-        {
-            field_inits.push(quote! { #field_ident: ::core::default::Default::default(), });
-            continue;
-        }
-
-        // Default-value parsing needs the *field-resolved* features: the
-        // enum arm's `EnumValue` wrapping keys off the referenced enum's
-        // (possibly override-opened) openness.
-        let field_features = crate::features::resolve_field(ctx, field, features);
-        if let Some(expr) = parse_default_value(
+        let expression = field_default_expr(
+            MessageScope {
+                ctx,
+                current_package,
+                proto_fqn,
+                features,
+                nesting,
+            },
             field,
-            ctx,
-            current_package,
-            &field_features,
-            nesting,
-            crate::impl_message::field_string_repr(ctx, proto_fqn, field_name),
-            &crate::impl_message::field_bytes_repr(ctx, proto_fqn, field_name),
-        )? {
-            field_inits.push(quote! { #field_ident: #expr, });
-        } else if let Some(expr) = crate::defaults::open_enum_bare_default_value(
-            field,
-            ctx,
-            current_package,
-            &field_features,
-            nesting,
-        )? {
-            field_inits.push(quote! { #field_ident: #expr, });
-        } else {
-            field_inits.push(quote! { #field_ident: ::core::default::Default::default(), });
-        }
+        )?
+        .unwrap_or_else(|| quote! { ::core::default::Default::default() });
+        field_inits.push(quote! { #field_ident: #expression, });
     }
 
     // Oneof fields default to None.
@@ -3162,6 +3494,44 @@ fn generate_custom_default(
             }
         }
     }))
+}
+
+/// A nontrivial field default, shared by Rust Default and serde field defaults.
+fn field_default_expr(
+    scope: MessageScope<'_>,
+    field: &crate::generated::descriptor::FieldDescriptorProto,
+) -> Result<Option<TokenStream>, CodeGenError> {
+    let MessageScope {
+        ctx,
+        current_package,
+        proto_fqn,
+        features,
+        nesting,
+    } = scope;
+    let field_type = crate::impl_message::effective_type(ctx, field, features);
+    if is_explicit_presence_scalar(field, field_type, features)
+        || field.label.unwrap_or_default() == Label::LABEL_REPEATED
+        || matches!(field_type, Type::TYPE_MESSAGE | Type::TYPE_GROUP)
+    {
+        return Ok(None);
+    }
+    let field_name = field
+        .name
+        .as_deref()
+        .ok_or(CodeGenError::MissingField("field.name"))?;
+    let resolved = crate::features::resolve_field(ctx, field, features);
+    if let Some(expression) = parse_default_value(
+        field,
+        ctx,
+        current_package,
+        &resolved,
+        nesting,
+        crate::impl_message::field_string_repr(ctx, proto_fqn, field_name),
+        &crate::impl_message::field_bytes_repr(ctx, proto_fqn, field_name),
+    )? {
+        return Ok(Some(expression));
+    }
+    crate::defaults::open_enum_bare_default_value(field, ctx, current_package, &resolved, nesting)
 }
 
 // Ident/path helpers re-exported from the public `idents` module so existing
