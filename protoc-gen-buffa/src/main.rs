@@ -213,6 +213,19 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
                     true,
                 ));
             }
+            "bytes_type_custom_in" | "string_type_custom_in" => {
+                let (path, representation) =
+                    parse_field_type_rule(value).map_err(|reason| reason.to_string())?;
+                if key.trim() == "bytes_type_custom_in" {
+                    codegen
+                        .bytes_fields
+                        .push((path, buffa_codegen::BytesRepr::Custom(representation)));
+                } else {
+                    codegen
+                        .string_fields
+                        .push((path, buffa_codegen::StringRepr::Custom(representation)));
+                }
+            }
             "json" => codegen.generate_json = parse_bool("json", value)?,
             // Reject unknown JSON keys instead of ignoring them. Without
             // `json=true` it changes nothing and codegen warns.
@@ -572,6 +585,29 @@ fn normalize_override_path(path: &str) -> Result<String, String> {
     normalize_proto_path(path, "feature override")
 }
 
+/// Configuration failures contain no caller-provided path text.
+#[derive(Debug, thiserror::Error)]
+enum FieldTypeRuleErrorReason {
+    #[error("custom field type rules require <proto_path>=<rust_type_path>")]
+    Format,
+    #[error("custom field type rule has an invalid protobuf path")]
+    ProtoPath,
+    #[error("custom field type rule has an invalid Rust type path")]
+    RustPath,
+}
+
+fn parse_field_type_rule(value: &str) -> Result<(String, String), FieldTypeRuleErrorReason> {
+    let (path, representation) = value
+        .split_once('=')
+        .ok_or(FieldTypeRuleErrorReason::Format)?;
+    let path = buffa_codegen::normalize_extern_path_proto_name(path.trim())
+        .map_err(|_| FieldTypeRuleErrorReason::ProtoPath)?;
+    let representation = representation.trim();
+    syn::parse_str::<syn::TypePath>(representation)
+        .map_err(|_| FieldTypeRuleErrorReason::RustPath)?;
+    Ok((path, representation.to_owned()))
+}
+
 fn normalize_unbox_oneof_path(path: &str) -> Result<String, String> {
     normalize_proto_path(path, "unbox_oneof_in")
 }
@@ -611,6 +647,57 @@ mod tests {
         match parse_config(params) {
             Ok(_) => panic!("expected parse_config({params:?}) to fail"),
             Err(err) => err,
+        }
+    }
+
+    #[test]
+    fn custom_field_type_rules_are_repeatable_and_normalized() {
+        let config = parse_config(
+            "bytes_type_custom_in=demo.Request.key=crate::SecretBytes,\
+            bytes_type_custom_in=.demo.Request.token.=crate::OtherBytes,\
+            string_type_custom_in= .demo.Request.identity = crate::SecretString",
+        )
+        .unwrap();
+        assert_eq!(
+            config.codegen.bytes_fields,
+            vec![
+                (
+                    ".demo.Request.key".to_owned(),
+                    buffa_codegen::BytesRepr::Custom("crate::SecretBytes".to_owned())
+                ),
+                (
+                    ".demo.Request.token".to_owned(),
+                    buffa_codegen::BytesRepr::Custom("crate::OtherBytes".to_owned())
+                ),
+            ]
+        );
+        assert_eq!(
+            config.codegen.string_fields,
+            vec![(
+                ".demo.Request.identity".to_owned(),
+                buffa_codegen::StringRepr::Custom("crate::SecretString".to_owned())
+            ),]
+        );
+        assert!(parse_config("bytes_type_custom_in=.=crate::SecretBytes").is_ok());
+    }
+
+    #[test]
+    fn custom_field_type_rules_reject_malformed_paths() {
+        for option in ["bytes_type_custom_in", "string_type_custom_in"] {
+            for value in [
+                "",
+                "demo.Key",
+                "=crate::Secret",
+                ".demo..Key=crate::Secret",
+                ".demo.Key=",
+                ".demo.Key=()",
+                ".demo.Key=crate::",
+            ] {
+                assert!(
+                    parse_config(&format!("{option}={value}")).is_err(),
+                    "{option}={value}"
+                );
+            }
         }
     }
 

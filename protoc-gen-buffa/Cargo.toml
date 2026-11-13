@@ -12,3 +12,5 @@ categories = ["development-tools::build-utils", "command-line-utilities"]
 [dependencies]
 buffa = { workspace = true, features = ["std", "fast-utf8"] }
 buffa-codegen = { workspace = true }
+thiserror = { workspace = true }
+syn = { workspace = true }
