@@ -251,6 +251,15 @@ fn rustc_minor() -> u32 {
 }
 
 fn main() {
+    // Compile ordinary vtable collections over an enum-local CLOSED override,
+    // independently of the guarded inspection path.
+    buffa_build::Config::new()
+        .files(&["protos/reflect_enum_override.proto"])
+        .includes(&["protos/"])
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("closed-enum reflection fixture generation failed");
+
     // Separate generations share foreign representations without emitting
     // implementations for either foreign type in this consuming crate.
     for file in [
