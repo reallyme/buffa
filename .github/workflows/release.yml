@@ -1,10 +1,10 @@
 # Modified by ReallyMe Technologies Limited.
-name: Release protoc plugins
+name: Attach protoc plugin binaries
 
-# Manually dispatch only after the fork release tag is approved.
+# Manually dispatch after crates.io publication creates the GitHub release.
 # Builds protoc-gen-reallyme-buffa and protoc-gen-reallyme-buffa-packaging for
 # Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64).
-# Creates a GitHub release with the binaries, SHA-256 checksums,
+# Attaches binaries and SHA-256 checksums to that existing GitHub release, with
 # SLSA build provenance attestations, and cosign signatures.
 
 on:
@@ -12,14 +12,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing ReallyMe tag to build and release (e.g. reallyme-v0.1.0)"
+        description: "Existing published ReallyMe tag to build (e.g. reallyme-v0.1.0)"
         required: true
         type: string
 
 permissions:
-  contents: write      # create releases and upload assets
-  id-token: write      # Sigstore OIDC (cosign + GitHub attestations)
-  attestations: write  # GitHub native attestation API
+  contents: read
 
 env:
   # Both binaries share the protoc-gen-reallyme-buffa prefix, so every glob
@@ -40,6 +38,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
         with:
           ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
       - name: Verify existing tag and matching package version
         id: tag
         shell: bash
@@ -59,6 +58,17 @@ jobs:
           test -f "$notes"
           echo "commit=$tag_commit" >> "$GITHUB_OUTPUT"
           echo "notes=$notes" >> "$GITHUB_OUTPUT"
+      - name: Require the GitHub release created after crate publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_tag=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')
+          is_draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+          if [[ "$release_tag" != "$RELEASE_TAG" || "$is_draft" != false ]]; then
+            echo '::error::Publish the crates and finalize the GitHub release first.'
+            exit 1
+          fi
 
   build:
     needs: verify
@@ -95,6 +105,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
         with:
           ref: ${{ needs.verify.outputs.commit }}
+          persist-credentials: false
 
       # Must name the same toolchain version as rust-toolchain.toml: that
       # file overrides the action-installed default when cargo runs, so a
@@ -149,11 +160,16 @@ jobs:
   release:
     needs: [verify, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
         with:
           ref: ${{ needs.verify.outputs.commit }}
+          persist-credentials: false
 
       - name: Verify the tag still identifies the built source
         shell: bash
@@ -203,11 +219,16 @@ jobs:
               "$file"
           done
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2 (sha-pinned)
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          body_path: ${{ needs.verify.outputs.notes }}
-          files: |
-            artifacts/${{ env.BINARY_PREFIX }}-*
-            artifacts/checksums-sha256.txt
+      - name: Attach assets to the existing published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
+          for file in artifacts/"${BINARY_PREFIX}"-* artifacts/checksums-sha256.txt; do
+            asset_name="${file##*/}"
+            if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --json assets --jq '.assets[].name' | grep -Fxq "$asset_name"; then
+              gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "$file"
+            fi
+          done

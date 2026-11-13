@@ -30,6 +30,7 @@ TRANSIENT_REGISTRY = re.compile(
 
 class Reason(Enum):
     SOURCE = "release-source-invalid"
+    MAIN = "release-main-changed-or-invalid"
     TAG = "release-tag-changed-or-invalid"
     PACKAGES = "release-package-set-invalid"
     ARCHIVE = "release-archive-invalid"
@@ -123,8 +124,30 @@ def verify_identity(repository: str, sha: str, head: str, ref: str,
                     version: str, publishing: bool) -> None:
     if repository != REPOSITORY or COMMIT.fullmatch(sha) is None or sha != head:
         raise ReleaseError(Reason.SOURCE)
-    if publishing and ref != "refs/tags/reallyme-v" + version:
-        raise ReleaseError(Reason.TAG)
+    if publishing and ref != "refs/heads/main":
+        raise ReleaseError(Reason.MAIN)
+
+
+def recorded_run_resume(environment: dict[str, str]) -> bool:
+    # A human rerun preserves the original workflow SHA and reviewed artifacts.
+    # A fresh dispatch from an old branch must never get this exception.
+    attempt = environment.get("GITHUB_RUN_ATTEMPT", "")
+    return (environment.get("GITHUB_ACTIONS") == "true"
+            and environment.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and environment.get("GITHUB_REF") == "refs/heads/main"
+            and environment.get("GITHUB_WORKFLOW_REF") ==
+            "reallyme/buffa/.github/workflows/publish-crates.yml@refs/heads/main"
+            and re.fullmatch(r"[1-9][0-9]*", attempt) is not None
+            and len(attempt) <= 9 and int(attempt) >= 2)
+
+
+def verify_remote_main(lines: str, commit: str, environment: dict[str, str]) -> None:
+    fields = lines.split()
+    if (len(fields) != 2 or fields[1] != "refs/heads/main"
+            or COMMIT.fullmatch(fields[0]) is None):
+        raise ReleaseError(Reason.MAIN)
+    if fields[0] != commit and not recorded_run_resume(environment):
+        raise ReleaseError(Reason.MAIN)
 
 
 def verify_remote_tag(lines: str, ref: str, commit: str) -> None:
@@ -160,9 +183,8 @@ def source(publishing: bool = False) -> Release:
         if not notes.is_file():
             raise ReleaseError(Reason.SOURCE)
         if publishing:
-            ref = "refs/tags/reallyme-v" + version
-            verify_remote_tag(command(["git", "ls-remote", "--exit-code", "--tags",
-                                       "origin", ref, ref + "^{}"]), ref, head)
+            verify_remote_main(command(["git", "ls-remote", "--exit-code", "--heads",
+                                        "origin", "refs/heads/main"]), head, dict(os.environ))
         return Release(head, version, packages)
     except (ValueError, KeyError, TypeError, StopIteration, OSError) as error:
         raise ReleaseError(Reason.SOURCE) from error

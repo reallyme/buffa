@@ -23,6 +23,7 @@ CHECKSUM = "b" * 64
 NAME = "reallyme-buffa"
 VERSION = "0.1.0"
 TAG = "refs/tags/reallyme-v0.1.0"
+MAIN = "refs/heads/main"
 RELEASE = release.Release(SHA, VERSION, (NAME,))
 
 
@@ -92,25 +93,46 @@ class SourceTests(unittest.TestCase):
             self.fail("unexpected source command")
         with patch.object(release, "command", side_effect=respond), patch.dict(
                 os.environ, {"GITHUB_REPOSITORY": "reallyme/buffa", "GITHUB_SHA": SHA,
-                             "GITHUB_REF": TAG}, clear=True):
+                             "GITHUB_REF": MAIN}, clear=True):
             with self.assertRaises(release.ReleaseError) as error:
                 release.source(publishing=True)
         self.assertEqual(error.exception.reason, release.Reason.SOURCE)
 
     def test_identity_requires_fork_and_exact_commit(self):
-        release.verify_identity("reallyme/buffa", SHA, SHA, TAG, VERSION, True)
+        release.verify_identity("reallyme/buffa", SHA, SHA, MAIN, VERSION, True)
         for repository, sha, head in [("another/buffa", SHA, SHA),
                                       ("reallyme/buffa", "a" * 7, SHA),
                                       ("reallyme/buffa", SHA, "c" * 40)]:
             with self.subTest(repository=repository, sha=sha), self.assertRaises(release.ReleaseError):
-                release.verify_identity(repository, sha, head, TAG, VERSION, True)
+                release.verify_identity(repository, sha, head, MAIN, VERSION, True)
 
-    def test_upload_requires_matching_tag_but_dry_run_accepts_branch(self):
-        for ref in ["refs/heads/main", "refs/heads/reallyme-v0.1.0", "refs/tags/v0.1.0",
+    def test_upload_requires_main_but_dry_run_accepts_release_branch(self):
+        for ref in ["refs/heads/reallyme/release-0.1.0", "refs/heads/reallyme-v0.1.0", "refs/tags/v0.1.0",
                     "refs/tags/reallyme-v0.2.0"]:
             with self.subTest(ref=ref), self.assertRaises(release.ReleaseError):
                 release.verify_identity("reallyme/buffa", SHA, SHA, ref, VERSION, True)
         release.verify_identity("reallyme/buffa", SHA, SHA, "refs/heads/main", VERSION, False)
+
+    def test_current_main_is_required_for_a_fresh_publication(self):
+        release.verify_remote_main(SHA + "\t" + MAIN, SHA, {})
+        for lines in ["", "c" * 40 + "\t" + MAIN, SHA + "\t" + TAG,
+                      SHA + "\t" + MAIN + "\n" + SHA + "\t" + MAIN]:
+            with self.subTest(lines=lines), self.assertRaises(release.ReleaseError):
+                release.verify_remote_main(lines, SHA, {})
+
+    def test_only_recorded_main_workflow_reruns_can_resume_after_main_advances(self):
+        environment = {
+            "GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REF": MAIN, "GITHUB_RUN_ATTEMPT": "2",
+            "GITHUB_WORKFLOW_REF": "reallyme/buffa/.github/workflows/publish-crates.yml@refs/heads/main",
+        }
+        release.verify_remote_main("c" * 40 + "\t" + MAIN, SHA, environment)
+        for key, value in [("GITHUB_ACTIONS", "false"), ("GITHUB_EVENT_NAME", "push"),
+                           ("GITHUB_REF", TAG), ("GITHUB_RUN_ATTEMPT", "1"),
+                           ("GITHUB_RUN_ATTEMPT", "bad"), ("GITHUB_WORKFLOW_REF", "other")]:
+            invalid = dict(environment, **{key: value})
+            with self.subTest(key=key, value=value), self.assertRaises(release.ReleaseError):
+                release.verify_remote_main("c" * 40 + "\t" + MAIN, SHA, invalid)
 
     def test_lightweight_and_annotated_tags(self):
         release.verify_remote_tag(SHA + "\t" + TAG, TAG, SHA)

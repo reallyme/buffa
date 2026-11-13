@@ -159,7 +159,7 @@ For the 32-bit tasks, run `task install-targets` first to install the additional
 ## Continuous Integration
 
 The manual crates.io workflow reuses the complete CI suite before publication.
-See [RELEASE.md](RELEASE.md) for the approved-tag, package artifact and credential
+See [RELEASE.md](RELEASE.md) for the approved-main/source, package artifact and credential
 boundaries. Workflow and release-helper changes must pass `actionlint`,
 `scripts/check-action-pins.sh`, and the release-helper unit tests:
 
@@ -186,11 +186,12 @@ Isolation needs one proto file per message, so each shape is also defined under 
 
 ### Reproducible benchmark roots per release
 
-The history is reproducible because every release has a committed branch carrying the exact harness used to measure it. **When you tag a release `vX.Y.Z`, create and push `historical-benchmark/vX.Y.Z` from that tag:**
+The history is reproducible because each benchmark archive keeps the exact harness used to measure its release. The existing `historical-benchmark/v*` branches refer to upstream releases and remain unchanged.
+
+The fork's publication workflow creates `reallyme-vX.Y.Z` only after crates.io publication succeeds. If a benchmark archive is needed for that fork release, prepare it from the existing tag after publication; pushing the additional branch requires its own approval:
 
 ```sh
-git branch historical-benchmark/vX.Y.Z vX.Y.Z
-git push origin historical-benchmark/vX.Y.Z
+git branch historical-benchmark/reallyme-vX.Y.Z reallyme-vX.Y.Z
 ```
 
 Releases cut from `main` already carry the isolated harness, so this branch is just a stable pointer to measure from. The pre-isolation back-catalogue (v0.1.0–v0.7.1) has the harness retrofitted onto each of these branches instead. Either way, `historical-benchmark/*` is the source of truth for rebuilding any cell of the per-shape history — see `benchmarks/history/DESIGN.md`.
