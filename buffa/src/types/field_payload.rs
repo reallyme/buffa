@@ -46,6 +46,11 @@ impl<B: Buf> Buf for FieldPayload<B> {
         self.inner.chunk()
     }
 
+    #[cfg(feature = "std")]
+    fn chunks_vectored<'a>(&'a self, destination: &mut [std::io::IoSlice<'a>]) -> usize {
+        self.inner.chunks_vectored(destination)
+    }
+
     fn advance(&mut self, count: usize) {
         self.inner.advance(count);
     }
@@ -54,6 +59,21 @@ impl<B: Buf> Buf for FieldPayload<B> {
         // Preserve Bytes' shared-allocation path, with Take enforcing the
         // boundary before forwarding to the underlying buffer.
         self.inner.copy_to_bytes(length)
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn vectored_chunks_remain_inside_the_validated_window() {
+        let input = b"abc".as_slice().chain(b"def".as_slice());
+        let payload = FieldPayload::new(input, 4);
+        let mut chunks = [std::io::IoSlice::new(&[]), std::io::IoSlice::new(&[])];
+        assert_eq!(payload.chunks_vectored(&mut chunks), 2);
+        assert_eq!(&*chunks[0], b"abc");
+        assert_eq!(&*chunks[1], b"d");
+        assert_eq!(payload.remaining(), 4);
     }
 }
 
