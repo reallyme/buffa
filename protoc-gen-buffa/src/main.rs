@@ -85,6 +85,10 @@ fn main() {
             let response = CodeGeneratorResponse {
                 error: Some(format!("{}", e)),
                 supported_features: Some(feature_flags()),
+                // Buf validates advertised edition support even for failures;
+                // keep the range so it can display the actual configuration error.
+                minimum_edition: Some(Edition::EDITION_PROTO2 as i32),
+                maximum_edition: Some(Edition::EDITION_2024 as i32),
                 ..Default::default()
             };
             write_response(&response).unwrap_or_else(|io_err| {
