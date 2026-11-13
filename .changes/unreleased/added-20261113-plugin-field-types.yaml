@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+    **`protoc-gen-buffa` exposes per-field custom byte and string representations** through repeatable `bytes_type_custom_in=<proto_path>=<rust_type_path>` and `string_type_custom_in=<proto_path>=<rust_type_path>` options. They use the same path-prefix and last-match-wins rules as the corresponding `buffa-build` configuration methods, enabling guarded field types in `buf generate` workflows without source post-processing.
+time: 2026-11-13T12:00:00+01:00
