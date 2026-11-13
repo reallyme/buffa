@@ -1392,8 +1392,8 @@ pub struct CodeGenConfig {
     /// the type's policy: singular, optional, repeated and oneof fields, `map`
     /// values, and the corresponding fields of generated views and owned views.
     /// Paths are compared as parsed Rust types, so whitespace does not matter.
-    /// A listed type that no rule names produces
-    /// [`CodeGenWarning::JsonPolicyTypeMatchedNothing`]; a listed `string` type
+    /// A listed type that no unshadowed representation rule names produces
+    /// [`CodeGenError::JsonPolicyTypeMatchedNothing`]; a listed `string` type
     /// used as a `map` key is a [`CodeGenError::JsonPolicyMapKey`]. Unlisted
     /// custom types keep their existing JSON behavior.
     pub json_policy_types: Vec<String>,
@@ -2336,16 +2336,6 @@ pub enum CodeGenWarning {
     /// [`json_policy_types`](CodeGenConfig::json_policy_types) is non-empty but
     /// JSON generation is off, so no field uses a policy.
     JsonPolicyTypesRequireJson,
-    /// A [`json_policy_types`](CodeGenConfig::json_policy_types) entry names a
-    /// type that no [`bytes_fields`](CodeGenConfig::bytes_fields) or
-    /// [`string_fields`](CodeGenConfig::string_fields) custom rule selects, so
-    /// it changed nothing. Usually the path is spelled differently from the
-    /// representation rule's.
-    #[non_exhaustive]
-    JsonPolicyTypeMatchedNothing {
-        /// The listed Rust type path.
-        rust_type: String,
-    },
     /// `idiomatic_field_names` found two or more members of one message whose
     /// snake_case conversions collide, and adjusted the affected Rust names
     /// deterministically (`_f<number>` suffix for fields, verbatim fallback
@@ -2596,14 +2586,6 @@ impl core::fmt::Display for CodeGenWarning {
                     "json_policy_type requires generate_json (there is no generated \
                      JSON to route through a policy) — enable generate_json \
                      (buffa-build: `.generate_json(true)`; plugin: `json=true`)"
-                )
-            }
-            Self::JsonPolicyTypeMatchedNothing { rust_type } => {
-                write!(
-                    f,
-                    "json_policy_type '{rust_type}' is not the type of any \
-                     bytes_type_custom / string_type_custom rule, so it changed nothing \
-                     — name the type exactly as its representation rule does"
                 )
             }
             Self::DenyUnknownJsonFieldsRequiresJson => {
@@ -2902,6 +2884,23 @@ fn rule_matches_field_in(
 /// [`CodeGenConfig::string_fields`], in order.
 fn rule_paths<R>(rules: &[(String, R)]) -> Vec<&String> {
     rules.iter().map(|(path, _)| path).collect()
+}
+
+/// A later ancestor rule replaces this rule everywhere, independently of which
+/// directory a plugin request happens to contain. Narrow overrides do not make
+/// an earlier package-wide rule inert outside their own prefixes.
+fn unshadowed_rules<R>(rules: &[(String, R)]) -> impl Iterator<Item = &R> {
+    rules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (path, repr))| {
+            let next = index.checked_add(1)?;
+            (!rules
+                .iter()
+                .skip(next)
+                .any(|(later, _)| context::matches_proto_prefix(later, path)))
+            .then_some(repr)
+        })
 }
 
 /// Generate Rust source files from a set of file descriptors.
@@ -3601,28 +3600,52 @@ pub fn generate_with_diagnostics(
     if !config.json_policy_types.is_empty() && !config.generate_json {
         ctx.warn(CodeGenWarning::JsonPolicyTypesRequireJson);
     }
+    // Validate configuration bindings, not just fields in this invocation.
+    // Buf's directory strategy gives each process only that directory's files;
+    // policy types used by another directory must still be accepted here.
+    let representation_types = unshadowed_rules(&config.bytes_fields)
+        .filter_map(|repr| match repr {
+            BytesRepr::Custom(path) => Some(path),
+            _ => None,
+        })
+        .chain(
+            unshadowed_rules(&config.string_fields).filter_map(|repr| match repr {
+                StringRepr::Custom(path) => Some(path),
+                _ => None,
+            }),
+        )
+        .collect::<Vec<_>>();
     for rust_type in &config.json_policy_types {
         let key = context::rust_type_key(rust_type);
-        let named = config
-            .bytes_fields
+        let selected = representation_types
             .iter()
-            .filter_map(|(_, repr)| match repr {
-                BytesRepr::Custom(path) => Some(path),
-                _ => None,
-            })
-            .chain(
-                config
-                    .string_fields
-                    .iter()
-                    .filter_map(|(_, repr)| match repr {
-                        StringRepr::Custom(path) => Some(path),
-                        _ => None,
-                    }),
-            )
             .any(|path| context::rust_type_key(path) == key);
-        if !named {
-            ctx.warn(CodeGenWarning::JsonPolicyTypeMatchedNothing {
+        if !selected {
+            return Err(CodeGenError::JsonPolicyTypeMatchedNothing {
                 rust_type: rust_type.clone(),
+            });
+        }
+    }
+    // A correctly-spelled rule must not hide another rule that silently lost
+    // the policy. Compare type names only after checking exact parsed spelling;
+    // deliberate same-name types remain usable by listing each one explicitly.
+    for selected in representation_types {
+        if config
+            .json_policy_types
+            .iter()
+            .any(|listed| context::rust_type_key(listed) == context::rust_type_key(selected))
+        {
+            continue;
+        }
+        let Some(selected_name) = context::rust_type_name(selected) else {
+            continue;
+        };
+        if let Some(listed) = config.json_policy_types.iter().find(|listed| {
+            context::rust_type_name(listed).as_deref() == Some(selected_name.as_str())
+        }) {
+            return Err(CodeGenError::JsonPolicyTypeNearMiss {
+                selected: selected.clone(),
+                listed: listed.clone(),
             });
         }
     }
@@ -5629,6 +5652,13 @@ pub fn apply_companions(files: &mut Vec<GeneratedFile>, companions: Vec<Generate
 #[derive(Debug, Clone, thiserror::Error)]
 #[non_exhaustive]
 pub enum CodeGenError {
+    /// A listed policy type is not selected by any unshadowed representation rule.
+    #[error("json_policy_type '{rust_type}' is not selected by any unshadowed bytes/string rule; match the representation type spelling exactly")]
+    JsonPolicyTypeMatchedNothing { rust_type: String },
+    /// A representation has the same final type name as a listed policy, but a different spelling.
+    #[error("representation type '{selected}' has the same name as json_policy_type '{listed}', but a different spelling; list the exact type or correct the representation rule")]
+    JsonPolicyTypeNearMiss { selected: String, listed: String },
+
     /// A required field was absent in a descriptor, or a message or enum name
     /// was empty.
     ///

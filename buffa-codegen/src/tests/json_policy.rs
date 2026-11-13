@@ -41,6 +41,8 @@ fn policy_file() -> FileDescriptorProto {
                 ..make_field("modes", 3, Label::LABEL_REPEATED, Type::TYPE_MESSAGE)
             },
             make_field("plain", 4, Label::LABEL_OPTIONAL, Type::TYPE_BYTES),
+            make_field("embedding", 5, Label::LABEL_REPEATED, Type::TYPE_FLOAT),
+            make_field("ordinary", 6, Label::LABEL_REPEATED, Type::TYPE_FLOAT),
         ],
         nested_type: vec![modes_entry],
         ..Default::default()
@@ -101,17 +103,72 @@ fn listed_types_use_their_policy_and_unlisted_types_are_unchanged() {
 }
 
 #[test]
-fn a_listed_type_no_rule_selects_warns() {
+fn a_listed_type_no_rule_selects_is_an_error() {
     let mut config = policy_config();
-    config.json_policy_types = vec!["crate::Secret".to_string(), "crate::Missing".to_string()];
-    let (_, warnings) = generate_policy(&config).unwrap();
-    assert_eq!(
-        warnings,
-        [CodeGenWarning::JsonPolicyTypeMatchedNothing {
-            rust_type: "crate::Missing".to_string()
-        }]
+    config.json_policy_types = vec!["crate::Secret".into(), "crate::Missing".into()];
+    assert!(
+        matches!(generate_policy(&config),Err(CodeGenError::JsonPolicyTypeMatchedNothing { rust_type }) if rust_type=="crate::Missing")
     );
-    assert!(warnings[0].to_string().contains("crate::Missing"));
+}
+
+#[test]
+fn a_shadowed_representation_does_not_count_as_a_selected_policy_type() {
+    let mut config = policy_config();
+    config.json_policy_types = vec!["crate::Secret".into()];
+    config.bytes_fields.push((
+        ".policy.test.Holder.key".into(),
+        BytesRepr::Custom("crate::Plain".into()),
+    ));
+    assert!(matches!(
+        generate_policy(&config),
+        Err(CodeGenError::JsonPolicyTypeMatchedNothing { .. })
+    ));
+}
+
+#[test]
+fn a_second_rule_with_a_near_miss_is_an_error() {
+    let mut config = policy_config();
+    config.json_policy_types = vec!["crate::Secret".into()];
+    config.bytes_fields.push((
+        ".policy.test.Holder.plain".into(),
+        BytesRepr::Custom("::crate::Secret".into()),
+    ));
+    assert!(
+        matches!(generate_policy(&config),Err(CodeGenError::JsonPolicyTypeNearMiss {selected,listed}) if selected=="::crate::Secret" && listed=="crate::Secret")
+    );
+}
+
+#[test]
+fn global_policy_bindings_do_not_require_fields_in_each_directory() {
+    let mut config = policy_config();
+    config.string_fields.push((
+        ".other_directory.Secret.name".into(),
+        StringRepr::Custom("crate::OtherText".into()),
+    ));
+    config.json_policy_types = vec!["crate::Secret".into(), "crate::OtherText".into()];
+    // This request contains policy.proto only. The other directory's rule is
+    // still a valid configuration binding, and its usual unmatched-field
+    // warning remains visible rather than becoming a false policy error.
+    let (_, warnings) = generate_policy(&config).unwrap();
+    assert!(warnings
+        .iter()
+        .any(|warning| matches!(warning, CodeGenWarning::FieldTypeRuleMatchedNothing { .. })));
+    config.json_policy_types.push("crate::Misspelled".into());
+    assert!(matches!(
+        generate_policy(&config),
+        Err(CodeGenError::JsonPolicyTypeMatchedNothing { .. })
+    ));
+}
+
+#[test]
+fn deliberately_distinct_same_name_types_must_each_be_listed() {
+    let mut config = policy_config();
+    config.bytes_fields.push((
+        ".policy.test.Holder.plain".into(),
+        BytesRepr::Custom("other::Secret".into()),
+    ));
+    config.json_policy_types = vec!["crate::Secret".into(), "other::Secret".into()];
+    assert!(generate_policy(&config).is_ok());
 }
 
 #[test]

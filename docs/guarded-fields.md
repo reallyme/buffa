@@ -104,6 +104,12 @@ default value, an optional field or oneof variant becomes unset, and a `null`
 element of a `repeated` field or `map` value is rejected, before the policy
 runs. Unlisted custom types keep their existing JSON behavior.
 
+A listed policy type that no unshadowed representation rule selects is a codegen
+error. A rule selecting a type with the same final name but a different path
+from a listed policy type is also an error; list both paths explicitly when
+they intentionally name different types. Bindings are checked independently of
+which directory a Buf plugin request contains.
+
 To reject unknown JSON fields, use `deny_unknown_json_fields=true`. Its errors
 can name the unexpected field, so keep diagnostics from untrusted input out of
 logs that must not contain attacker-controlled text.
@@ -157,3 +163,7 @@ let request: Request = buffa::DecodeOptions::new()
 ```
 
 JSON input needs its own size and recursion limits.
+
+Binding and spelling validation also runs with JSON disabled. Valid policy
+configuration then warns that its JSON behavior is inactive; invalid bindings
+remain errors. Intentional same-name types must each supply and list a policy.

@@ -2198,6 +2198,18 @@ pub(crate) fn rust_type_key(path: &str) -> String {
     }
 }
 
+/// Final path segment used to detect a policy-list spelling mismatch.
+pub(crate) fn rust_type_name(path: &str) -> Option<String> {
+    match syn::parse_str::<syn::Type>(path).ok()? {
+        syn::Type::Path(path) => path
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string()),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
