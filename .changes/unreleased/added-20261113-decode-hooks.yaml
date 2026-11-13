@@ -1,0 +1,4 @@
+kind: Added
+body: |-
+    **Custom string and byte representations can control binary decoding allocations** by overriding the default `ProtoString::decode` and `ProtoBytes::decode` methods. The generic decode helpers dispatch through these hooks, allowing a representation to handle fragmented input without an ordinary intermediate `Bytes` allocation. Existing implementations keep their previous behavior through the default `from_wire` path.
+time: 2026-11-13T12:00:00+01:00

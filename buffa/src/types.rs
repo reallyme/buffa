@@ -1411,6 +1411,27 @@ pub trait ProtoString:
     /// with [`DecodeError::Custom`] (carrying a static reason), or return any
     /// other [`DecodeError`] variant.
     fn from_wire(payload: WirePayload<'_>) -> Result<Self, DecodeError>;
+
+    /// Decode one length-delimited field from the input buffer.
+    ///
+    /// The default passes a [`WirePayload`] to [`Self::from_wire`]. Override
+    /// this when the representation must control temporary allocations too,
+    /// such as keeping fragmented input in storage that is wiped on drop.
+    /// Implementations must consume exactly one length-delimited payload and
+    /// preserve the content accepted by `from_wire`.
+    ///
+    /// # Errors
+    ///
+    /// Returns malformed-length, truncated-input, or representation errors.
+    /// On error, overrides may leave the input cursor at an unspecified
+    /// position. The default consumes a successfully decoded length prefix;
+    /// length overflow or a truncated payload leaves the payload unconsumed.
+    /// If `from_wire` fails, a contiguous borrowed payload remains unconsumed,
+    /// while a fragmented payload has already been copied and consumed.
+    /// Errors while decoding the length prefix have no cursor guarantee.
+    fn decode(buf: &mut impl Buf) -> Result<Self, DecodeError> {
+        read_field_payload(buf, false, Self::from_wire)
+    }
 }
 
 impl ProtoString for String {
@@ -1428,9 +1449,10 @@ const _: fn() = || {
 };
 
 /// Decode a length-delimited `string` into a configurable [`ProtoString`] type
-/// by handing its wire payload to [`ProtoString::from_wire`].
+/// by dispatching to [`ProtoString::decode`].
 ///
-/// The representation's `from_wire` decides validation and borrow-vs-own, so an
+/// The default hook hands a wire payload to `from_wire`, which decides
+/// validation and borrow-vs-own, so an
 /// inline-capable type avoids the transient `String` allocation that a
 /// `From<String>` path would force. Generated code uses the in-place
 /// [`merge_string`] for default `String` fields (allocation reuse) and this
@@ -1445,7 +1467,7 @@ const _: fn() = || {
 ///   representation's [`from_wire`](ProtoString::from_wire).
 #[inline]
 pub fn decode_string_to<S: ProtoString>(buf: &mut impl Buf) -> Result<S, DecodeError> {
-    read_field_payload(buf, false, S::from_wire)
+    S::decode(buf)
 }
 
 /// Encode a `bytes` value as a varint length prefix followed by raw bytes
@@ -1600,8 +1622,9 @@ pub trait ProtoBytes:
     + AsRef<[u8]>
     + From<Vec<u8>>
 {
-    /// Whether [`decode_bytes_to`] hands [`from_wire`](Self::from_wire) an
-    /// owned [`WirePayload`] for every field, including a field that is
+    /// Whether the default [`decode`](Self::decode) implementation hands
+    /// [`from_wire`](Self::from_wire) an owned [`WirePayload`] for every field,
+    /// including a field that is
     /// contiguous in the input.
     ///
     /// Set it to `true` for a type that keeps the [`Bytes`] from
@@ -1615,7 +1638,7 @@ pub trait ProtoBytes:
     /// With `true`, such a type copies twice from an input that cannot share:
     /// once into a temporary `Bytes` and once into the value.
     ///
-    /// The const changes only what [`decode_bytes_to`] passes. `from_wire`
+    /// This const controls only the default decode implementation. `from_wire`
     /// still has to accept a borrowed payload, which any caller can build with
     /// [`WirePayload::borrowed`].
     ///
@@ -1689,9 +1712,9 @@ pub trait ProtoBytes:
     /// unless the type sets
     /// [`PREFERS_OWNED_PAYLOAD`](Self::PREFERS_OWNED_PAYLOAD).
     ///
-    /// Only binary decode calls `from_wire`. JSON, text format, view→owned
-    /// conversion, declared field defaults and `arbitrary` build the value
-    /// through `From<Vec<u8>>`.
+    /// The default binary decode hook calls `from_wire`. JSON, text format,
+    /// view→owned conversion, declared field defaults and `arbitrary` build the
+    /// value through `From<Vec<u8>>`.
     ///
     /// # Errors
     ///
@@ -1700,6 +1723,28 @@ pub trait ProtoBytes:
     /// value with [`DecodeError::Custom`] (carrying a static reason), or return
     /// any other [`DecodeError`] variant.
     fn from_wire(payload: WirePayload<'_>) -> Result<Self, DecodeError>;
+
+    /// Decode one length-delimited field from the input buffer.
+    ///
+    /// The default passes a [`WirePayload`] to [`Self::from_wire`]. Override
+    /// this when the representation must control temporary allocations too,
+    /// such as keeping fragmented input in storage that is wiped on drop.
+    /// Implementations must consume exactly one length-delimited payload and
+    /// preserve the content accepted by `from_wire`.
+    ///
+    /// # Errors
+    ///
+    /// Returns malformed-length, truncated-input, or representation errors.
+    /// On error, overrides may leave the input cursor at an unspecified
+    /// position. The default consumes a successfully decoded length prefix;
+    /// length overflow or a truncated payload leaves the payload unconsumed.
+    /// If `from_wire` fails, a borrowed payload remains unconsumed, while an
+    /// owned payload has already been consumed. Payloads are owned when
+    /// fragmented or when [`Self::PREFERS_OWNED_PAYLOAD`] is set.
+    /// Errors while decoding the length prefix have no cursor guarantee.
+    fn decode(buf: &mut impl Buf) -> Result<Self, DecodeError> {
+        read_field_payload(buf, Self::PREFERS_OWNED_PAYLOAD, Self::from_wire)
+    }
 
     /// The representation's bytes as a reference-counted [`Bytes`] handle,
     /// when one exists.
@@ -1759,8 +1804,9 @@ const _: fn() = || {
 /// Decode a length-delimited `bytes` value into a configurable [`ProtoBytes`]
 /// type.
 ///
-/// This is the generic counterpart to [`decode_bytes`]: it hands the field's
-/// wire payload to [`ProtoBytes::from_wire`]. A contiguous payload is borrowed
+/// This is the generic counterpart to [`decode_bytes`], dispatching to
+/// [`ProtoBytes::decode`]. Its default hook hands the field's wire payload to
+/// [`ProtoBytes::from_wire`]. Under that default, a contiguous payload is borrowed
 /// unless `B` sets [`ProtoBytes::PREFERS_OWNED_PAYLOAD`], as `Bytes` does. With
 /// the const set, the payload is an owned [`Bytes`] that shares a `Bytes`
 /// input, and the value keeps that input allocated; see the const.
@@ -1779,7 +1825,7 @@ const _: fn() = || {
 ///   [`from_wire`](ProtoBytes::from_wire).
 #[inline]
 pub fn decode_bytes_to<B: ProtoBytes>(buf: &mut impl Buf) -> Result<B, DecodeError> {
-    read_field_payload(buf, B::PREFERS_OWNED_PAYLOAD, B::from_wire)
+    B::decode(buf)
 }
 
 // ---------------------------------------------------------------------------
@@ -4095,3 +4141,7 @@ mod tests {
         assert_eq!(out_u64, vec![u64::MAX]);
     }
 }
+
+#[cfg(test)]
+#[path = "types_decode_hooks.rs"]
+mod decode_hook_tests;
