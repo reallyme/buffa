@@ -2471,7 +2471,7 @@ buffa_build::Config::new()
   `foo.reflect()` borrows `foo` in place: no encode/decode round-trip, no
   per-field allocation. Reflecting a decoded view this way is several times
   faster than the bridge — see the [README's reflection
-  benchmarks](../README.md#reflection). With views disabled, only the owned
+  benchmarks](overview.md#reflection). With views disabled, only the owned
   impls are emitted.
 - **`ReflectMode::Bridge`** — `foo.reflect()` re-encodes the message and
   decodes the bytes into a `DynamicMessage`. Smaller generated code, one
@@ -2545,7 +2545,7 @@ Two Cargo notes:
 
 For the cost of reflection relative to the generated codec — and when to
 prefer views instead — see the [README's reflection
-section](../README.md#reflection).
+section](overview.md#reflection).
 
 ## Editions support
 

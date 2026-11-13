@@ -11,6 +11,8 @@ First ReallyMe release. The upstream base is commit `104716922c66e21cf26895a2a5a
 
 ### Added
 
+- A fork-specific README with the original upstream README preserved, and a manually approved CI release pipeline that verifies source, full tests and package checksums before uploading.
+
 - Nine packages under the `reallyme-` prefix, with the existing Rust library names and exact dependencies within the package family.
 - Separate generator binaries, `protoc-gen-reallyme-buffa` and `protoc-gen-reallyme-buffa-packaging`, which report the fork version. Generated files identify the fork generator and its version.
 - Per-field custom bytes, string and repeated representations in the plugin, and opaque bounded decode hooks for bytes and strings.

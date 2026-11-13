@@ -535,7 +535,7 @@ Reflection lets code process messages by descriptor rather than by static type �
 | Generated code size | smaller | one `impl ReflectMessage` per type |
 | Requires views | no | no (view impls are added when views exist; the owned impl is self-contained) |
 
-Vtable mode is what makes reflection cheap enough to put on a hot path: reflecting a decoded view runs several times faster than the bridge round-trip (see [Reflection](README.md#reflection)), because it reuses the zero-copy `decode_view` and never materializes a `DynamicMessage`.
+Vtable mode is what makes reflection cheap enough to put on a hot path: reflecting a decoded view runs several times faster than the bridge round-trip (see [Reflection](docs/overview.md#reflection)), because it reuses the zero-copy `decode_view` and never materializes a `DynamicMessage`.
 
 **Container elements and coherence.** `List`/`Map` values dispatch through `ReflectElement` (element → `ValueRef`) and `ReflectMapKey` (key → `MapKeyRef`), with generic `ReflectList for Vec<T>` / `RepeatedView<T>` and `ReflectMap` impls on top. `ReflectElement` is a *closed set of concrete impls* — scalars, `&str`/`&[u8]`, `String`/`Vec<u8>`/`Bytes`, codegen-emitted impls for each message and closed enum, and a codegen-emitted impl for each local custom `string_type`/`bytes_type` element used in a repeated field — rather than a blanket `impl<T: SomeTrait> ReflectElement for T`, which would collide with the concrete scalar impls under Rust's coherence rules. This coherence wall is why a foreign custom element type cannot be reflected in a repeated field; see §12.
 

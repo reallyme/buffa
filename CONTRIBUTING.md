@@ -2,11 +2,12 @@
 
 <!-- Modified by ReallyMe Technologies Limited. -->
 
-See [DESIGN.md](DESIGN.md) for the architectural overview and [README.md](README.md) for the workspace layout.
+See [DESIGN.md](DESIGN.md) for the architectural overview and [the overview](docs/overview.md) for the workspace layout.
 
 ## Prerequisites
 
 - **Rust toolchain** — pinned by `rust-toolchain.toml`; rustup installs it automatically on the first `cargo` invocation. This keeps local `cargo fmt`/`cargo clippy` output identical to the CI lint job (rustfmt formatting drifts across releases, so an unpinned toolchain can disagree with CI). Bump the pin together with the `lint-and-test` toolchain in `.github/workflows/ci.yml`.
+- **Python 3.11+** — release helper tests and package/source verification use the standard library only.
 - **protoc v27+** — the test suite includes editions-syntax protos (`edition = "2023"`). The `editions_2024.proto` test requires protoc v32+ (the first release that accepts edition 2024 without `--experimental_editions`) — it's skipped with a cargo warning on older versions. Ubuntu's apt `protobuf-compiler` (v21.12) is too old. Run `task install-protoc` to download the CI-matched version into `.local/` (requires `gh` authenticated), then use `task test-local`.
 
 ## Changelog Entries
@@ -157,9 +158,18 @@ For the 32-bit tasks, run `task install-targets` first to install the additional
 
 ## Continuous Integration
 
+The manual crates.io workflow reuses the complete CI suite before publication.
+See [RELEASE.md](RELEASE.md) for the approved-tag, package artifact and credential
+boundaries. Workflow and release-helper changes must pass `actionlint`,
+`scripts/check-action-pins.sh`, and the release-helper unit tests:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_release.py
+```
+
 GitHub Actions CI (`.github/workflows/ci.yml`) runs on every push to `main` and on all pull requests. Jobs:
 
-- **lint-and-test** — clippy, `cargo test --workspace`, clippy and tests for `buffa-test` with its `arbitrary` feature (`task test-arbitrary` locally), and strict rustdoc (`task doc` locally), on the pinned toolchain
+- **lint-and-test** — strict Clippy and tests for the default and all-feature workspace, plus strict rustdoc (`task doc` locally), on the pinned toolchain
 - **lint-markdown** — markdownlint over all `*.md` (config: `.markdownlint.json`)
 - **msrv-check** — `cargo check --workspace` on Rust 1.75 (the declared `rust-version`), then the table codec's tests on Rust 1.77, the oldest compiler that builds it
 - **check-nostd** — no_std (host + bare-metal ARM) and 32-bit compilation checks
