@@ -4,10 +4,14 @@
 """Publish checked archives in dependency order, resuming only identical uploads."""
 
 import argparse
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from http.client import HTTPException
 import json
+import math
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -19,7 +23,32 @@ from release_support import (DIGEST, ROOT, TRANSIENT_REGISTRY, Reason, Release,
 
 ATTEMPTS = 12
 RETRY_SECONDS = 30
+RATE_LIMIT_RETRY_SECONDS = 60
+RATE_LIMIT_MARGIN_SECONDS = 10
+MAX_RATE_LIMIT_WAIT_SECONDS = 15 * 60
 MAX_RESPONSE_BYTES = 131_072
+RATE_LIMIT = re.compile(r"\b429\b|too many requests|rate.limit|too many new crates", re.I)
+
+
+def retry_after_seconds(output: str, now: datetime | None = None) -> int:
+    # Match SSI's registry-supplied retry date, including its safety margin.
+    # New crate names refill only once per ten minutes after the initial burst;
+    # short fixed retries exhaust their budget before that allowance returns.
+    match = re.search(r"try again after ([^\r\n.]+ GMT)", output, re.I)
+    if match is None:
+        return RATE_LIMIT_RETRY_SECONDS
+    try:
+        retry_at = parsedate_to_datetime(match[1])
+        current = datetime.now(timezone.utc) if now is None else now
+        delay = max(RATE_LIMIT_MARGIN_SECONDS,
+                    math.ceil((retry_at - current).total_seconds()) + RATE_LIMIT_MARGIN_SECONDS)
+    except (TypeError, ValueError, OverflowError):
+        return RATE_LIMIT_RETRY_SECONDS
+    # Allow the documented cooldown without letting an unexpected remote date
+    # hold a credentialed runner indefinitely. Do not log the registry's text.
+    if delay > MAX_RATE_LIMIT_WAIT_SECONDS:
+        raise ReleaseError(Reason.RATE_LIMIT)
+    return delay
 
 
 def registry_checksum(name: str, version: str) -> str | None:
@@ -96,10 +125,15 @@ def publish_one(release: Release, name: str, checksum: str) -> None:
         # Cargo may have uploaded successfully before its index poll failed.
         if registry_matches(name, release.version, checksum):
             return
-        if attempt + 1 == ATTEMPTS or TRANSIENT_REGISTRY.search(result.stdout + result.stderr) is None:
+        output = result.stdout + "\n" + result.stderr
+        rate_limited = RATE_LIMIT.search(output) is not None
+        if attempt + 1 == ATTEMPTS:
+            raise ReleaseError(Reason.RATE_LIMIT if rate_limited else Reason.PUBLISH)
+        if not rate_limited and TRANSIENT_REGISTRY.search(output) is None:
             raise ReleaseError(Reason.PUBLISH)
-        print("Waiting for the registry before retrying: " + name, flush=True)
-        time.sleep(RETRY_SECONDS)
+        delay = retry_after_seconds(output) if rate_limited else RETRY_SECONDS
+        print("Waiting for the registry before retrying: " + name + " (" + str(delay) + "s)", flush=True)
+        time.sleep(delay)
 
 
 def main() -> int:
