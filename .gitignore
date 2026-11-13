@@ -1,4 +1,6 @@
 /target
+# Release helper bytecode is local interpreter state, not release source.
+/scripts/__pycache__/
 # Conformance proto files are fetched from the tools image.
 conformance/protos/
 conformance/target-nostd/
