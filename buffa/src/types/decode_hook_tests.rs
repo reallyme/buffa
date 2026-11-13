@@ -34,7 +34,7 @@ impl AsRef<str> for Override<String> {
 }
 
 /// Copy every remaining byte of `payload`, chunk by chunk.
-fn drain(payload: &mut Take<impl Buf>) -> Vec<u8> {
+fn drain(payload: &mut FieldPayload<impl Buf>) -> Vec<u8> {
     let mut out = Vec::with_capacity(payload.remaining());
     while payload.has_remaining() {
         let chunk = payload.chunk();
@@ -49,7 +49,7 @@ impl ProtoBytes for Override<Vec<u8>> {
     fn from_wire(_: WirePayload<'_>) -> Result<Self, DecodeError> {
         Err(DecodeError::Custom("from_wire must not be called"))
     }
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         Ok(Self(drain(payload)))
     }
 }
@@ -57,7 +57,7 @@ impl ProtoString for Override<String> {
     fn from_wire(_: WirePayload<'_>) -> Result<Self, DecodeError> {
         Err(DecodeError::Custom("from_wire must not be called"))
     }
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         String::from_utf8(drain(payload))
             .map(Self)
             .map_err(|_| DecodeError::InvalidUtf8)
@@ -119,7 +119,7 @@ impl ProtoBytes for FirstByte {
     fn from_wire(_: WirePayload<'_>) -> Result<Self, DecodeError> {
         Err(DecodeError::Custom("from_wire must not be called"))
     }
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         if !payload.has_remaining() {
             return Ok(Self::default());
         }
@@ -218,17 +218,36 @@ impl<const OWNED: bool> ProtoBytes for ViaDefault<OWNED> {
 #[test]
 fn default_hook_reads_only_the_bounded_payload() {
     let mut input = FIELD_THEN_NEXT.as_slice();
-    let mut payload = (&mut input).take(2);
+    let mut payload = FieldPayload::new(&mut input, 2);
     let value = ViaDefault::<false>::decode_length_delimited(&mut payload).unwrap();
     assert_eq!(&*value, &FIELD_THEN_NEXT[..2]);
     assert_eq!(payload.remaining(), 0);
     assert_eq!(input, &FIELD_THEN_NEXT[2..]);
 
     let mut input = FIELD_THEN_NEXT.as_slice();
-    let mut payload = (&mut input).take(2);
+    let mut payload = FieldPayload::new(&mut input, 2);
     let value = ViaDefault::<true>::decode_length_delimited(&mut payload).unwrap();
     assert_eq!(&*value, &FIELD_THEN_NEXT[..2]);
     assert_eq!(input, &FIELD_THEN_NEXT[2..]);
+}
+
+#[test]
+fn nested_take_cannot_widen_the_opaque_field_window() {
+    for split in 0..=FIELD_THEN_NEXT.len() {
+        let (head, tail) = FIELD_THEN_NEXT.split_at(split);
+        let mut input = head.chain(tail);
+        assert_eq!(read_payload_len(&mut input).unwrap(), 3);
+        let mut payload = FieldPayload::new(&mut input, 3);
+        // Even the escape hatches of a newly created Take can only reach
+        // the opaque window, never the next field's input buffer.
+        let mut outer = (&mut payload).take(usize::MAX);
+        outer.set_limit(usize::MAX);
+        let bounded = outer.get_mut();
+        assert_eq!(bounded.copy_to_bytes(bounded.remaining()).as_ref(), b"abc");
+        assert!(!bounded.has_remaining());
+        assert_eq!(input.remaining(), 1);
+        assert_eq!(input.get_u8(), 0xff);
+    }
 }
 
 #[test]

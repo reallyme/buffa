@@ -54,8 +54,9 @@
 use crate::encode_sink::EncodeSink;
 use alloc::string::String;
 use alloc::vec::Vec;
-use bytes::buf::Take;
+mod field_payload;
 use bytes::{Buf, Bytes};
+pub use field_payload::FieldPayload;
 
 use crate::encoding::{decode_varint, encode_varint, varint_len, Tag, WireType};
 use crate::error::DecodeError;
@@ -1282,13 +1283,13 @@ fn read_payload_of_len<R>(
 /// surrounding chunk tail.
 #[inline]
 fn read_bounded_payload<B: Buf, R>(
-    payload: &mut Take<B>,
+    payload: &mut FieldPayload<B>,
     prefer_owned: bool,
     f: impl FnOnce(WirePayload<'_>) -> Result<R, DecodeError>,
 ) -> Result<R, DecodeError> {
     let len = payload.remaining();
-    let r = read_payload_of_len(payload.get_mut(), len, prefer_owned, f)?;
-    payload.set_limit(0);
+    let r = read_payload_of_len(payload.inner.get_mut(), len, prefer_owned, f)?;
+    payload.inner.set_limit(0);
     Ok(r)
 }
 
@@ -1298,10 +1299,10 @@ fn read_bounded_payload<B: Buf, R>(
 #[inline]
 fn decode_length_delimited_with<T, B: Buf>(
     buf: &mut B,
-    decode: impl FnOnce(&mut Take<&mut B>) -> Result<T, DecodeError>,
+    decode: impl FnOnce(&mut FieldPayload<&mut B>) -> Result<T, DecodeError>,
 ) -> Result<T, DecodeError> {
     let len = read_payload_len(buf)?;
-    let mut payload = buf.take(len);
+    let mut payload = FieldPayload::new(buf, len);
     let value = decode(&mut payload)?;
     let unread = payload.remaining();
     payload.advance(unread);
@@ -1471,14 +1472,15 @@ pub trait ProtoString:
     ///
     /// An override must accept and reject exactly the payloads that
     /// `from_wire` does, including rejecting invalid UTF-8, and produce an equal value. Bytes it leaves
-    /// unread are skipped.
+    /// unread are skipped. The opaque [`FieldPayload`] exposes only bounded
+    /// [`Buf`] operations; its limit and underlying buffer cannot be accessed.
     ///
     /// # Errors
     ///
     /// Returns the representation's error for a rejected payload. On error
     /// the input position is unspecified: a decode error aborts the whole
     /// decode.
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         read_bounded_payload(payload, false, Self::from_wire)
     }
 }
@@ -1791,7 +1793,8 @@ pub trait ProtoBytes:
     ///
     /// An override must accept and reject exactly the payloads that
     /// `from_wire` does, and produce an equal value. Bytes it leaves
-    /// unread are skipped.
+    /// unread are skipped. The opaque [`FieldPayload`] exposes only bounded
+    /// [`Buf`] operations; its limit and underlying buffer cannot be accessed.
     ///
     /// # Errors
     ///
@@ -1805,7 +1808,8 @@ pub trait ProtoBytes:
     /// field's exact size, also when the field spans input chunks:
     ///
     /// ```
-    /// use buffa::bytes::{buf::Take, Buf};
+    /// use buffa::bytes::Buf;
+    /// use buffa::FieldPayload;
     /// use buffa::types::{decode_bytes_to, encode_bytes, ProtoBytes, WirePayload};
     /// use buffa::DecodeError;
     ///
@@ -1833,7 +1837,7 @@ pub trait ProtoBytes:
     ///         Ok(Self(payload.as_slice().to_vec()))
     ///     }
     ///
-    ///     fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    ///     fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
     ///         // The length is already checked against the input, so this
     ///         // reservation never exceeds the bytes actually present.
     ///         let mut out = Vec::with_capacity(payload.remaining());
@@ -1856,7 +1860,7 @@ pub trait ProtoBytes:
     /// assert_eq!(value.0.capacity(), b"payload".len());
     /// # Ok::<(), DecodeError>(())
     /// ```
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         read_bounded_payload(payload, Self::PREFERS_OWNED_PAYLOAD, Self::from_wire)
     }
 
