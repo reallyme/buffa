@@ -159,9 +159,8 @@ pub mod vtable_string_repr {
 )]
 pub mod vtable_bytes_repr {
     /// `Vec<u8>`-backed newtype satisfying `buffa::ProtoBytes` (`Deref<[u8]>` +
-    /// `AsRef<[u8]>` + `From<Vec<u8>>`). It needs no `serde` impl: singular bytes
-    /// use the `bytes` JSON with-module and repeated bytes use the emitted
-    /// `ProtoElemJson` base64 impl.
+    /// `AsRef<[u8]>` + `From<Vec<u8>>`). Its native serde preserves the
+    /// protobuf base64 encoding for every custom-field shape.
     #[derive(Clone, PartialEq, Eq, Default, Debug)]
     pub struct LocalBytes(pub ::buffa::alloc::vec::Vec<u8>);
 
@@ -186,6 +185,17 @@ pub mod vtable_bytes_repr {
             payload: ::buffa::WirePayload<'_>,
         ) -> ::core::result::Result<Self, ::buffa::DecodeError> {
             ::core::result::Result::Ok(LocalBytes(payload.as_slice().to_vec()))
+        }
+    }
+
+    impl ::serde::Serialize for LocalBytes {
+        fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            ::buffa::json_helpers::bytes::serialize(&self.0, serializer)
+        }
+    }
+    impl<'de> ::serde::Deserialize<'de> for LocalBytes {
+        fn deserialize<D: ::serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            ::buffa::json_helpers::bytes::deserialize(deserializer)
         }
     }
 
@@ -1357,4 +1367,13 @@ pub mod xti {
         env!("OUT_DIR"),
         "/cross_package_idiomatic/_include.rs"
     ));
+}
+
+/// Test-local guarded field representations.
+pub mod guarded_repr;
+
+/// Ordinary generated messages with per-field guarded representations.
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod guarded {
+    buffa::include_proto!("guarded");
 }

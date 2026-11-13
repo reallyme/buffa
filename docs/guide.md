@@ -390,6 +390,10 @@ Key points:
 
 For `protoc-gen-buffa`, use repeatable `bytes_type_custom_in=<proto_path>=<rust_type_path>` and `string_type_custom_in=<proto_path>=<rust_type_path>` options. Plugin options are comma-separated, so use a local type alias for generic Rust types containing commas. They expose the corresponding `buffa-build` custom-type rules, including package prefixes and last-match-wins ordering.
 
+Custom bytes representations need native `serde::Serialize` / `serde::Deserialize` for JSON generation in every field shape. Existing custom types without serde must add it before regenerating; an ordinary derive on a `Vec<u8>` newtype emits numeric arrays and does not preserve protobuf JSON. Codegen delegates directly to these implementations, so the representation can control base64 scratch storage. Implement protobuf JSON base64 semantics, or delegate to `buffa::json_helpers::bytes` to retain the built-in behavior. Singular null becomes the default, optional/oneof null stays unset, and repeated elements/map values reject null.
+
+`ProtoBytes::decode` and `ProtoString::decode` can override the default wire-payload decoding path when a representation must also control intermediate allocations for fragmented input. See [guarded field representations](guarded-fields.md) for ownership boundaries and integration guidance.
+
 ### Multi-package projects
 
 When your proto files span multiple packages that reference each other, buffa uses `super::`-based relative paths so cross-package types resolve automatically. This works when the module tree matches the protobuf package hierarchy — which `include_file` (for `buffa-build`) and `protoc-gen-buffa-packaging` (for the protoc plugin path) ensure.

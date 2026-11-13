@@ -1,0 +1,4 @@
+kind: Breaking changes
+body: |-
+    **Custom bytes fields use the representation's native serde implementations in every JSON field shape**, including singular, optional, repeated, map values, and oneof payloads. This lets custom types own base64 scratch storage and clean it up on failure. JSON-enabled custom bytes representations must now implement `serde::Serialize` and `serde::Deserialize` with protobuf JSON semantics; implementations that previously relied on buffa's built-in bytes helper can delegate to that helper to retain their behavior. An ordinary serde derive on a `Vec<u8>` newtype emits numeric arrays and is insufficient for protobuf JSON: implement base64 serde explicitly. Default `Vec<u8>` and `bytes::Bytes` generation is unchanged.
+time: 2026-11-13T12:00:00+01:00

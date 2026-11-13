@@ -565,6 +565,8 @@ pub enum BytesRepr {
     Bytes,
     /// A custom type named by its fully-qualified Rust path. Must satisfy
     /// `buffa::ProtoBytes` and be provided by a crate the downstream depends on.
+    /// With JSON generation it must also implement native serde using protobuf
+    /// JSON base64 semantics; a plain serde derive around `Vec<u8>` is insufficient.
     ///
     /// # Limitations
     ///
@@ -3041,15 +3043,12 @@ fn render_custom_elem_impls(
                             v: &Self,
                             s: __S,
                         ) -> ::core::result::Result<__S::Ok, __S::Error> {
-                            ::buffa::json_helpers::bytes::serialize(
-                                ::core::convert::AsRef::<[u8]>::as_ref(v),
-                                s,
-                            )
+                            ::serde::Serialize::serialize(v, s)
                         }
                         fn deserialize_proto_json<'de, __D: ::serde::Deserializer<'de>>(
                             d: __D,
                         ) -> ::core::result::Result<Self, __D::Error> {
-                            ::buffa::json_helpers::bytes::deserialize(d)
+                            ::serde::Deserialize::deserialize(d)
                         }
                     }
                 },

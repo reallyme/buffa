@@ -193,7 +193,8 @@
 //! | `ProtoString` | a `repeated` element, a field with explicit presence (proto3 or proto2 `optional`, and the edition 2023 default), a oneof variant, a map key or value. A singular field with implicit presence, or a proto2 `required` field, does not need them. |
 //! | `ProtoList` | a `repeated` field of strings, bools, or messages other than the `google.protobuf` wrapper types |
 //! | `MapStorage` | a string-keyed map whose values are strings, bools, or messages other than the wrapper types |
-//! | `ProtoBytes`, `ProtoBox` | never; the impls are for your own use of the newtype outside a message |
+//! | `ProtoBytes` | every custom bytes field shape; use the `serde` key to preserve protobuf JSON base64 semantics |
+//! | `ProtoBox` | never; message-field JSON serializes the pointee |
 //!
 //! # The `arbitrary` key
 //!

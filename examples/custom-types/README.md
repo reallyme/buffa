@@ -58,7 +58,7 @@ Under `generate_json(true)`, the five traits have different serde requirements, 
 | Newtype | Needs its own `Serialize`/`Deserialize`? | Why |
 | --- | --- | --- |
 | `FlexStr` (`ProtoString`) | Yes — `#[buffa(serde)]` | A singular `string` with implicit presence, or a proto2 `required` one, uses buffa's with-module. A `repeated` element, a field with explicit presence (proto3 or proto2 `optional`, and the edition 2023 default), a oneof variant, and a map key or value serialize through the type's own serde. |
-| `SmallBytes` (`ProtoBytes`) | No | Codegen routes all bytes positions through buffa's base64 with-module, which only needs `AsRef<[u8]>` / `From<Vec<u8>>`. |
+| `SmallBytes` (`ProtoBytes`) | Yes — hand-written base64 serde | Codegen delegates every custom bytes field shape to native serde. The implementations forward to buffa's bytes helper; a plain derive around a byte collection would produce numeric arrays. |
 | `SmallVec<T>` (`ProtoList`) | Yes — `#[serde(transparent)]` | A repeated field whose element type is proto-JSON-compliant on its own (string, bool, or a message other than the `google.protobuf` wrapper types) is serialized through the collection's native serde. |
 | `IndexMap<K, V>` (`MapStorage`) | Yes — `#[serde(transparent)]` | An integer-keyed map routes through buffa's `string_key_map` with-module (which only needs `MapStorage`), but a string-keyed map of strings, bools, or messages other than the `google.protobuf` wrapper types serializes through the container's native serde. |
 | `SmallBox<T>` (`ProtoBox`) | No | Message-field JSON serialization and oneof message variants serialize the pointee, while every deserialize path constructs the pointer via `ProtoBox::new`. |

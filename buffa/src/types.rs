@@ -1564,7 +1564,7 @@ pub fn decode_bytes_to_bytes(buf: &mut impl Buf) -> Result<Bytes, DecodeError> {
 ///   `&[u8]` where [`bytes_encoded_len`] expects it, and the write pass goes
 ///   through [`put_shared_bytes_field`] / [`AsSharedBytes`], whose blanket
 ///   impl reads via `AsRef<[u8]>`.
-/// - `From<Vec<u8>>` — used by the JSON and view→owned paths, and by `Default`
+/// - `From<Vec<u8>>` — used by the default JSON and view→owned paths, and by `Default`
 ///   and `clear()` to construct declared field defaults. Binary decode uses
 ///   [`from_wire`](ProtoBytes::from_wire) instead. Note that `From<&[u8]>` is
 ///   deliberately *not* required: `bytes::Bytes` implements it only for
@@ -1599,6 +1599,10 @@ pub fn decode_bytes_to_bytes(buf: &mut impl Buf) -> Result<Bytes, DecodeError> {
 ///   optional, and oneof uses work with a foreign type directly. (A custom
 ///   `bytes` map value is honored just like the built-in `bytes::Bytes`; only the
 ///   `map<bytes, bytes>` carve-out keeps `Vec<u8>` values.)
+/// - **JSON needs native serde for custom representations.** A custom bytes
+///   type must implement `Serialize` / `Deserialize` with protobuf JSON base64
+///   semantics. Generated code delegates to those impls in every field shape,
+///   letting the representation control decoding scratch storage.
 /// - **No `Arbitrary` impl required.** Under the `arbitrary` feature codegen
 ///   attaches a generic builder, so a custom type needs no native
 ///   `arbitrary::Arbitrary` impl.
@@ -1712,9 +1716,9 @@ pub trait ProtoBytes:
     /// unless the type sets
     /// [`PREFERS_OWNED_PAYLOAD`](Self::PREFERS_OWNED_PAYLOAD).
     ///
-    /// The default binary decode hook calls `from_wire`. JSON, text format,
-    /// view→owned conversion, declared field defaults and `arbitrary` build the
-    /// value through `From<Vec<u8>>`.
+    /// The default binary decode hook calls `from_wire`. Text format, view→owned
+    /// conversion, declared field defaults and `arbitrary` build the value
+    /// through `From<Vec<u8>>`; custom-field JSON uses the type's native serde.
     ///
     /// # Errors
     ///

@@ -38,6 +38,14 @@ serde_json = { workspace = true }
 ecow = { workspace = true, features = ["serde"] }
 compact_str = { workspace = true, features = ["serde"] }
 
+# Local representations exercise allocation ownership without adding runtime dependencies.
+secrecy = { version = "0.10", default-features = false }
+# zeroize 1.9 requires Rust 1.85; keep the workspace's Rust 1.75 MSRV.
+zeroize = { version = ">=1.8.2, <1.9", default-features = false, features = ["alloc"] }
+subtle = { version = "2.6", default-features = false }
+base64 = { workspace = true }
+thiserror = { workspace = true }
+
 [dev-dependencies]
 # `src/tests/json_private_key.rs` needs `serde_json::Value` to parse the string under
 # its private `RawValue` key: see `buffa/src/json_helpers/buffered.rs`.

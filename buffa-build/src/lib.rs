@@ -1271,6 +1271,10 @@ impl Config {
     /// crate providing it. Shorthand for
     /// [`bytes_type_in`](Self::bytes_type_in)`(BytesRepr::Custom(path), paths)`.
     ///
+    /// JSON generation uses the type's native serde in every field shape, so
+    /// implement protobuf JSON base64 semantics (a plain byte-vector derive
+    /// emits numeric arrays instead).
+    ///
     /// # Limitations
     ///
     /// - A **foreign** custom type used as a `repeated` element — or a
@@ -1293,6 +1297,8 @@ impl Config {
     /// Map every `bytes` field to the given custom type path. Convenience for
     /// `.bytes_type_custom_in(path, &["."])`; see it for the limitations
     /// (foreign `repeated` elements, `map` values, path parsing).
+    /// JSON generation requires native serde with protobuf base64 semantics on
+    /// the custom type; codegen delegates directly to it in every field shape.
     #[must_use]
     pub fn bytes_type_custom(self, path: &str) -> Self {
         self.bytes_type(BytesRepr::Custom(path.to_string()))

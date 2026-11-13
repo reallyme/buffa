@@ -251,6 +251,27 @@ fn rustc_minor() -> u32 {
 }
 
 fn main() {
+    buffa_build::Config::new()
+        .files(&["protos/guarded.proto"])
+        .includes(&["protos/"])
+        .bytes_type_custom_in("crate::guarded_repr::SecretBytes", &[".guarded"])
+        .string_type_custom_in(
+            "crate::guarded_repr::SecretString",
+            &[
+                ".guarded.Credentials.identity",
+                ".guarded.Credentials.labels",
+                ".guarded.Credentials.keys",
+                ".guarded.Credentials.identities",
+                ".guarded.Credentials.members",
+                ".guarded.Credentials.text",
+            ],
+        )
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .lazy_views(true)
+        .compile()
+        .expect("guarded fixture generation failed");
+
     // Each schema in `tests::table_codec` is compiled once with the unrolled
     // codec and once with the table codec, under renamed packages, so a test can
     // compare them.

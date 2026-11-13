@@ -779,6 +779,14 @@ fn generate_oneof_serialize(
                         map.serialize_entry(#json_name, &**v)?;
                     }
                 }
+            } else if matches!(v.bytes_repr, crate::BytesRepr::Custom(_))
+                && v.field_type == Type::TYPE_BYTES
+            {
+                quote! {
+                    Self::#ident(v) => {
+                        map.serialize_entry(#json_name, v)?;
+                    }
+                }
             } else if serde_helper_path(v.field_type).is_some() {
                 // Type needs special proto JSON encoding — route through the
                 // runtime ProtoJson adapter (ProtoElemJson covers every type
@@ -822,6 +830,7 @@ pub(crate) struct OneofVariantDeserInput<'a> {
     pub json_name: &'a str,
     pub proto_name: &'a str,
     pub field_type: Type,
+    pub bytes_repr: &'a crate::BytesRepr,
     /// See [`null_is_valid_value`] — includes both NullValue and Value types.
     pub null_forward: bool,
     /// Whether the variant is stored in a `Box` in the owned enum (see
@@ -873,6 +882,7 @@ pub(crate) fn oneof_variant_deser_arm(
         variant_ident,
         variant_type,
         field_type,
+        bytes_repr,
         null_forward,
         is_boxed,
         pointer_repr,
@@ -906,7 +916,14 @@ pub(crate) fn oneof_variant_deser_arm(
         };
         (deser, set)
     } else {
-        let deser = if let Some(helper) = serde_helper_path(*field_type) {
+        let helper = if *field_type == Type::TYPE_BYTES
+            && matches!(bytes_repr, crate::BytesRepr::Custom(_))
+        {
+            None
+        } else {
+            serde_helper_path(*field_type)
+        };
+        let deser = if let Some(helper) = helper {
             // For bytes: json_helpers::bytes::deserialize is generic over
             // T: From<Vec<u8>>; the `-> Result<#variant_type, _>` return
             // type pins T to either Vec<u8> (default) or bytes::Bytes

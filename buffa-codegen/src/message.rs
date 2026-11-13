@@ -1542,6 +1542,7 @@ fn custom_deser_oneof_group(
             json_name,
             proto_name,
             field_type,
+            bytes_repr: &variant_bytes_repr,
             null_forward: crate::oneof::null_is_valid_value(field),
             is_boxed: crate::oneof::variant_boxed(ctx, field_type, &variant_fqn),
             pointer_repr: &variant_pointer_repr,
@@ -2601,6 +2602,21 @@ fn field_deser_modules(
     info: &FieldInfo,
     features: &ResolvedFeatures,
 ) -> (Option<&'static str>, Option<&'static str>) {
+    // A custom representation owns its JSON codec, including temporary storage.
+    // Keep protobuf's singular null-as-default rule without bypassing its serde.
+    if field_type == Type::TYPE_BYTES
+        && matches!(info.bytes_repr, crate::BytesRepr::Custom(_))
+        && !info.is_repeated
+    {
+        return (
+            None,
+            if info.is_optional {
+                None
+            } else {
+                Some("::buffa::json_helpers::null_as_default")
+            },
+        );
+    }
     let with_module = if info.is_map {
         map_serde_module(info)
     } else if info.is_repeated {
