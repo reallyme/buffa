@@ -36,6 +36,7 @@ pub mod idents;
 pub(crate) mod impl_message;
 pub(crate) mod impl_text;
 pub(crate) mod imports;
+pub(crate) mod json_policy;
 pub(crate) mod lazy_view;
 pub(crate) mod message;
 pub(crate) mod oneof;
@@ -1382,6 +1383,20 @@ pub struct CodeGenConfig {
     /// of a generated message produces
     /// [`CodeGenWarning::FieldTypeRuleMatchedNothing`].
     pub string_fields: Vec<(String, StringRepr)>,
+    /// Custom `bytes` and `string` representations, named by Rust type path
+    /// exactly as in their [`BytesRepr::Custom`] / [`StringRepr::Custom`]
+    /// rules, whose protobuf JSON goes through `buffa::json_helpers::ProtoBytesJson`
+    /// or `ProtoStringJson`.
+    ///
+    /// Every field of a listed type then serializes and deserializes through
+    /// the type's policy: singular, optional, repeated and oneof fields, `map`
+    /// values, and the corresponding fields of generated views and owned views.
+    /// Paths are compared as parsed Rust types, so whitespace does not matter.
+    /// A listed type that no rule names produces
+    /// [`CodeGenWarning::JsonPolicyTypeMatchedNothing`]; a listed `string` type
+    /// used as a `map` key is a [`CodeGenError::JsonPolicyMapKey`]. Unlisted
+    /// custom types keep their existing JSON behavior.
+    pub json_policy_types: Vec<String>,
     /// Ordered (proto-path-prefix, [`MapRepr`]) rules selecting the owned Rust
     /// map collection for `map` fields. Later rules win, with the same
     /// proto-segment-aware prefix matching as [`bytes_fields`](Self::bytes_fields)
@@ -2034,6 +2049,7 @@ impl Default for CodeGenConfig {
             extern_paths: Vec::new(),
             bytes_fields: Vec::new(),
             string_fields: Vec::new(),
+            json_policy_types: Vec::new(),
             map_fields: Vec::new(),
             pointer_fields: Vec::new(),
             repeated_fields: Vec::new(),
@@ -2317,6 +2333,19 @@ pub enum CodeGenWarning {
     /// inert. Emitted once per generation run.
     #[non_exhaustive]
     DenyUnknownJsonFieldsRequiresJson,
+    /// [`json_policy_types`](CodeGenConfig::json_policy_types) is non-empty but
+    /// JSON generation is off, so no field uses a policy.
+    JsonPolicyTypesRequireJson,
+    /// A [`json_policy_types`](CodeGenConfig::json_policy_types) entry names a
+    /// type that no [`bytes_fields`](CodeGenConfig::bytes_fields) or
+    /// [`string_fields`](CodeGenConfig::string_fields) custom rule selects, so
+    /// it changed nothing. Usually the path is spelled differently from the
+    /// representation rule's.
+    #[non_exhaustive]
+    JsonPolicyTypeMatchedNothing {
+        /// The listed Rust type path.
+        rust_type: String,
+    },
     /// `idiomatic_field_names` found two or more members of one message whose
     /// snake_case conversions collide, and adjusted the affected Rust names
     /// deterministically (`_f<number>` suffix for fields, verbatim fallback
@@ -2559,6 +2588,22 @@ impl core::fmt::Display for CodeGenWarning {
                     f,
                     "`{wrapper_name}`: accessor for field `{field_name}` suppressed \
                      (collides with a reserved wrapper method); use `.view().{field_name}` instead"
+                )
+            }
+            Self::JsonPolicyTypesRequireJson => {
+                write!(
+                    f,
+                    "json_policy_type requires generate_json (there is no generated \
+                     JSON to route through a policy) — enable generate_json \
+                     (buffa-build: `.generate_json(true)`; plugin: `json=true`)"
+                )
+            }
+            Self::JsonPolicyTypeMatchedNothing { rust_type } => {
+                write!(
+                    f,
+                    "json_policy_type '{rust_type}' is not the type of any \
+                     bytes_type_custom / string_type_custom rule, so it changed nothing \
+                     — name the type exactly as its representation rule does"
                 )
             }
             Self::DenyUnknownJsonFieldsRequiresJson => {
@@ -3028,12 +3073,47 @@ fn render_custom_elem_impls(
     let mut out = TokenStream::new();
     for (path, kind) in &elems.elements {
         let ty = parse_custom_type_path(path)?;
-        // `ProtoElemJson` is only needed for the `bytes` element path (proto3
-        // JSON base64). A repeated `string` element serializes through the
-        // native `Vec<T>` serde derive, and custom `string` map keys/values go
-        // through serde too (the derive / `string_key_map` / `proto_str_key_map`
-        // paths), so a String-kind `ProtoElemJson` impl would be dead code.
-        if ctx.config.generate_json && *kind == CustomElemKind::Bytes {
+        // A JSON policy type's elements always go through its policy trait,
+        // whether it is a `bytes` or a `string` representation: codegen routes
+        // its repeated fields and map values through `ProtoElemJson`.
+        if ctx.is_json_policy_type(path) {
+            let policy = match kind {
+                CustomElemKind::Bytes => quote! { ::buffa::json_helpers::ProtoBytesJson },
+                CustomElemKind::String => quote! { ::buffa::json_helpers::ProtoStringJson },
+            };
+            let borrowed = match kind {
+                CustomElemKind::Bytes => quote! { [u8] },
+                CustomElemKind::String => quote! { str },
+            };
+            out.extend(feature_gates::cfg_block(
+                quote! {
+                    impl ::buffa::json_helpers::ProtoElemJson for #ty {
+                        fn serialize_proto_json<__S: ::serde::Serializer>(
+                            v: &Self,
+                            s: __S,
+                        ) -> ::core::result::Result<__S::Ok, __S::Error> {
+                            <Self as #policy>::serialize_json(
+                                ::core::convert::AsRef::<#borrowed>::as_ref(v),
+                                s,
+                            )
+                        }
+                        fn deserialize_proto_json<'de, __D: ::serde::Deserializer<'de>>(
+                            d: __D,
+                        ) -> ::core::result::Result<Self, __D::Error> {
+                            <Self as #policy>::deserialize_json(d)
+                        }
+                    }
+                },
+                json_gate,
+            ));
+        }
+        // Otherwise `ProtoElemJson` is only needed for the `bytes` element
+        // path (proto3 JSON base64). A repeated `string` element serializes
+        // through the native `Vec<T>` serde derive, and custom `string` map
+        // keys/values go through serde too (the derive / `string_key_map` /
+        // `proto_str_key_map` paths), so a String-kind `ProtoElemJson` impl
+        // would be dead code.
+        else if ctx.config.generate_json && *kind == CustomElemKind::Bytes {
             out.extend(feature_gates::cfg_block(
                 quote! {
                     impl ::buffa::json_helpers::ProtoElemJson for #ty {
@@ -3512,6 +3592,37 @@ pub fn generate_with_diagnostics(
         if !rule_matches_generated_message(rule, file_descriptors, files_to_generate) {
             ctx.warn(CodeGenWarning::PreserveUnknownFieldsRuleMatchedNothing {
                 rule: rule.clone(),
+            });
+        }
+    }
+
+    // A JSON policy needs generated JSON, and a listed type must be one that a
+    // representation rule actually selects.
+    if !config.json_policy_types.is_empty() && !config.generate_json {
+        ctx.warn(CodeGenWarning::JsonPolicyTypesRequireJson);
+    }
+    for rust_type in &config.json_policy_types {
+        let key = context::rust_type_key(rust_type);
+        let named = config
+            .bytes_fields
+            .iter()
+            .filter_map(|(_, repr)| match repr {
+                BytesRepr::Custom(path) => Some(path),
+                _ => None,
+            })
+            .chain(
+                config
+                    .string_fields
+                    .iter()
+                    .filter_map(|(_, repr)| match repr {
+                        StringRepr::Custom(path) => Some(path),
+                        _ => None,
+                    }),
+            )
+            .any(|path| context::rust_type_key(path) == key);
+        if !named {
+            ctx.warn(CodeGenWarning::JsonPolicyTypeMatchedNothing {
+                rust_type: rust_type.clone(),
             });
         }
     }
@@ -5528,6 +5639,15 @@ pub enum CodeGenError {
     /// A resolved type path string could not be parsed as a Rust type.
     #[error("invalid Rust type path: '{0}'")]
     InvalidTypePath(String),
+    /// A [`json_policy_types`](CodeGenConfig::json_policy_types) `string`
+    /// type is the key type of a `map` field. Protobuf JSON map keys are object
+    /// member names, which a value-level policy cannot govern. The string is the
+    /// map field's proto path.
+    #[error(
+        "map field '{0}' has a json_policy_type string key; a JSON policy applies \
+         to values only, so select another key representation for this map"
+    )]
+    JsonPolicyMapKey(String),
     /// A `box_type_custom` pointer template did not contain the `*` placeholder.
     ///
     /// The custom pointer wraps the message type, so the template must mark where
