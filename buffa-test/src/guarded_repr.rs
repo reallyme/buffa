@@ -1,8 +1,9 @@
 //! Test-local representations: policy belongs to the consuming proto crate.
 //! Clone is required by the runtime; every copy remains a separate wipe owner.
 
-use buffa::bytes::{buf::Take, Buf};
+use buffa::bytes::Buf;
 use buffa::json_helpers::{ProtoBytesJson, ProtoStringJson};
+use buffa::FieldPayload;
 use buffa::{DecodeError, ProtoBytes, ProtoList, ProtoString, WirePayload};
 use core::{
     cmp::Ordering,
@@ -63,7 +64,7 @@ impl Zeroize for SecretBytes {
 impl ZeroizeOnDrop for SecretBytes {}
 
 /// Copy one bounded field payload into a single wipe-owned allocation.
-fn read_guarded(payload: &mut Take<impl Buf>) -> Result<Zeroizing<Vec<u8>>, DecodeError> {
+fn read_guarded(payload: &mut FieldPayload<impl Buf>) -> Result<Zeroizing<Vec<u8>>, DecodeError> {
     let mut bytes = Zeroizing::new(Vec::new());
     // The length is already checked against the input, and the reservation
     // happens before any secret byte is written, so no reallocation can leave
@@ -84,7 +85,7 @@ impl ProtoBytes for SecretBytes {
     fn from_wire(payload: WirePayload<'_>) -> Result<Self, DecodeError> {
         Ok(payload.as_slice().to_vec().into())
     }
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         let mut bytes = read_guarded(payload)?;
         Ok(core::mem::take(&mut *bytes).into())
     }
@@ -223,7 +224,7 @@ impl ProtoString for SecretString {
     fn from_wire(payload: WirePayload<'_>) -> Result<Self, DecodeError> {
         payload.to_str().map(|value| value.to_owned().into())
     }
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         let mut bytes = read_guarded(payload)?;
         if core::str::from_utf8(&bytes).is_err() {
             return Err(DecodeError::InvalidUtf8);
@@ -296,7 +297,7 @@ impl ProtoBytes for SealedBytes {
     fn from_wire(payload: WirePayload<'_>) -> Result<Self, DecodeError> {
         SecretBytes::from_wire(payload).map(Self)
     }
-    fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         SecretBytes::decode_length_delimited(payload).map(Self)
     }
 }

@@ -63,7 +63,7 @@ chunks into an ordinary `Bytes`. Override the method when that temporary copy
 is not acceptable:
 
 ```rust,ignore
-fn decode_length_delimited(payload: &mut Take<impl Buf>) -> Result<Self, DecodeError> {
+fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
     let mut bytes = Zeroizing::new(Vec::new());
     // Reserve before writing, so no reallocation leaves a copy behind.
     bytes
