@@ -1,99 +1,124 @@
 # Modified by ReallyMe Technologies Limited.
 name: Publish to crates.io
-
-# Publishes all workspace crates to crates.io in dependency order.
-#
-# Auth: uses the CARGO_REGISTRY_TOKEN secret when present (bootstrap path —
-# crates.io can't configure Trusted Publishing for a crate that doesn't exist
-# yet), otherwise exchanges the GitHub OIDC token for a short-lived crates.io
-# token. Once Trusted Publishing is configured per crate and the secret is
-# removed, publishes run entirely over OIDC with no stored credentials.
+run-name: ReallyMe crates ${{ inputs.dry_run && 'preflight' || 'release' }} @ ${{ github.sha }}
 
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: >-
-          Run the workspace publication checks without uploading or authenticating.
+        description: Verify all packages without uploading or using registry credentials
         type: boolean
         default: true
 
 permissions:
   contents: read
-  id-token: write  # OIDC for crates.io Trusted Publishing
+
+# Two versions must not race to create or upload members of this package family.
+concurrency:
+  group: reallyme-crates-release
+  cancel-in-progress: false
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
 
 jobs:
-  publish:
+  verify-source:
     if: github.repository == 'reallyme/buffa'
     runs-on: ubuntu-latest
-    # GitHub Environment: part of the Trusted Publishing trust config on
-    # crates.io, and lets you add a required-reviewer approval gate.
-    environment: crates-io
-    env:
-      DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
-      # Bootstrap token. Empty if secret is unset → Trusted Publishing path.
-      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+      version: ${{ steps.source.outputs.version }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
-
-      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
-
-      - name: Verify approved tag for an actual upload
-        if: ${{ !inputs.dry_run }}
-        shell: bash
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+      - name: Verify release source, namespace and version
+        id: source
+        env:
+          PUBLISHING: ${{ !inputs.dry_run }}
         run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF" != refs/tags/reallyme-v* ]]; then
-            echo '::error::Actual publication must run from the approved ReallyMe release tag.'
-            exit 1
-          fi
-          version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "reallyme-buffa") | .version')
-          if [[ "$GITHUB_REF_NAME" != "reallyme-v$version" ]]; then
-            echo '::error::Release tag and package version differ.'
-            exit 1
-          fi
-
-      # OIDC token exchange. Skipped in dry-run (no authentication or upload) and
-      # bootstrap (secret present). The action's post-step revokes the token.
-      - name: Authenticate (Trusted Publishing)
-        id: auth
-        if: ${{ !inputs.dry_run && env.CARGO_REGISTRY_TOKEN == '' }}
-        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4 (sha-pinned)
-
-      - name: Use Trusted Publishing token
-        if: ${{ steps.auth.outputs.token != '' }}
-        run: echo "CARGO_REGISTRY_TOKEN=${{ steps.auth.outputs.token }}" >> "$GITHUB_ENV"
-
-      # .github/publish-order.txt is the single source of truth for what ships
-      # and in what order; scripts/check-publish-coverage.sh diffs it against
-      # the publishable workspace members and fails when a crate is listed
-      # before a workspace crate it depends on. The same check runs on every pull
-      # request (ci.yml), so a new crate is caught when it is introduced rather
-      # than at release time — buffa-remote-derive shipped announced in the
-      # 0.9.0 changelog but absent from crates.io because nothing compared the
-      # list to the workspace.
-      #
-      - name: Check every publishable crate is covered
-        run: ./scripts/check-publish-coverage.sh
-
-      - name: Publish or verify the selected workspace packages
-        shell: bash
-        run: |
-          set -euo pipefail
           args=()
-          packages=$(./scripts/check-publish-coverage.sh --list)
-          while read -r package; do
-            case "$package" in
-              reallyme-*) args+=(--package "$package") ;;
-              *) echo '::error::Publication list contains a package outside the fork namespace.'; exit 1 ;;
-            esac
-          done <<< "$packages"
-          if [[ ${#args[@]} -eq 0 ]]; then
-            echo '::error::Publication list is empty.'
-            exit 1
-          fi
-          if [[ -n "$DRY_RUN_FLAG" ]]; then
-            args+=(--dry-run)
-          fi
-          cargo publish --locked "${args[@]}"
+          if [[ "$PUBLISHING" == true ]]; then args+=(--publishing); fi
+          python3 scripts/release_support.py source "${args[@]}"
+
+  checks:
+    needs: verify-source
+    # Local reusable workflows run from the caller's commit. No registry secret
+    # is inherited, including when this job runs for an actual release.
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  package-preflight:
+    needs: verify-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/package-preflight
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.verify-source.outputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+      - name: Build and verify every package without registry credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=$(bash scripts/check-publish-coverage.sh --list)
+          args=()
+          while read -r package; do args+=(--package "$package"); done <<< "$packages"
+          cargo publish --registry crates-io --dry-run --locked --all-features "${args[@]}"
+          python3 scripts/release_support.py snapshot --directory "$RUNNER_TEMP/reviewed-crates"
+      - name: Retain reviewed archives and checksums
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reallyme-crates-${{ needs.verify-source.outputs.commit }}
+          path: ${{ runner.temp }}/reviewed-crates/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    if: ${{ !inputs.dry_run }}
+    needs: [verify-source, checks, package-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/release-upload
+      HAS_BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.verify-source.outputs.commit }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: reallyme-crates-${{ needs.verify-source.outputs.commit }}
+          path: ${{ runner.temp }}/reviewed-crates
+      - name: Recheck tag and reproduce archives without executing build scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_support.py source --publishing
+          packages=$(bash scripts/check-publish-coverage.sh --list)
+          args=()
+          while read -r package; do args+=(--package "$package"); done <<< "$packages"
+          cargo package --registry crates-io --no-verify --locked --all-features "${args[@]}"
+          python3 scripts/release_support.py verify --publishing --directory "$RUNNER_TEMP/reviewed-crates"
+      # New package names need a bootstrap token. Once every package has a
+      # matching trusted publisher, remove the secret to select short-lived OIDC.
+      - name: Authenticate with Trusted Publishing
+        id: auth
+        if: env.HAS_BOOTSTRAP_TOKEN != 'true'
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+      - name: Upload the verified packages in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
+        run: python3 scripts/publish_crates.py --directory "$RUNNER_TEMP/reviewed-crates"
