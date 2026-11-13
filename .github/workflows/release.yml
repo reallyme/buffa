@@ -63,9 +63,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          release_tag=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')
+          existing_tag_name=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')
           is_draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
-          if [[ "$release_tag" != "$RELEASE_TAG" || "$is_draft" != false ]]; then
+          if [[ "$existing_tag_name" != "$RELEASE_TAG" || "$is_draft" != false ]]; then
             echo '::error::Publish the crates and finalize the GitHub release first.'
             exit 1
           fi
