@@ -71,6 +71,9 @@ jobs:
           args=()
           while read -r package; do args+=(--package "$package"); done <<< "$packages"
           cargo publish --registry crates-io --dry-run --locked --all-features "${args[@]}"
+          # Cargo's dry run retains temporary staging archives, not the final
+          # target/package files. Materialize those after their builds pass.
+          cargo package --registry crates-io --no-verify --locked --all-features "${args[@]}"
           python3 scripts/release_support.py snapshot --directory "$RUNNER_TEMP/reviewed-crates"
       - name: Retain reviewed archives and checksums
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
