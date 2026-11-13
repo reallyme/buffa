@@ -87,6 +87,7 @@ dependencies = [
  "serde_json",
  "smoothutf8",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

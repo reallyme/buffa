@@ -195,6 +195,16 @@ pub trait MapStorage {
     /// capacity where the underlying type allows. Invoked by the generated
     /// message `clear()`.
     fn storage_clear(&mut self);
+    /// Erase a key discarded before insertion, including after a later parse error.
+    /// A wipe-owning container overrides this; ordinary containers keep the default.
+    /// Implementations must not panic or allocate.
+    /// Called by binary and JSON map decoders when the `zeroize` feature is
+    /// enabled, including the table codec's partial and discarded entries.
+    /// With that feature disabled, temporary slots use ordinary Rust drop.
+    fn storage_erase_key(_key: &mut Self::Key) {}
+    /// Erase a value discarded before insertion. Implementations must not panic or allocate.
+    /// Like `storage_erase_key`, this hook runs only with the `zeroize` feature.
+    fn storage_erase_value(_value: &mut Self::Value) {}
     /// Borrow-iterate entries in the container's native order.
     fn storage_iter<'a>(&'a self) -> impl Iterator<Item = (&'a Self::Key, &'a Self::Value)>
     where
@@ -1070,8 +1080,8 @@ where
     ctx.register_element_memory(
         core::mem::size_of::<KC::Value>() + core::mem::size_of::<VC::Value>(),
     )?;
-    let mut key: KC::Value = Default::default();
-    let mut val: VC::Value = Default::default();
+    let mut key = crate::erasing::Erasing::new(KC::Value::default(), C::storage_erase_key);
+    let mut val = crate::erasing::Erasing::new(VC::Value::default(), C::storage_erase_value);
 
     if unknown_fields.is_some() && (KC::MAY_RETURN_UNKNOWN || VC::MAY_RETURN_UNKNOWN) {
         // Fast path for contiguous bufs (the common `&[u8]` / `Bytes` case):
@@ -1087,7 +1097,7 @@ where
             };
             buf.advance(entry_len);
             match preserved {
-                None => map.storage_insert(key, val),
+                None => map.storage_insert(key.into_inner(), val.into_inner()),
                 Some(payload) => {
                     if let Some((field_number, unknown_fields)) = unknown_fields {
                         ctx.register_unknown_field()?;
@@ -1106,7 +1116,7 @@ where
         let mut entry_cur = entry_payload.clone();
         let status = merge_entry_contents::<KC, VC>(&mut key, &mut val, &mut entry_cur, ctx)?;
         if matches!(status, MapValueDecodeStatus::Known) {
-            map.storage_insert(key, val);
+            map.storage_insert(key.into_inner(), val.into_inner());
         } else if let Some((field_number, unknown_fields)) = unknown_fields {
             ctx.register_unknown_field()?;
             unknown_fields.push(crate::UnknownField {
@@ -1147,7 +1157,7 @@ where
         }
     }
     if matches!(val_status, MapValueDecodeStatus::Known) {
-        map.storage_insert(key, val);
+        map.storage_insert(key.into_inner(), val.into_inner());
     }
     Ok(())
 }
