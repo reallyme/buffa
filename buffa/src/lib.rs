@@ -814,4 +814,8 @@ pub mod __doctest_fixtures {
     unsafe impl view::ViewLifetimeParametric for PersonView<'static> {}
 }
 
+/// Wipe-owning collections and support for opt-in generated cleanup.
+#[cfg(feature = "zeroize")]
+pub mod sensitive;
+
 mod erasing;

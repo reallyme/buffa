@@ -5613,3 +5613,6 @@ mod unknown_fields_view_repr {
         assert!(!rendered.contains("last_tail"), "{rendered}");
     }
 }
+
+#[cfg(feature = "zeroize")]
+pub(crate) mod guarded;

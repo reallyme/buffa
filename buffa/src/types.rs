@@ -1446,7 +1446,9 @@ pub trait ProtoString:
     /// [`WirePayload::as_slice`]. There is
     /// intentionally no blanket impl — every representation provides its own
     /// optimal `from_wire`; `From<String>` and [`Self::copy_from_str`] remain
-    /// for the JSON, text, and view→owned paths. Binary decode calls `from_wire`
+    /// for ordinary JSON, text, and view→owned paths. Selected JSON policies
+    /// call their policy deserializer, and guarded arbitrary construction calls
+    /// `from_wire` directly with borrowed input. Binary decode calls `from_wire`
     /// through the default
     /// [`decode_length_delimited`](Self::decode_length_delimited); a type that
     /// overrides that method still provides `from_wire` for direct callers.
@@ -1768,8 +1770,10 @@ pub trait ProtoBytes:
     /// Binary decode calls `from_wire` through the default
     /// [`decode_length_delimited`](Self::decode_length_delimited). A type that
     /// overrides that method still provides `from_wire` for direct callers.
-    /// JSON, text format, view→owned conversion, declared field defaults and
-    /// `arbitrary` build the value through `From<Vec<u8>>`.
+    /// The ordinary JSON, text format, view→owned conversion, declared field
+    /// defaults and arbitrary paths use `From<Vec<u8>>`. Selected JSON policies
+    /// use their policy deserializer, and guarded arbitrary construction calls
+    /// `from_wire` directly with borrowed input.
     ///
     /// # Errors
     ///
