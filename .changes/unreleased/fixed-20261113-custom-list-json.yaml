@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    **Custom repeated collections own protobuf JSON elements during decoding.** Non-enum scalar and policy-element sequences now insert directly through `ProtoList::push`, so collection growth and cleanup after a later parse failure follow the custom collection's ownership policy instead of first staging elements in an ordinary `Vec`. Default `Vec` fields retain their existing helpers.
+time: 2026-11-13T07:32:32+01:00

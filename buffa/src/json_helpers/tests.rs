@@ -941,6 +941,40 @@ fn repeated_enum_modules_deserialize_into_a_custom_list() {
 }
 
 #[test]
+fn streaming_enum_collections_preserve_ordinary_null_behavior() {
+    for source in ["null", "[]", "[null]", "[1,null,0]"] {
+        let ordinary: Vec<crate::EnumValue<Color>> =
+            repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source)).unwrap();
+        let streaming: Vec<crate::EnumValue<Color>> =
+            enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source)).unwrap();
+        assert_eq!(ordinary, streaming);
+    }
+    for source in ["[null]", "[1,null]"] {
+        let ordinary: Result<Vec<Color>, _> =
+            repeated_closed_enum::deserialize(&mut serde_json::Deserializer::from_str(source));
+        let streaming: Result<Vec<Color>, _> =
+            enum_list::closed::deserialize(&mut serde_json::Deserializer::from_str(source));
+        assert!(ordinary.is_err());
+        assert!(streaming.is_err());
+    }
+    #[cfg(feature = "std")]
+    crate::json::with_json_parse_options(
+        &crate::json::JsonParseOptions::new().ignore_unknown_enum_values(true),
+        || {
+            let source = r#"[null,"UNKNOWN",1]"#;
+            let ordinary: Vec<crate::EnumValue<Color>> =
+                repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source))
+                    .unwrap();
+            let streaming: Vec<crate::EnumValue<Color>> =
+                enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source))
+                    .unwrap();
+            assert_eq!(ordinary, streaming);
+            assert_eq!(streaming.len(), 2);
+        },
+    );
+}
+
+#[test]
 fn map_enum_deserializes_known_values() {
     let json = r#"{"a":"RED","b":"GREEN"}"#;
     let result: crate::__private::HashMap<alloc::string::String, crate::EnumValue<Color>> =

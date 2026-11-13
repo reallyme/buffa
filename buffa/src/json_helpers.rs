@@ -33,6 +33,7 @@
 
 pub mod buffered;
 mod policy;
+pub mod proto_list;
 #[doc(hidden)]
 pub mod wkt;
 
@@ -40,7 +41,7 @@ pub mod wkt;
 pub use policy::{
     bytes_policy, opt_bytes_policy, opt_string_policy, policy_str_key_map, string_policy,
     BytesPolicyJson, BytesPolicySeed, BytesPolicySeqJson, StringPolicyJson, StringPolicySeed,
-    StringPolicySeqJson,
+    StringPolicySeqJson, ViewJsonErrorReason,
 };
 pub use policy::{ProtoBytesJson, ProtoStringJson};
 
@@ -320,6 +321,20 @@ pub mod proto_seq {
     }
 }
 
+/// Wraps a `Display`-able key as a serde string without allocating.
+///
+/// `collect_str` lets serde_json write the Display output directly to
+/// its internal buffer. For `K = String`, this is still one copy (into
+/// serde_json's buffer) but avoids the intermediate `String` allocation
+/// that `.to_string()` would create.
+struct DisplayKey<'a, K: ?Sized>(&'a K);
+impl<K: core::fmt::Display + ?Sized> serde::Serialize for DisplayKey<'_, K> {
+    #[inline]
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self.0)
+    }
+}
+
 // ── proto_map: generic map module ────────────────────────────────────────────
 
 /// Serde with-module for `map<K, V>` fields where `V: ProtoElemJson`.
@@ -338,20 +353,6 @@ pub mod proto_map {
     use core::str::FromStr;
     use serde::{Deserializer, Serializer};
 
-    /// Wraps a `Display`-able key as a serde string without allocating.
-    ///
-    /// `collect_str` lets serde_json write the Display output directly to
-    /// its internal buffer. For `K = String`, this is still one copy (into
-    /// serde_json's buffer) but avoids the intermediate `String` allocation
-    /// that `.to_string()` would create.
-    struct DisplayKey<'a, K: ?Sized>(&'a K);
-    impl<K: Display + ?Sized> serde::Serialize for DisplayKey<'_, K> {
-        #[inline]
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            s.collect_str(self.0)
-        }
-    }
-
     pub fn serialize<C, S>(m: &C, s: S) -> Result<S::Ok, S::Error>
     where
         C: MapStorage,
@@ -362,7 +363,7 @@ pub mod proto_map {
         use serde::ser::SerializeMap;
         let mut map = s.serialize_map(Some(m.storage_len()))?;
         for (k, v) in m.storage_iter() {
-            map.serialize_entry(&DisplayKey(k), &ProtoJson(v))?;
+            map.serialize_entry(&super::DisplayKey(k), &ProtoJson(v))?;
         }
         map.end()
     }
@@ -399,9 +400,10 @@ pub mod proto_map {
                     let k = <C::Key as FromStr>::from_str(&key).map_err(|e| {
                         serde::de::Error::custom(alloc::format!("invalid map key '{key}': {e}"))
                     })?;
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -469,9 +471,10 @@ pub mod proto_str_key_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(k) = map.next_key::<C::Key>()? {
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -900,10 +903,11 @@ pub mod map_enum {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key) = map.next_key::<C::Key>()? {
+                    let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let super::BufferedValue(raw) = map.next_value()?;
                     match super::try_deserialize_enum::<C::Value>(raw) {
                         Ok(Some(v)) => {
-                            out.storage_insert(key, v);
+                            out.storage_insert(key.into_inner(), v);
                         }
                         Ok(None) => continue,
                         Err(e) => return Err(serde::de::Error::custom(e)),
@@ -1583,10 +1587,13 @@ pub mod bytes_key_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key_str) = map.next_key::<alloc::string::String>()? {
+                    #[cfg(feature = "zeroize")]
+                    let key_str = zeroize::Zeroizing::new(key_str);
                     let k = super::decode_base64(&key_str).map_err(serde::de::Error::custom)?;
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -1640,12 +1647,16 @@ pub mod bytes_key_bytes_val_map {
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
-                while let Some((ks, vs)) =
-                    map.next_entry::<alloc::string::String, alloc::string::String>()?
-                {
+                while let Some(ks) = map.next_key::<alloc::string::String>()? {
+                    #[cfg(feature = "zeroize")]
+                    let ks = zeroize::Zeroizing::new(ks);
                     let k = super::decode_base64(&ks).map_err(serde::de::Error::custom)?;
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
+                    let vs = map.next_value::<alloc::string::String>()?;
+                    #[cfg(feature = "zeroize")]
+                    let vs = zeroize::Zeroizing::new(vs);
                     let v = super::decode_base64(&vs).map_err(serde::de::Error::custom)?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -1660,13 +1671,12 @@ pub mod bytes_key_bytes_val_map {
 /// uint32, uint64, bool, etc.).
 ///
 /// In proto3 JSON, all map keys are strings.  For non-string key types, the
-/// key string is parsed using `FromStr` during deserialization and converted
-/// to string using `ToString` during serialization.
+/// key string is parsed using `FromStr` during deserialization and formatted
+/// directly into the serializer during serialization.
 ///
 /// Use with `#[serde(with = "::buffa::json_helpers::string_key_map")]`.
 pub mod string_key_map {
     use crate::map_codec::MapStorage;
-    use alloc::string::ToString;
     use core::fmt::Display;
     use core::str::FromStr;
     use serde::{Deserializer, Serializer};
@@ -1681,7 +1691,7 @@ pub mod string_key_map {
         use serde::ser::SerializeMap;
         let mut map = s.serialize_map(Some(value.storage_len()))?;
         for (k, v) in value.storage_iter() {
-            map.serialize_entry(&k.to_string(), v)?;
+            map.serialize_entry(&super::DisplayKey(k), v)?;
         }
         map.end()
     }
@@ -1722,8 +1732,9 @@ pub mod string_key_map {
                             e
                         ))
                     })?;
+                    let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let value = map.next_value()?;
-                    out.storage_insert(key, value);
+                    out.storage_insert(key.into_inner(), value);
                 }
                 Ok(out)
             }
@@ -2257,10 +2268,11 @@ pub mod map_closed_enum {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key) = map.next_key::<C::Key>()? {
+                    let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let super::BufferedValue(raw) = map.next_value()?;
                     match super::try_deserialize_closed_enum::<C::Value>(&raw) {
                         Ok(Some(v)) => {
-                            out.storage_insert(key, v);
+                            out.storage_insert(key.into_inner(), v);
                         }
                         Ok(None) => continue,
                         Err(e) => return Err(serde::de::Error::custom(e)),
@@ -2277,3 +2289,16 @@ pub mod map_closed_enum {
 
 #[cfg(test)]
 mod tests;
+
+/// Enum collection decoding without intermediate owned containers.
+pub mod enum_list;
+/// Streaming enum helpers for cleanup-enabled generated messages.
+#[doc(hidden)]
+#[cfg(feature = "zeroize")]
+pub mod guarded_enum;
+#[cfg(feature = "zeroize")]
+mod guarded_key;
+/// Direct-key map decoding for cleanup-enabled generated messages.
+#[doc(hidden)]
+#[cfg(feature = "zeroize")]
+pub mod guarded_map;

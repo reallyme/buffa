@@ -1,0 +1,3 @@
+kind: Fixed
+body: 'Stream guarded scalar, optional, oneof and map enum JSON without materializing ordinary JSON trees. Owned enum-name tokens are wiped and invalid enum diagnostics do not echo the input. Open enum collections retain the existing null-to-zero mapping, including NullValue; closed enum elements continue rejecting null.'
+time: 2026-11-13T09:04:51+01:00

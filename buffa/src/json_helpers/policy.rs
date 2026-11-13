@@ -16,6 +16,16 @@ use core::marker::PhantomData;
 use serde::de::{DeserializeSeed, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
+/// Fixed rejection reason for views whose message export policy forbids JSON.
+#[doc(hidden)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ViewJsonErrorReason {
+    /// Export must use a policy-approved owned message instead.
+    #[error("protobuf JSON serialization of this view is disabled")]
+    Denied,
+}
+
 /// Protobuf JSON encoding for a custom [`ProtoBytes`](crate::ProtoBytes)
 /// representation, selected with `json_policy_type`.
 ///
@@ -70,7 +80,9 @@ pub trait ProtoBytesJson: crate::ProtoBytes {
 ///   element of a `repeated` field or `map` value is rejected.
 /// - A deserialized value must equal one built with `From<String>` from the
 ///   same text.
-/// - A policy type cannot be a `map` key; codegen rejects that configuration.
+/// - A policy used for a `map` key must serialize as a JSON string. Maps with
+///   enum values do not support policy keys because their unknown-enum
+///   filtering needs a separate decoding path; codegen rejects that shape.
 pub trait ProtoStringJson: crate::ProtoString {
     /// Serialize a field's text as protobuf JSON.
     ///
@@ -305,9 +317,10 @@ pub mod policy_str_key_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(k) = map.next_key_seed(StringPolicySeed::<C::Key>::new())? {
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
