@@ -124,7 +124,7 @@ class SourceTests(unittest.TestCase):
         environment = {
             "GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch",
             "GITHUB_REF": MAIN, "GITHUB_RUN_ATTEMPT": "2",
-            "GITHUB_WORKFLOW_REF": "reallyme/buffa/.github/workflows/publish-crates.yml@refs/heads/main",
+            "GITHUB_WORKFLOW_REF": "reallyme/buffa/.github/workflows/crates-release.yml@refs/heads/main",
         }
         release.verify_remote_main("c" * 40 + "\t" + MAIN, SHA, environment)
         for key, value in [("GITHUB_ACTIONS", "false"), ("GITHUB_EVENT_NAME", "push"),

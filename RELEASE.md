@@ -17,21 +17,27 @@ Use the pinned Rust/Cargo 1.95.0 release tooling. Keep workspace and packaged lo
 
 1. Update the workspace version, exact internal dependencies, package/install examples and fork release notes. Regenerate schemas and checked-in code. Review the complete release commit and run the applicable [contribution checks](CONTRIBUTING.md).
 2. After approval, merge the release changes onto `main` in `reallyme/buffa`. Push only the approved source; the workflow creates the release tag after all nine crates are published.
-3. Dispatch **Publish to crates.io** on `main` with `dry_run=true`. This runs the complete reusable CI suite and packages every publishable crate without a registry credential. A release-branch dry run is also supported before merging.
-4. Inspect the successful run and its `reallyme-crates-<commit>` artifact. It contains the nine `.crate` files and `release.json`, which binds their SHA-256 checksums, package order and version to the source commit. Artifacts are retained for 30 days; preserve the release record separately for long-term retention.
-5. Dispatch the same workflow on the approved `main` commit with `dry_run=false`. It repeats CI and package preflight, waits for the `crates-io` environment approval, then reproduces and compares the archives without executing Rust build scripts before authenticating. It requires the workflow SHA to match current `main` before publication.
+3. Wait for the complete **CI** workflow to succeed on that exact `main` commit. Dispatch **Crates Package Preflight** on `main`, with version `0.1.0`. As in SSI, this is a separate workflow: it verifies the successful CI run and compiles all nine packaged crates without a publishing credential.
+4. Inspect the successful preflight and its two artifacts: `reallyme-buffa-crates-preflight-<version>-<commit>` records the source, version and CI run; `reallyme-buffa-crate-archives-<version>-<commit>` contains the nine `.crate` files and `release.json`, binding their SHA-256 checksums and dependency order to the source commit. Both the preflight record and crate archives have GitHub build-provenance attestations. Artifacts are retained for 30 days; preserve the release record separately for long-term retention.
+5. Dispatch **Crates.io Release** on the same approved `main` commit. It requires the newest matching preflight run to succeed for that version and commit, verifies its signed evidence, and waits for the `crates-io` environment approval. The upload job reproduces and compares the archives without executing Rust build scripts, and authenticates only for publication. Keep `main` at the reviewed commit until the release completes.
 6. After every crate upload and checksum check succeeds, the separate finalization job creates `reallyme-v0.1.0` at that exact commit and the GitHub release **Release 0.1.0**, using the fork release notes. It attaches `release.json` as the publication record. A publication failure prevents tag and release creation.
 7. Verify the published packages and add the ReallyMe team ownership. The separate **Attach protoc plugin binaries** workflow can then add downloadable generator binaries to the existing GitHub release; it cannot create a release itself.
 
 The GitHub CLI supports an explicit preflight dispatch:
 
 ```sh
-gh workflow run publish-crates.yml --repo reallyme/buffa --ref main -f dry_run=true
+gh workflow run crates-package-preflight.yml --repo reallyme/buffa --ref main -f version=0.1.0
 ```
 
-After review, the same command with `dry_run=false` requests actual publication,
-followed by tag and GitHub release creation. Dispatching that workflow is an
-explicit remote operation, separate from pushing a branch for CI review.
+After reviewing that successful preflight, request publication separately:
+
+```sh
+gh workflow run crates-release.yml --repo reallyme/buffa --ref main
+```
+
+The release workflow publishes the crates before creating the tag and GitHub
+release. Each dispatch is an explicit remote operation, separate from pushing a
+branch for CI review. Neither workflow publishes automatically on branch pushes.
 
 ## Publication boundaries
 
@@ -40,23 +46,22 @@ explicit remote operation, separate from pushing a branch for CI review.
 - The source, package-preflight and protected upload jobs do not persist checkout credentials. Registry credentials are absent from tests, package builds and archive comparison. The bootstrap token is exposed only to the final upload step; source checks and package commands in that step strip registry credentials, GitHub tokens and OIDC request capabilities from their child environment. Jobs that compile Rust do not have OIDC publishing permission.
 - Publication uses native Cargo in dependency order. `--no-verify` is used only after the matching archives have already been built without credentials, and each package is reproduced and compared again before upload. It avoids running dependency build scripts with an upload token.
 - The registry's package checksum must match the reviewed archive. A pre-existing version with different bytes, a yanked version, an altered archive, or an unavailable registry check stops publication.
-- Concurrent releases are serialized. Transient upload rate limits and stale dependency-index errors have bounded retries; failures stop before attempting dependent packages.
+- Concurrent releases of the same source commit are serialized. Transient upload rate limits and stale dependency-index errors have bounded retries; failures stop before attempting dependent packages.
 
 ## Interrupted releases
 
 Crates.io uploads are not a transaction across the nine packages. A failed run may have published some members.
 
-Choose **Re-run failed jobs** on the failed GitHub Actions run so it retains the **same source commit and
-reviewed artifacts**. Keep the successful package-preflight job and its immutable artifact; do not choose **Re-run all jobs**, which can conflict with the existing artifact name. The publisher accepts an already-published version only
+Choose **Re-run failed jobs** on the failed **Crates.io Release** run so it retains the **same source commit and
+reviewed artifacts**. Keep `main` at that commit and retain the successful, first-attempt preflight run. If preflight itself fails, dispatch a fresh preflight rather than rerunning it: SSI's attestation checks require a first-attempt successful CI run and preflight. If CI needs another attempt, dispatch a fresh **CI** run (`ci.yml`) on the same `main` commit instead of rerunning the old CI run. The publisher accepts an already-published version only
 when its registry checksum matches the reviewed archive, then continues in
 dependency order. It never overwrites a version or skips a different archive
 merely because the name/version exists.
 
-Like SSI, an explicitly rerun `main` workflow may finish its recorded release
-after `main` advances. A fresh dispatch cannot use this exception. Finalization
-uses the originally published SHA; it creates no tag or GitHub release until
-publication completes. An existing release tag at a different commit stops
-finalization.
+The attestation checks require current `main` to match the release source.
+Finalization uses the originally published SHA; it creates no tag or GitHub
+release until publication completes. An existing release tag at a different
+commit stops finalization.
 
 ## Trusted Publishing after the first release
 
@@ -66,7 +71,7 @@ Once the packages exist, configure a crates.io trusted publisher on **each of th
 | --- | --- |
 | GitHub repository owner | `reallyme` |
 | Repository | `buffa` |
-| Workflow filename | `publish-crates.yml` |
+| Workflow filename | `crates-release.yml` |
 | GitHub environment | `crates-io` |
 
 After configuring every package, remove the bootstrap secret and revoke its token. Without that secret, the workflow selects the pinned `rust-lang/crates-io-auth-action` and uses a short-lived OIDC credential. The environment approval, source checks, full CI and archive comparisons remain in place.

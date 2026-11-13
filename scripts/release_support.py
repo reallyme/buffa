@@ -136,7 +136,7 @@ def recorded_run_resume(environment: dict[str, str]) -> bool:
             and environment.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and environment.get("GITHUB_REF") == "refs/heads/main"
             and environment.get("GITHUB_WORKFLOW_REF") ==
-            "reallyme/buffa/.github/workflows/publish-crates.yml@refs/heads/main"
+            "reallyme/buffa/.github/workflows/crates-release.yml@refs/heads/main"
             and re.fullmatch(r"[1-9][0-9]*", attempt) is not None
             and len(attempt) <= 9 and int(attempt) >= 2)
 
@@ -173,6 +173,9 @@ def source(publishing: bool = False) -> Release:
         packages = select_packages(metadata, ordered)
         version = next(package["version"] for package in metadata["packages"]
                        if package["name"] == packages[0])
+        requested_version = os.environ.get("RELEASE_VERSION")
+        if requested_version is not None and requested_version != version:
+            raise ReleaseError(Reason.PACKAGES)
         head = command(["git", "rev-parse", "HEAD"])
         verify_identity(os.environ.get("GITHUB_REPOSITORY", ""),
                         os.environ.get("GITHUB_SHA", ""), head,

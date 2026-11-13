@@ -163,8 +163,8 @@ jobs:
   # .github/publish-order.txt means the release silently skips it. That is how
   # buffa-remote-derive was announced in the 0.9.0 changelog and never reached
   # crates.io. The same check fails a list that puts a crate before one of its
-  # workspace dependencies. The publish workflow checks this too, but only on a
-  # v* tag — running it here fails the PR that introduces the crate instead.
+  # workspace dependencies. Release preflight checks this too; running it here
+  # fails the PR that introduces the crate before a release is prepared.
   check-publish-list:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -181,6 +181,12 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 -m unittest discover -s scripts -p test_release.py
+      - name: Install Node for release attestation tests
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26'
+      - name: Test the shared SSI release attestation checks
+        run: node --test scripts/verify_release_attestation.test.mjs
       - name: Test the publish list checker
         env:
           RUSTUP_TOOLCHAIN: stable

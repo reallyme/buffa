@@ -71,7 +71,7 @@ Our preference is to use upstream Buffa. If upstream provides equivalent secret-
 
 CI covers formatting, Clippy, default and all-feature tests, strict documentation, code generation freshness, Rust 1.75/1.77, `no_std`, 32-bit compilation and protobuf conformance. Runtime MSRV is Rust 1.75; the opt-in table codec requires Rust 1.77.
 
-Crates.io publication is manually triggered. A release runs the complete CI suite and package preflight before the protected publication job can use a registry credential. Reviewed archives and checksums are retained for inspection. Ordinary pushes do not upload packages. After all nine crates are published and verified, CI creates the release tag and GitHub release.
+Crates.io publication is manually triggered. A release verifies successful full CI and a separate package preflight for the same source commit before the protected publication job can use a registry credential. Reviewed archives and checksums are retained for inspection. Ordinary pushes do not upload packages. After all nine crates are published and verified, CI creates the release tag and GitHub release.
 
 [RELEASE.md](RELEASE.md) documents the initial token setup, approval step, interrupted-release recovery, and migration to Trusted Publishing. Downloadable generator binaries use a separate manual workflow that attaches to the existing release.
 

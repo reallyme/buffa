@@ -1,7 +1,7 @@
 # Modified by ReallyMe Technologies Limited.
 # Crates published to crates.io, in the order they must be published.
 #
-# This file is the single source of truth: publish-crates.yml walks it, and
+# This file is the single source of truth: crates-release.yml walks it, and
 # scripts/check-publish-coverage.sh fails CI when it does not match exactly the
 # publishable members of the workspace. A crate is "publishable" unless its
 # Cargo.toml sets `publish = false`, so adding a new crate to the workspace

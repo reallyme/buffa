@@ -158,13 +158,14 @@ For the 32-bit tasks, run `task install-targets` first to install the additional
 
 ## Continuous Integration
 
-The manual crates.io workflow reuses the complete CI suite before publication.
+The manual crates.io workflow verifies successful full CI and a separate package preflight before publication.
 See [RELEASE.md](RELEASE.md) for the approved-main/source, package artifact and credential
 boundaries. Workflow and release-helper changes must pass `actionlint`,
 `scripts/check-action-pins.sh`, and the release-helper unit tests:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_release.py
+node --test scripts/verify_release_attestation.test.mjs
 ```
 
 GitHub Actions CI (`.github/workflows/ci.yml`) runs on every push to `main` and on all pull requests. Jobs:
