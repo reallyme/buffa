@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! The decode pass: [`merge_to_limit`] and its per-kind arms.
 //!
 //! Decoding runs over one contiguous `&[u8]`, so every arm reads through a

@@ -1,5 +1,7 @@
 # Migrating from prost to buffa
 
+<!-- Modified by ReallyMe Technologies Limited. -->
+
 A step-by-step guide for migrating an existing prost-based project to buffa.
 
 ## Where is `#[derive(Message)]`?
@@ -15,12 +17,12 @@ A limited derive for self-contained tests and examples is under discussion in [#
  [dependencies]
 -prost = "0.13"
 -prost-types = "0.13"
-+buffa = "0.9"
-+buffa-types = "0.9"
++buffa = { package = "reallyme-buffa", version = "=0.1.0" }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
 
  [build-dependencies]
 -prost-build = "0.13"
-+buffa-build = "0.9"
++buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
 ```
 
 If you use JSON serialization via `pbjson`:
@@ -29,8 +31,8 @@ If you use JSON serialization via `pbjson`:
  [dependencies]
 -pbjson = "0.7"
 -pbjson-types = "0.7"
-+buffa = { version = "0.9", features = ["json"] }
-+buffa-types = { version = "0.9", features = ["json"] }
++buffa = { package = "reallyme-buffa", version = "=0.1.0", features = ["json"] }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0", features = ["json"] }
  serde_json = "1"
 -
 -[build-dependencies]
@@ -185,7 +187,7 @@ prost leaves a map entry's key or value out when it holds the default; buffa wri
 
 The option leaves out what a missing field decodes to: zero, `false`, empty, an open enum's 0, a closed enum's first value, and a message value that encodes to nothing. As with prost, a `-0.0` float value is left out and decodes as `0.0`. prost leaves out a message value equal to its default, so a value that equals its default but still encodes a field, such as a `required` field at its default or a float field holding `-0.0`, is written by buffa and not by prost.
 
-It applies to the owned, view and lazy view encoders of the messages generated with it. A lazy view keeps its singular and repeated message fields undecoded and writes them as they were read, so map entries inside them keep the encoding they arrived with, and every encoder writes entries kept as unknown fields as they were read. A value of an enum made open with `open_enums_in` is left out at 0, which a missing open enum decodes to, where prost leaves out its first value; the two differ only for an enum whose first value is not 0, which protoc rejects as a map value, so the case can occur only with a descriptor set that another tool built. Each crate's types encode as that crate was generated; `google.protobuf.Struct`, the well-known type with a map field, comes from `buffa-types` and writes both fields, and so does `DynamicMessage`. `protoc-gen-buffa` has no `map_type` option, so through the plugin a map with several entries keeps `HashMap` order. With `CodecStrategy::Table`, messages with a map field keep the unrolled codec, and a `codec_strategy_in` rule that selects the table for such a message by its exact path is an error.
+It applies to the owned, view and lazy view encoders of the messages generated with it. A lazy view keeps its singular and repeated message fields undecoded and writes them as they were read, so map entries inside them keep the encoding they arrived with, and every encoder writes entries kept as unknown fields as they were read. A value of an enum made open with `open_enums_in` is left out at 0, which a missing open enum decodes to, where prost leaves out its first value; the two differ only for an enum whose first value is not 0, which protoc rejects as a map value, so the case can occur only with a descriptor set that another tool built. Each crate's types encode as that crate was generated; `google.protobuf.Struct`, the well-known type with a map field, comes from `buffa-types` and writes both fields, and so does `DynamicMessage`. `protoc-gen-reallyme-buffa` has no `map_type` option, so through the plugin a map with several entries keeps `HashMap` order. With `CodecStrategy::Table`, messages with a map field keep the unrolled codec, and a `codec_strategy_in` rule that selects the table for such a message by its exact path is an error.
 
 ## 6. Decoding API
 

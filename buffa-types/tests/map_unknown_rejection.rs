@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Checked-in view code must preserve rejection inside synthetic map entries.
 use buffa::{DecodeError, DecodeOptions, Message, MessageView};
 use buffa_types::google::protobuf::{Struct, StructView};

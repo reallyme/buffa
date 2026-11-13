@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Exercise real generated code: source assertions alone cannot establish that
 //! nested, map and oneof fields keep their guarded representation.
 

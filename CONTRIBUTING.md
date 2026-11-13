@@ -1,5 +1,7 @@
 # Contributing to buffa
 
+<!-- Modified by ReallyMe Technologies Limited. -->
+
 See [DESIGN.md](DESIGN.md) for the architectural overview and [README.md](README.md) for the workspace layout.
 
 ## Prerequisites
@@ -9,13 +11,13 @@ See [DESIGN.md](DESIGN.md) for the architectural overview and [README.md](README
 
 ## Changelog Entries
 
-`CHANGELOG.md` is a generated file — **do not edit it directly**. Each user-visible change adds a fragment file under `.changes/unreleased/` instead, so concurrent PRs never conflict on the changelog. Create one with:
+`FORK_CHANGELOG.md` is a generated file — **do not edit it directly**. Each user-visible change adds a fragment file under `.changes/reallyme/unreleased/` instead, so concurrent PRs never conflict on the changelog. Create one with:
 
 ```sh
 task changelog-new
 ```
 
-This prompts for a kind (`Breaking changes`, `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`) and a multi-line body, then writes `.changes/unreleased/<kind>-<timestamp>.yaml`. Commit that file with your change. The body is the full Keep a Changelog bullet text (the bullet marker and two-space hanging indent are added at batch time, so write the body flush-left). **Write it as flowing prose — one line per paragraph, no hard line-wraps.** Hard-wrapped text has to be re-flowed by hand on every later edit and produces noisy diffs; the renderer wraps it for you, and `MD013` is off so there is no line-length limit to satisfy.
+This prompts for a kind (`Breaking changes`, `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`) and a multi-line body, then writes `.changes/reallyme/unreleased/<kind>-<timestamp>.yaml`. Commit that file with your change. The body is the full Keep a Changelog bullet text (the bullet marker and two-space hanging indent are added at batch time, so write the body flush-left). **Write it as flowing prose — one line per paragraph, no hard line-wraps.** Hard-wrapped text has to be re-flowed by hand on every later edit and produces noisy diffs; the renderer wraps it for you, and `MD013` is off so there is no line-length limit to satisfy.
 
 Non-interactive (the prompt requires a TTY, so use this form from scripts and agent sessions; `-b` accepts a multi-line body):
 
@@ -24,7 +26,7 @@ task changelog-new -- -k Fixed -b '**Short description of the fix** (#NNN).
 Further detail goes on its own line, however long — the bullet and its hanging indent are added at batch time.'
 ```
 
-At release time, `task changelog-batch -- <version>` rolls the fragments into `.changes/<version>.md` and `task changelog-merge` regenerates `CHANGELOG.md`. CI verifies that `CHANGELOG.md` matches `changie merge` output, so a direct edit will fail the `check-changelog` job.
+At release time, `task changelog-batch -- <version>` rolls the fragments into `.changes/reallyme/<version>.md` and `task changelog-merge` regenerates `FORK_CHANGELOG.md`. CI verifies that `FORK_CHANGELOG.md` matches `changie merge` output, so a direct edit will fail the `check-changelog` job.
 
 ## Adding a Publishable Crate
 

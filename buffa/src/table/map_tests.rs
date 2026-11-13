@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 // Tests of the map arms over hand-written table messages, against a reference
 // message that reads and writes the same fields through `map_codec`, as
 // generated unrolled code does.

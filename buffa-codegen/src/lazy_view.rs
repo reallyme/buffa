@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Code generation for the lazy view family (`FooLazyView<'a>`).
 //!
 //! Generated **additively** under the `lazy_views` option: the eager

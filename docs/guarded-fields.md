@@ -1,5 +1,7 @@
 # Guarded field representations
 
+<!-- Modified by ReallyMe Technologies Limited. -->
+
 An application can keep credentials and personal data in field types that
 redact `Debug` output, wipe their allocations on drop, and control how the
 fields are exported. buffa provides the mechanisms; the representation types
@@ -23,7 +25,7 @@ Select local representations and their JSON policies in `buf.gen.yaml`:
 
 ```yaml
 plugins:
-  - local: protoc-gen-buffa
+  - local: protoc-gen-reallyme-buffa
     strategy: all
     out: src/generated
     opt:

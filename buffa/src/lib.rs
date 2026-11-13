@@ -1,8 +1,9 @@
+// Modified by ReallyMe Technologies Limited.
 //! A pure-Rust Protocol Buffers runtime with first-class **editions** support,
 //! zero-copy views, and `no_std` compatibility.
 //!
 //! This is the runtime crate. For code generation, see `buffa-build` (for
-//! `build.rs` integration) or `protoc-gen-buffa` (for use as a `protoc` plugin).
+//! `build.rs` integration) or `protoc-gen-reallyme-buffa` (for use as a `protoc` plugin).
 //!
 //! # Quick start
 //!
@@ -60,7 +61,7 @@
 //! generated field an existing Rust type, see the guide's
 //! [custom-type support][custom-types].
 //!
-//! [custom-types]: https://github.com/anthropics/buffa/blob/main/docs/guide.md#custom-type-implementations
+//! [custom-types]: https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guide.md#custom-type-implementations
 //!
 //! # Zero-copy views
 //!
@@ -117,7 +118,7 @@
 //! # `no_std`
 //!
 //! ```sh
-//! cargo add buffa --no-default-features
+//! cargo add reallyme-buffa@=0.1.0 --rename buffa --no-default-features
 //! ```
 //!
 //! Generated code uses `::buffa::alloc::string::String` etc. rather than

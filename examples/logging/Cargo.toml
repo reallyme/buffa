@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "example-logging"
 version = "0.1.0"
@@ -5,5 +6,5 @@ edition = "2021"
 publish = false
 
 [dependencies]
-buffa = { path = "../../buffa" }
-buffa-types = { path = "../../buffa-types" }
+buffa = { package = "reallyme-buffa", path = "../../buffa" }
+buffa-types = { package = "reallyme-buffa-types", path = "../../buffa-types" }

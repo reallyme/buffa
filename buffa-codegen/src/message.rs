@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Message struct code generation.
 
 use crate::generated::descriptor::field_descriptor_proto::{Label, Type};

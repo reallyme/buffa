@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Borrowed reflection without dynamic snapshots or serialization entry points.
 //!
 //! Guarded messages implement this surface instead of `ReflectMessage`:

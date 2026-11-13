@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Static descriptor decoding stores custom options as unknown wire data.
 use buffa::{DecodeError, DecodeOptions, Message};
 use buffa_descriptor::generated::descriptor::FieldOptions;

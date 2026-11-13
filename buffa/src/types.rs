@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Protobuf scalar type encoding strategies.
 //!
 //! Each protobuf scalar type has a specific wire encoding. This module provides

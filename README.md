@@ -1,12 +1,16 @@
-# buffa
+# ReallyMe Buffa
 
-[![crates.io](https://img.shields.io/crates/v/buffa.svg)](https://crates.io/crates/buffa)
-[![docs.rs](https://img.shields.io/docsrs/buffa)](https://docs.rs/buffa)
-[![CI](https://github.com/anthropics/buffa/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/anthropics/buffa/actions/workflows/ci.yml)
-[![MSRV](https://img.shields.io/crates/msrv/buffa)](Cargo.toml)
-[![deps.rs](https://deps.rs/repo/github/anthropics/buffa/status.svg)](https://deps.rs/repo/github/anthropics/buffa)
+<!-- Modified by ReallyMe Technologies Limited. -->
+
+Maintained by **ReallyMe Technologies Limited** as an independent Apache-2.0 fork of [upstream Buffa](https://github.com/anthropics/buffa). This release is **0.1.0**, with separately named registry packages and plugin binaries. See [fork provenance, migration and release instructions](FORK.md), [fork release notes](FORK_CHANGELOG.md), and the [guarded-fields guide](docs/guarded-fields.md).
+
+[![crates.io](https://img.shields.io/crates/v/reallyme-buffa.svg)](https://crates.io/crates/reallyme-buffa)
+[![docs.rs](https://img.shields.io/docsrs/reallyme-buffa)](https://docs.rs/reallyme-buffa)
+[![CI](https://github.com/reallyme/buffa/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/reallyme/buffa/actions/workflows/ci.yml)
+[![MSRV](https://img.shields.io/crates/msrv/reallyme-buffa)](Cargo.toml)
+[![deps.rs](https://deps.rs/repo/github/reallyme/buffa/status.svg)](https://deps.rs/repo/github/reallyme/buffa)
 [![no_std](https://img.shields.io/badge/no__std-compatible-blue)](docs/guide.md#no_std-usage)
-[![License](https://img.shields.io/crates/l/buffa)](LICENSE)
+[![License](https://img.shields.io/crates/l/reallyme-buffa)](LICENSE)
 
 A pure-Rust Protocol Buffers implementation with first-class [protobuf editions](https://protobuf.dev/editions/overview/) support. Written by Claude and friends ❣️
 
@@ -49,8 +53,8 @@ These are intentionally out of scope:
 - **Proto2 optional-field getter methods** — `[default = X]` on `optional` fields does not generate `fn field_name(&self) -> T` unwrap-to-default accessors. Custom defaults are applied only to `required` fields via `impl Default`. Optional fields are `Option<T>`; use pattern matching or `.unwrap_or(X)`.
 - **Scoped `JsonParseOptions` in `no_std`** — serde's `Deserialize` trait has no context parameter, so runtime options must be passed through ambient state. In `std` builds, [`with_json_parse_options`] provides per-closure, per-thread scoping via a thread-local. In `no_std` builds, [`set_global_json_parse_options`] provides process-wide set-once configuration via a global atomic. The two APIs are mutually exclusive and take the same options; in `no_std` the options are fixed for the process and cannot vary between parse calls.
 
-[`with_json_parse_options`]: https://docs.rs/buffa/latest/buffa/json/fn.with_json_parse_options.html
-[`set_global_json_parse_options`]: https://docs.rs/buffa/latest/buffa/json/fn.set_global_json_parse_options.html
+[`with_json_parse_options`]: https://docs.rs/reallyme-buffa/latest/buffa/json/fn.with_json_parse_options.html
+[`set_global_json_parse_options`]: https://docs.rs/reallyme-buffa/latest/buffa/json/fn.set_global_json_parse_options.html
 
 ## Known limitations
 
@@ -58,7 +62,7 @@ These are gaps we intend to address in future releases:
 
 ## Semver and API stability
 
-Buffa is pre-1.0. We follow the [Rust community convention](https://doc.rust-lang.org/cargo/reference/semver.html) for 0.x crates: breaking changes increment the **minor** version (0.1.x → 0.2.0), additive changes increment the **patch** version (0.1.0 → 0.1.1). Pin to a minor version (`buffa = "x.y"`; the full `x.y.z` that `cargo add buffa` writes is equivalent under caret semantics) to avoid surprises.
+Buffa is pre-1.0. We follow the [Rust community convention](https://doc.rust-lang.org/cargo/reference/semver.html) for 0.x crates: breaking changes increment the **minor** version (0.1.x → 0.2.0), additive changes increment the **patch** version (0.1.0 → 0.1.1). Use the exact package aliases in [FORK.md](FORK.md) to keep the runtime and generator on the same reviewed release.
 
 The generated code API (struct shapes, `Message` trait, `MessageView` trait, `EnumValue`, `MessageField`) is considered the primary stability surface. Internal helper modules marked `#[doc(hidden)]` (`__private`, `__buffa_*` fields) may change at any time.
 
@@ -66,12 +70,12 @@ The generated code API (struct shapes, `Message` trait, `MessageView` trait, `En
 
 ### Using `buf generate` (recommended)
 
-Install [buf](https://buf.build/docs/installation), then create a `buf.gen.yaml` that uses the published [`buf.build/anthropics/buffa`](https://buf.build/anthropics/buffa) remote plugin — no local plugin install required:
+Install [buf](https://buf.build/docs/installation) and the matching [ReallyMe plugins](FORK.md#consumer-migration), then create a `buf.gen.yaml` using the local plugin:
 
 ```yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - file_per_package=true
@@ -93,21 +97,21 @@ pub mod example {
 }
 ```
 
-If you'd rather have the module tree generated for you, install [`protoc-gen-buffa-packaging`](docs/guide.md#installing-the-protoc-plugins) locally and add it as a second plugin (drop the `file_per_package=true` opt):
+If you'd rather have the module tree generated for you, install [`protoc-gen-reallyme-buffa-packaging`](docs/guide.md#installing-the-protoc-plugins) locally and add it as a second plugin (drop the `file_per_package=true` opt):
 
 ```yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - json=true
-  - local: protoc-gen-buffa-packaging
+  - local: protoc-gen-reallyme-buffa-packaging
     out: src/gen
     strategy: all
 ```
 
-See [`examples/bsr-quickstart/`](examples/bsr-quickstart/) for a complete, runnable project, or the [user guide](docs/guide.md#using-buf) for the full set of build setups (local plugins, `buffa-build`/`build.rs`, BSR-generated SDKs).
+See [`examples/logging/`](examples/logging/) for checked-in generated output and local Buf configuration, or the [user guide](docs/guide.md#using-buf) for local plugin and `build.rs` setups. The historical BSR quickstart targets upstream and is not a fork migration example.
 
 ### Using `buffa-build` in `build.rs`
 
@@ -170,8 +174,8 @@ let decoded: MyMessage = serde_json::from_str(&json).unwrap();
 | `buffa-build` | `build.rs` helper for invoking codegen via `protoc` |
 | `buffa-remote-derive` | Derive macros implementing the pluggable owned-type traits for newtypes over foreign types |
 | `buffa-yaml` | YAML serialization for buffa messages |
-| `protoc-gen-buffa` | `protoc` plugin binary; also published as [`buf.build/anthropics/buffa`](https://buf.build/anthropics/buffa) |
-| `protoc-gen-buffa-packaging` | `protoc` plugin that emits a `mod.rs` module tree (local-only) |
+| `protoc-gen-reallyme-buffa` | Local `protoc` / buf codegen plugin binary |
+| `protoc-gen-reallyme-buffa-packaging` | `protoc` plugin that emits a `mod.rs` module tree (local-only) |
 
 ## Performance
 
@@ -375,9 +379,9 @@ buffa passes the protobuf binary and JSON conformance test suite (v33.5, edition
 
 ## Compiler compatibility
 
-**[buf](https://buf.build/docs/cli/)** is the recommended way to compile `.proto` files. The buf CLI has its own built-in compiler and can run `protoc-gen-buffa` as a remote plugin on the [Buf Schema Registry](https://buf.build/anthropics/buffa) — `buf generate` sends your compiled proto descriptors to the BSR, which executes the plugin and returns the generated Rust source — so the only thing you need to install is buf itself.
+**[buf](https://buf.build/docs/cli/)** is the recommended way to compile `.proto` files. It uses its built-in compiler and the installed ReallyMe plugins, so no separate `protoc` is required. This fork release does not provide a hosted BSR plugin; see [installation and migration](FORK.md).
 
-**protoc** is also fully supported. `protoc-gen-buffa` and `buffa-build` work with **protoc v21.12 and later**. The minimum version varies by feature:
+**protoc** is also fully supported. `protoc-gen-reallyme-buffa` and `buffa-build` work with **protoc v21.12 and later**. The minimum version varies by feature:
 
 | Feature | Minimum protoc |
 |---|---|
@@ -395,7 +399,7 @@ The current MSRV is **1.75**. The opt-in `CodecStrategy::Table` generates code t
 
 buffa is a foundational codec crate, so its `rust-version` is set to the lowest toolchain the released code actually compiles on, not to a calendar target. CI verifies the workspace builds at the MSRV and at stable on every change. With cargo's MSRV-aware resolver (`resolver = "3"`, Rust 1.84+), a downstream project on an older toolchain will automatically resolve to the newest buffa release whose `rust-version` fits — so an accurate declaration matters more than a conservative one.
 
-We reserve the right to raise the MSRV in any minor release when a language feature, standard-library API, or dependency makes it worthwhile, but never further than roughly twelve months behind the current stable. An MSRV bump is recorded in the CHANGELOG. We do not add workarounds for rustc or cargo bugs that are already fixed in stable; if you hit one on an older toolchain, the answer is to upgrade.
+We reserve the right to raise the MSRV in any minor release when a language feature, standard-library API, or dependency makes it worthwhile, but never further than roughly twelve months behind the current stable. An MSRV bump is recorded in [FORK_CHANGELOG.md](FORK_CHANGELOG.md). We do not add workarounds for rustc or cargo bugs that are already fixed in stable; if you hit one on an older toolchain, the answer is to upgrade.
 
 ## License
 

@@ -1,5 +1,7 @@
 # Buffa: Design Document
 
+<!-- Modified by ReallyMe Technologies Limited. -->
+
 A pure Rust Protocol Buffers implementation with first-class editions support.
 
 ## Motivation
@@ -87,7 +89,7 @@ The options keep protobuf's default runtime retention, so they are present both 
 
 ### `buffa-codegen` — Shared Code Generation Logic
 
-The code generation library, shared between `protoc-gen-buffa` and `buffa-build`. Takes protobuf descriptors (from protoc's `FileDescriptorProto`) and emits Rust source code.
+The code generation library, shared between `protoc-gen-reallyme-buffa` and `buffa-build`. Takes protobuf descriptors (from protoc's `FileDescriptorProto`) and emits Rust source code.
 
 This is a library crate with no binary — it doesn't know *how* descriptors were produced (protoc or buf). It just takes descriptors in and produces Rust out.
 
@@ -103,17 +105,17 @@ This is a library crate with no binary — it doesn't know *how* descriptors wer
 
 The code generator always works with resolved edition features — it never branches on "is this proto2 or proto3?" because protoc resolves edition features in the `FileDescriptorProto` itself.
 
-### `protoc-gen-buffa` — Protoc Plugin (Primary Entry Point)
+### `protoc-gen-reallyme-buffa` — Protoc Plugin (Primary Entry Point)
 
 The primary code generation entry point. This is a protoc plugin binary that integrates with `protoc` and `buf`:
 
 ```sh
 # Direct protoc usage
-protoc --buffa_out=. --plugin=protoc-gen-buffa my_service.proto
+protoc --reallyme-buffa_out=. --plugin=protoc-gen-reallyme-buffa my_service.proto
 
 # Buf usage (configure in buf.gen.yaml)
 # plugins:
-#   - local: protoc-gen-buffa
+#   - local: protoc-gen-reallyme-buffa
 #     out: src/gen
 ```
 
@@ -140,7 +142,7 @@ fn main() {
 
 - **`protoc`** (default): the de-facto standard. Requires `protoc` on the system PATH (or `PROTOC` env var). Full support for proto2, proto3, and editions.
 
-- **`buf`**: an ergonomic alternative to `protoc` that adds dependency management via the Buf Schema Registry (BSR), with built-in linting and breaking-change detection. `buf build --as-file-descriptor-set` produces a `FileDescriptorSet` from a `buf.yaml`-managed workspace, and `buf generate` can drive protoc-style plugins (including `protoc-gen-buffa`) directly. Use `buffa_build::Config::new().use_buf()` to use `buf` as the descriptor backend.
+- **`buf`**: an ergonomic alternative to `protoc` that adds dependency management via the Buf Schema Registry (BSR), with built-in linting and breaking-change detection. `buf build --as-file-descriptor-set` produces a `FileDescriptorSet` from a `buf.yaml`-managed workspace, and `buf generate` can drive protoc-style plugins (including `protoc-gen-reallyme-buffa`) directly. Use `buffa_build::Config::new().use_buf()` to use `buf` as the descriptor backend.
 
 **Escape hatch — `.descriptor_set(path)`:** The `Config::descriptor_set` method accepts a pre-built `FileDescriptorSet` file, so users can obtain descriptors through any means (including `buf build`, a BSR fetch, or a pre-built descriptor binary) and pass them directly, bypassing the protoc invocation layer entirely.
 
@@ -313,7 +315,7 @@ pub mod my_pkg {
 }
 ```
 
-`buffa::include_proto_relative!("dir", "my.pkg")` does the same for checked-in generated code (no `OUT_DIR`). `buffa-build`'s `_include.rs` and `protoc-gen-buffa-packaging` both emit module trees that reference only the stitchers.
+`buffa::include_proto_relative!("dir", "my.pkg")` does the same for checked-in generated code (no `OUT_DIR`). `buffa-build`'s `_include.rs` and `protoc-gen-reallyme-buffa-packaging` both emit module trees that reference only the stitchers.
 
 The per-proto content files mean editing one `.proto` regenerates only its siblings (incremental friendly); the per-package stitcher means `register_types` is naturally one fn per package, so multi-file packages (e.g. the WKT files in `google.protobuf`) no longer collide.
 
@@ -466,7 +468,7 @@ Edition features are resolved by `protoc` (or `buf`) and encoded directly in the
             ▼
 ┌─────────────────────────┐
 │  buffa-build /          │
-│  protoc-gen-buffa       │
+│  protoc-gen-reallyme-buffa       │
 │  (decode + dispatch)    │
 └───────────┬─────────────┘
             │ FileDescriptorProto (per file)

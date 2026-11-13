@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Which messages are generated with [`CodecStrategy::Table`], and what each
 //! table field looks like.
 //!

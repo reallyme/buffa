@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Code generation for zero-copy borrowed message view types.
 //!
 //! For each proto message `Foo` this module generates:

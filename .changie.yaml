@@ -1,7 +1,8 @@
-changesDir: .changes
+# Modified by ReallyMe Technologies Limited.
+changesDir: .changes/reallyme
 unreleasedDir: unreleased
 headerPath: header.tpl.md
-changelogPath: CHANGELOG.md
+changelogPath: FORK_CHANGELOG.md
 versionExt: md
 versionFormat: '## [{{.Version}}] - {{.Time.Format "2006-01-02"}}'
 kindFormat: '### {{.Kind}}'
@@ -9,7 +10,7 @@ kindFormat: '### {{.Kind}}'
 changeFormat: '- {{.Body | trim | splitList "\n" | join "\n  "}}'
 # Self-contained link-reference definition so `## [X.Y.Z]` renders as a compare link
 # without a hand-maintained footer block.
-footerFormat: '[{{.Version}}]: https://github.com/anthropics/buffa/compare/v{{.PreviousVersion}}...v{{.Version}}'
+footerFormat: '[{{.Version}}]: https://github.com/reallyme/buffa/releases/tag/reallyme-v{{.Version}}'
 # Fragment filenames: kind + timestamp. Timestamps keep concurrent PRs from
 # colliding on the same filename (the whole point of this setup).
 fragmentFileFormat: '{{.Kind | kebabcase}}-{{.Time.Format "20060102-150405"}}'

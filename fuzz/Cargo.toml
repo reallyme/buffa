@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "buffa-fuzz"
 version = "0.0.0"
@@ -17,9 +18,9 @@ arbitrary = []
 [dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = "0.4"
-buffa = { path = "../buffa", features = ["json", "arbitrary"] }
-buffa-types = { path = "../buffa-types", features = ["json", "arbitrary"] }
-buffa-build = { path = "../buffa-build" }
+buffa = { package = "reallyme-buffa", path = "../buffa", features = ["json", "arbitrary"] }
+buffa-types = { package = "reallyme-buffa-types", path = "../buffa-types", features = ["json", "arbitrary"] }
+buffa-build = { package = "reallyme-buffa-build", path = "../buffa-build" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -30,7 +31,7 @@ test = false
 doc = false
 
 [build-dependencies]
-buffa-build = { path = "../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../buffa-build" }
 
 [[bin]]
 name = "decode_proto3"

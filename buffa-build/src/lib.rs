@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Build-time integration for buffa.
 //!
 //! Use this crate in your `build.rs` to compile `.proto` files into Rust code
@@ -336,7 +337,7 @@ impl Config {
     /// library crate** consumed by downstream projects with different
     /// feature needs — exactly the shape of `buffa-descriptor` and
     /// `buffa-types`, which ship every impl while letting the codegen
-    /// toolchain (`buffa-codegen`/`buffa-build`/`protoc-gen-buffa`) depend
+    /// toolchain (`buffa-codegen`/`buffa-build`/`protoc-gen-reallyme-buffa`) depend
     /// on them with `default-features = false` and stay free of
     /// `serde`/`serde_json`/`base64`. Most consumers of `buffa-build` are
     /// **not** in this position: a `build.rs` that decides at build-script
@@ -522,8 +523,8 @@ impl Config {
     ///
     /// ```toml
     /// [dependencies]
-    /// buffa = { version = "0.7", features = ["std"] }
-    /// buffa-descriptor = { version = "0.7", features = ["reflect", "std"] }
+    /// buffa = { package = "reallyme-buffa", version = "=0.1.0", features = ["std"] }
+    /// buffa-descriptor = { package = "reallyme-buffa-descriptor", version = "=0.1.0", features = ["reflect", "std"] }
     /// ```
     ///
     /// When [`gate_impls_on_crate_features`](Self::gate_impls_on_crate_features)
@@ -567,9 +568,9 @@ impl Config {
     /// with package count. Vtable mode also emits an `impl ReflectMessage` per
     /// type, so it produces more code than bridge mode.
     ///
-    /// [`ReflectCow`]: https://docs.rs/buffa-descriptor/latest/buffa_descriptor/reflect/enum.ReflectCow.html
-    /// [`DynamicMessage`]: https://docs.rs/buffa-descriptor/latest/buffa_descriptor/reflect/struct.DynamicMessage.html
-    /// [`DescriptorPool`]: https://docs.rs/buffa-descriptor/latest/buffa_descriptor/struct.DescriptorPool.html
+    /// [`ReflectCow`]: https://docs.rs/reallyme-buffa-descriptor/latest/buffa_descriptor/reflect/enum.ReflectCow.html
+    /// [`DynamicMessage`]: https://docs.rs/reallyme-buffa-descriptor/latest/buffa_descriptor/reflect/struct.DynamicMessage.html
+    /// [`DescriptorPool`]: https://docs.rs/reallyme-buffa-descriptor/latest/buffa_descriptor/struct.DescriptorPool.html
     #[must_use]
     pub fn generate_reflection(mut self, enabled: bool) -> Self {
         // The simple on/off knob selects the fast vtable path; Bridge is opt-in
@@ -952,7 +953,7 @@ impl Config {
     /// Map enum values match the outer map field path; oneof enum variants
     /// match the direct field path. An empty path is warned about and
     /// ignored so `"."` remains the only global opt-in spelling. (The
-    /// `protoc-gen-buffa` plugin's `override_feature_in=` option rejects
+    /// `protoc-gen-reallyme-buffa` plugin's `override_feature_in=` option rejects
     /// empty paths with a hard error instead: a stray build-script entry
     /// shouldn't fail the build, but plugin options are usually
     /// machine-assembled, where an empty value is a bug.)
@@ -2292,7 +2293,7 @@ impl Config {
     /// # Monorepo / multi-module setups
     ///
     /// For a workspace-root `buf.yaml` with many modules, this mode is a
-    /// poor fit. Prefer running `buf generate` with the `protoc-gen-buffa`
+    /// poor fit. Prefer running `buf generate` with the `protoc-gen-reallyme-buffa`
     /// plugin and checking in the generated code, or use
     /// [`descriptor_set()`](Self::descriptor_set) with the output of
     /// `buf build --as-file-descriptor-set -o fds.binpb <module-path>`

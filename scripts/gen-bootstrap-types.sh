@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Modified by ReallyMe Technologies Limited.
 # Regenerate buffa-descriptor/src/generated/ (bootstrap descriptor types).
 #
 # The source protos are vendored in buffa-descriptor/protos/ (pinned to a
@@ -42,5 +43,5 @@ DESC=/tmp/buffa-descriptor-set.pb
     google/protobuf/compiler/plugin.proto
 
 cd "$ROOT"
-cargo run -p buffa-codegen --bin gen_descriptor_types -- \
+cargo run -p reallyme-buffa-codegen --bin gen_descriptor_types -- \
     "$DESC" buffa-descriptor/src/generated

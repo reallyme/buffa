@@ -1,8 +1,9 @@
+// Modified by ReallyMe Technologies Limited.
 //! End-to-end compile check for shared-pool reflection mode.
 //!
 //! Hand-builds a two-package descriptor set with a cross-package field, runs
 //! codegen with `shared_descriptor_pool = true`, assembles the module tree the
-//! way `buffa-build` / `protoc-gen-buffa-packaging` would (one shared
+//! way `buffa-build` / `protoc-gen-reallyme-buffa-packaging` would (one shared
 //! `__buffa_fds` root module plus per-package delegations), and `cargo check`s
 //! the result against the in-tree `buffa` / `buffa-descriptor`.
 //!
@@ -12,7 +13,7 @@
 //! resolves, across packages of different nesting depth, with a real cross
 //! reference. Needs no `protoc` (descriptors are built in memory), but does
 //! spawn `cargo`, so it is `#[ignore]`d like `feature_gating_compile`.
-//! Run: `cargo test -p buffa-codegen --test shared_pool_compile -- --ignored`.
+//! Run: `cargo test -p reallyme-buffa-codegen --test shared_pool_compile -- --ignored`.
 
 use std::path::Path;
 use std::process::Command;
@@ -235,8 +236,8 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-buffa = {{ path = "{root}/buffa" }}
-buffa-descriptor = {{ path = "{root}/buffa-descriptor", features = ["reflect"] }}
+buffa = {{ package = "reallyme-buffa", path = "{root}/buffa" }}
+buffa-descriptor = {{ package = "reallyme-buffa-descriptor", path = "{root}/buffa-descriptor", features = ["reflect"] }}
 
 [workspace]
 "#,

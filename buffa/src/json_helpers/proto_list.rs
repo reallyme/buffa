@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Protobuf JSON sequences decoded directly into a custom repeated collection.
 //!
 //! Unlike `proto_seq`, this path constructs the destination before reading any

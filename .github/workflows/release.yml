@@ -1,22 +1,18 @@
+# Modified by ReallyMe Technologies Limited.
 name: Release protoc plugins
 
-# Triggered by pushing a tag matching v*.
-# Builds protoc-gen-buffa and protoc-gen-buffa-packaging for
+# Manually dispatch only after the fork release tag is approved.
+# Builds protoc-gen-reallyme-buffa and protoc-gen-reallyme-buffa-packaging for
 # Linux (x86_64, aarch64), macOS (x86_64, aarch64), and Windows (x86_64).
 # Creates a GitHub release with the binaries, SHA-256 checksums,
 # SLSA build provenance attestations, and cosign signatures.
 
 on:
-  push:
-    tags: ['v*']
-  # Re-release an existing tag when the tag-triggered run failed for a
-  # workflow-definition reason: a dispatch from main uses main's (fixed)
-  # workflow file while building the tag's source, which a re-run of the
-  # failed tag run cannot do (re-runs reuse the workflow file at the tag).
+  # Dispatch explicitly for an existing approved ReallyMe release tag.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing v* tag to build and release (e.g. v0.7.1)"
+        description: "Existing ReallyMe tag to build and release (e.g. reallyme-v0.1.0)"
         required: true
         type: string
 
@@ -26,15 +22,46 @@ permissions:
   attestations: write  # GitHub native attestation API
 
 env:
-  # Both binaries share the protoc-gen-buffa- prefix, so every glob
+  # Both binaries share the protoc-gen-reallyme-buffa prefix, so every glob
   # in the release/sign/attest steps that matches one matches both.
-  BINARY_PREFIX: protoc-gen-buffa
-  BINARIES: protoc-gen-buffa protoc-gen-buffa-packaging
-  # The tag being released: the pushed tag, or the dispatch input.
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  BINARY_PREFIX: protoc-gen-reallyme-buffa
+  BINARIES: protoc-gen-reallyme-buffa protoc-gen-reallyme-buffa-packaging
+  # The existing tag selected for this manual release.
+  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
+  verify:
+    if: github.repository == 'reallyme/buffa'
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.tag.outputs.commit }}
+      notes: ${{ steps.tag.outputs.notes }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - name: Verify existing tag and matching package version
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')
+          if [[ "$RELEASE_TAG" != "reallyme-v$version" ]]; then
+            echo '::error::Release tag and package version differ.'
+            exit 1
+          fi
+          tag_commit=$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")
+          if [[ "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo '::error::Release tag does not identify the checked-out source.'
+            exit 1
+          fi
+          notes=".changes/reallyme/$version.md"
+          test -f "$notes"
+          echo "commit=$tag_commit" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: verify
     strategy:
       matrix:
         include:
@@ -67,7 +94,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          ref: ${{ needs.verify.outputs.commit }}
 
       # Must name the same toolchain version as rust-toolchain.toml: that
       # file overrides the action-installed default when cargo runs, so a
@@ -98,7 +125,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           for bin in $BINARIES; do
-            cargo build --release --target "$TARGET" --bin "$bin"
+            cargo build --locked --release --target "$TARGET" --bin "$bin"
           done
 
       - name: Package
@@ -120,11 +147,24 @@ jobs:
           path: dist/*
 
   release:
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
+        with:
+          ref: ${{ needs.verify.outputs.commit }}
+
+      - name: Verify the tag still identifies the built source
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_tag=$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")
+          tag_commit=$(printf '%s\n' "$remote_tag" | awk 'END { print $1 }')
+          if [[ "$tag_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo '::error::Release tag changed after validation.'
+            exit 1
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 (sha-pinned)
@@ -167,7 +207,7 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2 (sha-pinned)
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          generate_release_notes: true
+          body_path: ${{ needs.verify.outputs.notes }}
           files: |
             artifacts/${{ env.BINARY_PREFIX }}-*
             artifacts/checksums-sha256.txt

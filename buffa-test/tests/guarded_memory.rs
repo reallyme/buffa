@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Inspect selected allocations immediately before the system allocator frees
 //! them. Reading freed pointers would be undefined behavior; observing in
 //! dealloc instead verifies the actual release path, including spare capacity.

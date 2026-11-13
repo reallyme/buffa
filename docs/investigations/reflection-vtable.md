@@ -1,5 +1,7 @@
 # Vtable-mode `ReflectMessage` for message views
 
+<!-- Modified by ReallyMe Technologies Limited. -->
+
 **Status:** Pre-implementation analysis, partially landed
 **Builds on:** `reflect-prototype` branch (`docs/investigations/reflection-prototype-2026-05.md`)
 **Scope:** Generate `impl ReflectMessage` directly on view types (and optionally
@@ -383,7 +385,7 @@ below). The remaining open items are noted under "Not yet done" at the end.
    WKT-free protos.
 4. ✅ **`ReflectMode` plumbing (§4).** Public `ReflectMode` enum
    (Off/Bridge/VTable), exposed as `buffa_build::Config::reflect_mode` and
-   `protoc-gen-buffa`'s `reflect_mode=` option. Vtable mode emits
+   `protoc-gen-reallyme-buffa`'s `reflect_mode=` option. Vtable mode emits
    `impl ReflectMessage` for the view *and* the owned message and switches the
    owned `Reflectable::reflect()` body to `ReflectCow::Borrowed(self)`. Default
    stays `Off`/`Bridge`; flipping the default to `VTable` is deferred.
@@ -402,7 +404,7 @@ below). The remaining open items are noted under "Not yet done" at the end.
 ### Done since
 
 - ✅ **`VTable` is the default reflection mode.** `generate_reflection(true)` (and
-  `protoc-gen-buffa`'s `reflection=true`) now select `VTable`; `Bridge` is opt-in
+  `protoc-gen-reallyme-buffa`'s `reflection=true`) now select `VTable`; `Bridge` is opt-in
   via `reflect_mode(ReflectMode::Bridge)`. Vtable no longer requires views — the
   owned `impl ReflectMessage` is self-contained, so views-off builds get
   owned-only vtable reflection rather than an error.

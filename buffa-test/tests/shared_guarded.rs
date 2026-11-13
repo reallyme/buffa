@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! A separate consumer crate uses its provider's existing integration traits.
 use buffa::{LazyMessageView, Message, MessageView};
 use buffa_test::guarded_repr;

@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa-proto-options"
-description = "Rust types for buffa's custom protobuf options (buffa/ext/options.proto)"
+name = "reallyme-buffa-proto-options"
+readme = "README.md"
+description = "ReallyMe fork: Rust types for buffa's custom protobuf options (buffa/ext/options.proto)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,6 +14,9 @@ categories = ["encoding", "no-std"]
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+name = "buffa_proto_options"
 
 [dependencies]
 buffa = { workspace = true }

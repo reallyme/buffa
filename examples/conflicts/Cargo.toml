@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "example-conflicts"
 version = "0.1.0"
@@ -5,7 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-buffa = { path = "../../buffa" }
+buffa = { package = "reallyme-buffa", path = "../../buffa" }
 
 [build-dependencies]
-buffa-build = { path = "../../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }

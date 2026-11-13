@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa-build"
-description = "Build-time integration for buffa (use in build.rs)"
+name = "reallyme-buffa-build"
+readme = "README.md"
+description = "ReallyMe fork: Build-time integration for buffa (use in build.rs)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +13,9 @@ categories = ["development-tools::build-utils"]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+name = "buffa_build"
 
 [dependencies]
 buffa = { workspace = true, features = ["std", "fast-utf8"] }

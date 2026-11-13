@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 version: '3'
 
 vars:
@@ -181,9 +182,9 @@ tasks:
 
   changelog-new:
     desc: >-
-      Create a new changelog fragment under .changes/unreleased/. Prompts
+      Create a new changelog fragment under .changes/reallyme/unreleased/. Prompts
       for kind (Added, Changed, Fixed, etc.) and a multi-line body. Run
-      this in your PR instead of editing CHANGELOG.md directly. Pass flags
+      this in your PR instead of editing FORK_CHANGELOG.md directly. Pass flags
       after `--` for non-interactive use, e.g.:
         task changelog-new -- -k Fixed -b "One-line body."
     deps: [install-changie]
@@ -192,8 +193,8 @@ tasks:
 
   changelog-batch:
     desc: >-
-      Roll all .changes/unreleased/ fragments into .changes/<version>.md
-      and delete the fragments. Usage: task changelog-batch -- 0.8.0
+      Roll all .changes/reallyme/unreleased/ fragments into .changes/reallyme/<version>.md
+      and delete the fragments. Usage: task changelog-batch -- 0.1.1
       Release-time only — run from the cut-release flow, then edit the
       generated section to add any release-notes prose before changelog-merge.
     deps: [install-changie]
@@ -202,8 +203,8 @@ tasks:
 
   changelog-merge:
     desc: >-
-      Regenerate CHANGELOG.md from .changes/header.tpl.md and the per-version
-      .changes/*.md files. CHANGELOG.md is a generated artifact — never edit
+      Regenerate FORK_CHANGELOG.md from .changes/reallyme/header.tpl.md and the per-version
+      .changes/reallyme/*.md files. FORK_CHANGELOG.md is a generated artifact — never edit
       it directly; edit the source files and re-run this task.
     deps: [install-changie]
     cmds:
@@ -286,7 +287,7 @@ tasks:
             nix-env -i protobuf      # Nix
           Or set PROTOC=/path/to/protoc
     cmds:
-      - cargo test -p buffa-codegen --test codegen_integration
+      - cargo test -p reallyme-buffa-codegen --test codegen_integration
 
   lint:
     desc: Run rustfmt check, clippy (all targets, warnings as errors), and markdownlint.
@@ -351,12 +352,12 @@ tasks:
 
   plugin-image:
     desc: >-
-      Build the protoc-gen-buffa Docker image for the Buf Schema Registry.
+      Build the protoc-gen-reallyme-buffa Docker image for the Buf Schema Registry.
       Targets linux/amd64 as required by BSR. Push with:
-        buf beta registry plugin push --visibility public --image protoc-gen-buffa
+        buf beta registry plugin push --visibility public --image protoc-gen-reallyme-buffa
     cmds:
       - docker build --platform linux/amd64
-          -t protoc-gen-buffa
+          -t protoc-gen-reallyme-buffa
           -f protoc-gen-buffa/Dockerfile
           .
 
@@ -590,7 +591,7 @@ tasks:
 
   protoc-compat:
     desc: >-
-      Test protoc-gen-buffa against multiple protoc versions (v21–v33) to
+      Test protoc-gen-reallyme-buffa against multiple protoc versions (v21–v33) to
       verify plugin protocol compatibility. Runs in Docker.
     cmds:
       - docker build -t buffa-protoc-compat -f compat/Dockerfile .
@@ -673,8 +674,8 @@ tasks:
         google/protobuf/timestamp.proto
         google/protobuf/type.proto
         google/protobuf/wrappers.proto
-      - cargo run -p buffa-codegen --bin gen_wkt_types -- /tmp/wkt.pb buffa-types/src/generated
-      - cargo run -p buffa-codegen --bin gen_sensitive_wkt -- /tmp/wkt.pb buffa-types/src/sensitive/generated
+      - cargo run -p reallyme-buffa-codegen --bin gen_wkt_types -- /tmp/wkt.pb buffa-types/src/generated
+      - cargo run -p reallyme-buffa-codegen --bin gen_sensitive_wkt -- /tmp/wkt.pb buffa-types/src/sensitive/generated
 
   gen-option-types:
     desc: >-
@@ -691,7 +692,7 @@ tasks:
   gen-logging-example:
     desc: >-
       Regenerate the logging example's protobuf code using buf generate
-      and protoc-gen-buffa. Requires a release build of protoc-gen-buffa
+      and protoc-gen-reallyme-buffa. Requires a release build of protoc-gen-reallyme-buffa
       and buf on PATH.
     deps: [build-plugin]
     dir: examples/logging
@@ -705,7 +706,7 @@ tasks:
       published `buf.build/anthropics/buffa` BSR remote plugin. Requires
       buf on PATH and network access. The example demonstrates the
       consumer-facing remote-plugin workflow, so it deliberately uses
-      the published plugin rather than the in-tree `protoc-gen-buffa`.
+      the published plugin rather than the in-tree `protoc-gen-reallyme-buffa`.
       The plugin version is pinned in `buf.gen.yaml` for reproducible
       output, and the example's `Cargo.toml` pins `buffa` / `buffa-types`
       to the same release. When a new BSR plugin release ships, bump all
@@ -776,14 +777,14 @@ tasks:
   build-plugin:
     desc: Build the protoc plugins in release mode.
     cmds:
-      - cargo build --release --bin protoc-gen-buffa --bin protoc-gen-buffa-packaging
+      - cargo build --release --bin protoc-gen-reallyme-buffa --bin protoc-gen-reallyme-buffa-packaging
     sources:
       - buffa-codegen/src/**/*.rs
       - protoc-gen-buffa/src/**/*.rs
       - protoc-gen-buffa-packaging/src/**/*.rs
     generates:
-      - target/release/protoc-gen-buffa
-      - target/release/protoc-gen-buffa-packaging
+      - target/release/protoc-gen-reallyme-buffa
+      - target/release/protoc-gen-reallyme-buffa-packaging
 
   # ── Cross-target checks ─────────────────────────────────────────
 
@@ -827,19 +828,19 @@ tasks:
       idempotent), so this task needs no separate install-targets step.
     cmds:
       - rustup target add thumbv7em-none-eabihf
-      - cargo check -p buffa --no-default-features
-      - cargo test -p buffa --no-default-features --features json --test nostd_json_options
-      - cargo check -p buffa --no-default-features --target thumbv7em-none-eabihf
-      - cargo check -p buffa-types --no-default-features
-      - cargo check -p buffa-types --no-default-features --features chrono
-      - cargo check -p buffa-types --no-default-features --features jiff
-      - cargo check -p buffa-types --no-default-features --features sensitive --target thumbv7em-none-eabihf
-      - cargo check -p buffa-types --no-default-features --features sensitive,json --target thumbv7em-none-eabihf
-      - cargo check -p buffa-descriptor --no-default-features
-      - cargo check -p buffa-descriptor --no-default-features --features json,reflect,text,views
-      - cargo test -p buffa-descriptor --no-default-features --features json,reflect --test '*'
-      - cargo check -p buffa-proto-options --no-default-features
-      - cargo check -p buffa-proto-options --no-default-features --features json,text,views
+      - cargo check -p reallyme-buffa --no-default-features
+      - cargo test -p reallyme-buffa --no-default-features --features json --test nostd_json_options
+      - cargo check -p reallyme-buffa --no-default-features --target thumbv7em-none-eabihf
+      - cargo check -p reallyme-buffa-types --no-default-features
+      - cargo check -p reallyme-buffa-types --no-default-features --features chrono
+      - cargo check -p reallyme-buffa-types --no-default-features --features jiff
+      - cargo check -p reallyme-buffa-types --no-default-features --features sensitive --target thumbv7em-none-eabihf
+      - cargo check -p reallyme-buffa-types --no-default-features --features sensitive,json --target thumbv7em-none-eabihf
+      - cargo check -p reallyme-buffa-descriptor --no-default-features
+      - cargo check -p reallyme-buffa-descriptor --no-default-features --features json,reflect,text,views
+      - cargo test -p reallyme-buffa-descriptor --no-default-features --features json,reflect --test '*'
+      - cargo check -p reallyme-buffa-proto-options --no-default-features
+      - cargo check -p reallyme-buffa-proto-options --no-default-features --features json,text,views
   # ── Coverage ─────────────────────────────────────────────────────────
 
   coverage:

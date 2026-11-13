@@ -1,4 +1,8 @@
-# buffa-types
+# reallyme-buffa-types
+
+<!-- Modified by ReallyMe Technologies Limited. -->
+
+This is the **0.1.0** fork maintained by **ReallyMe Technologies Limited**, distributed under Apache-2.0. The upstream license and attribution notices are retained. See [fork provenance and migration](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/FORK.md) for the package aliases, matching generator release, cleanup features and limits.
 
 Rust types for Google's Protocol Buffers well-known types, including
 `Timestamp`, `Duration`, `Any`, `FieldMask`, `Struct`, and wrapper types.
@@ -10,8 +14,8 @@ The generated message code is checked in, so using this crate does not require
 Add both the runtime and well-known-types crates:
 
 ```sh
-cargo add buffa
-cargo add buffa-types
+cargo add reallyme-buffa@=0.1.0 --rename buffa
+cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types
 ```
 
 Encode and decode a timestamp with buffa's `Message` trait:
@@ -44,6 +48,8 @@ messages are available under `buffa_types::google::protobuf`.
 | `jiff` |  | Conversions to and from `jiff` time types |
 | `reflect` |  | Runtime reflection for well-known types; also enables `std` |
 | `arbitrary` |  | `arbitrary::Arbitrary` implementations |
+| `zeroize` |  | Cleanup traits for ordinary well-known types |
+| `sensitive` |  | Guarded `Timestamp`, `Duration`, `Struct`, `Value` and `ListValue` representations; enables `zeroize` |
 
 `Api`, `Type`, `Enum`, `SourceContext` and the messages they contain have no
 `serde` impls, with or without `json`.
@@ -51,7 +57,7 @@ messages are available under `buffa_types::google::protobuf`.
 For JSON, enable the feature and add `serde_json` to your crate:
 
 ```sh
-cargo add buffa-types --features json
+cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types --features json
 cargo add serde_json
 ```
 
@@ -60,12 +66,12 @@ default features of both crates off, because the default `std` feature of
 `buffa` applies to the whole build:
 
 ```sh
-cargo add buffa --no-default-features
-cargo add buffa-types --no-default-features
+cargo add reallyme-buffa@=0.1.0 --rename buffa --no-default-features
+cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types --no-default-features
 ```
 
 The conversions between `Duration` and `core::time::Duration` do not need
 `std`.
 
-See the [crate documentation](https://docs.rs/buffa-types) for conversion
+See the [crate documentation](https://docs.rs/reallyme-buffa-types) for conversion
 details and the complete API.

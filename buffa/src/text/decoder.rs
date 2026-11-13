@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Textproto decoder.
 //!
 //! Wraps a [`Tokenizer`] and adds type-directed value interpretation. A

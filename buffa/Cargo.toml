@@ -1,6 +1,7 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa"
-description = "A pure Rust Protocol Buffers implementation with first-class editions support"
+name = "reallyme-buffa"
+description = "ReallyMe fork: A pure Rust Protocol Buffers implementation with first-class editions support"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -45,6 +46,9 @@ arbitrary = ["dep:arbitrary"]
 text = []
 # Opt-in wipe owners and generated recursive cleanup.
 zeroize = ["dep:zeroize"]
+
+[lib]
+name = "buffa"
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }

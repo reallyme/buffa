@@ -1,7 +1,11 @@
-# buffa
+# reallyme-buffa
 
-[![crates.io](https://img.shields.io/crates/v/buffa.svg)](https://crates.io/crates/buffa)
-[![docs.rs](https://img.shields.io/docsrs/buffa)](https://docs.rs/buffa)
+<!-- Modified by ReallyMe Technologies Limited. -->
+
+This is the **0.1.0** fork maintained by **ReallyMe Technologies Limited**, distributed under Apache-2.0. The upstream license and attribution notices are retained. See [fork provenance and migration](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/FORK.md) for the package aliases, matching generator release, cleanup features and limits.
+
+[![crates.io](https://img.shields.io/crates/v/reallyme-buffa.svg)](https://crates.io/crates/reallyme-buffa)
+[![docs.rs](https://img.shields.io/docsrs/reallyme-buffa)](https://docs.rs/reallyme-buffa)
 
 The runtime crate for **buffa** — a pure-Rust Protocol Buffers implementation
 with first-class [editions] support, zero-copy views, and `no_std` compatibility.
@@ -9,7 +13,7 @@ with first-class [editions] support, zero-copy views, and `no_std` compatibility
 This crate contains the `Message` trait, wire-format encode/decode primitives,
 `MessageField` / `EnumValue` / `UnknownFields` container types, and the
 zero-copy view layer. Generated code emitted by `buffa-build` or
-`protoc-gen-buffa` depends on this crate.
+`protoc-gen-reallyme-buffa` depends on this crate.
 
 [editions]: https://protobuf.dev/editions/overview/
 
@@ -36,7 +40,7 @@ let msg: Person = DecodeOptions::new()
     .decode_from_slice(&bytes)?;
 ```
 
-[workspace README]: https://github.com/anthropics/buffa#readme
+[workspace README]: https://github.com/reallyme/buffa/tree/reallyme-v0.1.0#readme
 
 ## Feature flags
 
@@ -47,6 +51,7 @@ let msg: Person = DecodeOptions::new()
 | `json` |  | Proto3 JSON via `serde` |
 | `text` |  | Text format (`textproto`) encode/decode |
 | `arbitrary` |  | `arbitrary::Arbitrary` impls for fuzzing |
+| `zeroize` |  | Guarded containers and generated cleanup support; configure the generator as described in the [guarded-fields guide](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guarded-fields.md) |
 
 With `default-features = false` the crate is `#![no_std]` (requires `alloc`).
 Disabling the defaults also turns off `fast-utf8`, which does not need `std`; add
@@ -54,12 +59,12 @@ Disabling the defaults also turns off `fast-utf8`, which does not need `std`; ad
 
 ## Documentation
 
-- API reference: <https://docs.rs/buffa>
+- API reference: <https://docs.rs/reallyme-buffa>
 - User guide: [docs/guide.md]
 - Design rationale: [DESIGN.md]
 
-[docs/guide.md]: https://github.com/anthropics/buffa/blob/main/docs/guide.md
-[DESIGN.md]: https://github.com/anthropics/buffa/blob/main/DESIGN.md
+[docs/guide.md]: https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guide.md
+[DESIGN.md]: https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/DESIGN.md
 
 ## Conformance
 

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! The [`ReflectMessage`] trait, [`ReflectCow`], and the [`Reflectable`]
 //! entry-point trait.
 //!
@@ -126,7 +127,7 @@ impl std::error::Error for ReflectError {}
     since(1.78),
     diagnostic::on_unimplemented(
         message = "`{Self}` does not implement `ReflectMessage`, which vtable-mode reflection requires on this embedded type",
-        note = "if `{Self}` comes from another buffa-generated crate via an extern path (well-known types resolve to `buffa-types` by default), enable that crate's reflection feature, e.g. `buffa-types = {{ version = \"...\", features = [\"reflect\"] }}`",
+        note = "if `{Self}` comes from another buffa-generated crate via an extern path (well-known types resolve to `buffa-types` by default), enable that crate's reflection feature, e.g. `buffa-types = {{ package = \"reallyme-buffa-types\", version = \"=0.1.0\", features = [\"reflect\"] }}`",
         note = "view reflection cannot degrade across modes: every view type embedded in a vtable-mode view must itself be vtable-grade (owned messages degrade through `Reflectable::reflect()` instead)",
         note = "if `{Self}` is generated in this crate, its `build.rs` config must use `reflect_mode(ReflectMode::VTable)`"
     )
@@ -442,7 +443,7 @@ impl<'a> core::ops::Deref for ReflectCow<'a> {
     since(1.78),
     diagnostic::on_unimplemented(
         message = "`{Self}` does not implement `Reflectable` — no reflection is enabled for this message type",
-        note = "if `{Self}` comes from another buffa-generated crate via an extern path (well-known types resolve to `buffa-types` by default), enable that crate's reflection feature, e.g. `buffa-types = {{ version = \"...\", features = [\"reflect\"] }}`",
+        note = "if `{Self}` comes from another buffa-generated crate via an extern path (well-known types resolve to `buffa-types` by default), enable that crate's reflection feature, e.g. `buffa-types = {{ package = \"reallyme-buffa-types\", version = \"=0.1.0\", features = [\"reflect\"] }}`",
         note = "if `{Self}` is generated in this crate, enable reflection in its `build.rs` config: `generate_reflection(true)` (vtable) or `reflect_mode(ReflectMode::Bridge)` for the smaller bridge impl — either emits `Reflectable`"
     )
 )]

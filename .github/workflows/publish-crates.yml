@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 name: Publish to crates.io
 
 # Publishes all workspace crates to crates.io in dependency order.
@@ -9,16 +10,11 @@ name: Publish to crates.io
 # removed, publishes run entirely over OIDC with no stored credentials.
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       dry_run:
         description: >-
-          Run cargo publish --dry-run (no upload, no auth). Note: only the
-          leaf crate (buffa) fully verifies — downstream crates resolve deps
-          from crates.io, not the workspace, so they fail verification until
-          buffa is actually published. That failure is expected.
+          Run the workspace publication checks without uploading or authenticating.
         type: boolean
         default: true
 
@@ -28,6 +24,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.repository == 'reallyme/buffa'
     runs-on: ubuntu-latest
     # GitHub Environment: part of the Trusted Publishing trust config on
     # crates.io, and lets you add a required-reviewer approval gate.
@@ -40,9 +37,24 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (sha-pinned)
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
 
-      # OIDC token exchange. Skipped in dry-run (never hits crates.io) and
+      - name: Verify approved tag for an actual upload
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != refs/tags/reallyme-v* ]]; then
+            echo '::error::Actual publication must run from the approved ReallyMe release tag.'
+            exit 1
+          fi
+          version=$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "reallyme-buffa") | .version')
+          if [[ "$GITHUB_REF_NAME" != "reallyme-v$version" ]]; then
+            echo '::error::Release tag and package version differ.'
+            exit 1
+          fi
+
+      # OIDC token exchange. Skipped in dry-run (no authentication or upload) and
       # bootstrap (secret present). The action's post-step revokes the token.
       - name: Authenticate (Trusted Publishing)
         id: auth
@@ -62,38 +74,26 @@ jobs:
       # 0.9.0 changelog but absent from crates.io because nothing compared the
       # list to the workspace.
       #
-      # Each step is idempotent: if the crate is already published at this
-      # version, the step logs a notice and succeeds. Re-running the workflow
-      # after a partial failure skips what's done and picks up where it left
-      # off. No manual edit-and-rerun needed.
-
-      - name: Create idempotent publish helper
-        run: |
-          cat > /tmp/publish.sh << 'EOF'
-          #!/bin/bash
-          set -o pipefail
-          crate="$1"; shift
-          cargo publish -p "$crate" "$@" 2>&1 | tee /tmp/publish.log
-          status=${PIPESTATUS[0]}
-          if [ $status -ne 0 ] && grep -qE "already (exists|uploaded)" /tmp/publish.log; then
-            echo "::notice::$crate already published at this version; skipping"
-            exit 0
-          fi
-          exit $status
-          EOF
-          chmod +x /tmp/publish.sh
-
       - name: Check every publishable crate is covered
         run: ./scripts/check-publish-coverage.sh
 
-      - name: Publish
+      - name: Publish or verify the selected workspace packages
+        shell: bash
         run: |
           set -euo pipefail
-          # DRY_RUN_FLAG is empty or --dry-run and must vanish entirely when
-          # empty, so it is deliberately unquoted.
-          # shellcheck disable=SC2086
-          while read -r crate; do
-            echo "::group::publish ${crate}"
-            /tmp/publish.sh "${crate}" $DRY_RUN_FLAG
-            echo "::endgroup::"
-          done < <(./scripts/check-publish-coverage.sh --list)
+          args=()
+          packages=$(./scripts/check-publish-coverage.sh --list)
+          while read -r package; do
+            case "$package" in
+              reallyme-*) args+=(--package "$package") ;;
+              *) echo '::error::Publication list contains a package outside the fork namespace.'; exit 1 ;;
+            esac
+          done <<< "$packages"
+          if [[ ${#args[@]} -eq 0 ]]; then
+            echo '::error::Publication list is empty.'
+            exit 1
+          fi
+          if [[ -n "$DRY_RUN_FLAG" ]]; then
+            args+=(--dry-run)
+          fi
+          cargo publish --locked "${args[@]}"

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Construction without ordinary growable scratch buffers or partial aggregates.
 
 use super::{Zeroize, ZeroizeOnDrop};

@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 # Crates published to crates.io, in the order they must be published.
 #
 # This file is the single source of truth: publish-crates.yml walks it, and
@@ -24,12 +25,12 @@
 # A crate deliberately not released sets `publish = false` in its Cargo.toml
 # (buffa-yaml does) rather than being omitted from this file.
 
-buffa
-buffa-descriptor
-buffa-types
-buffa-proto-options
-buffa-codegen
-buffa-build
-buffa-remote-derive
-protoc-gen-buffa
-protoc-gen-buffa-packaging
+reallyme-buffa
+reallyme-buffa-descriptor
+reallyme-buffa-types
+reallyme-buffa-proto-options
+reallyme-buffa-codegen
+reallyme-buffa-build
+reallyme-buffa-remote-derive
+reallyme-protoc-gen-buffa
+reallyme-protoc-gen-buffa-packaging

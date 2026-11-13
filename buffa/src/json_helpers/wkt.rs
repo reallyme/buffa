@@ -1,10 +1,11 @@
+// Modified by ReallyMe Technologies Limited.
 //! Shared formatting and parsing helpers for well-known type JSON forms.
 //!
 //! These are the proto3-canonical-JSON representations for `Timestamp`,
 //! `Duration`, and `FieldMask`. They operate on raw scalars (`(i64, i32)`,
 //! `&str`) rather than the WKT structs so they can be shared between
 //! `buffa-types`'s typed serde impls and `buffa-descriptor`'s reflective
-//! [`DynamicMessage`](https://docs.rs/buffa-descriptor) JSON codec without
+//! [`DynamicMessage`](https://docs.rs/reallyme-buffa-descriptor) JSON codec without
 //! a dependency edge between those crates. Both crates depend on `buffa`.
 //!
 //! Sharing the implementation is load-bearing: the conformance suite exercises

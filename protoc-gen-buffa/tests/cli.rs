@@ -1,10 +1,11 @@
+// Modified by ReallyMe Technologies Limited.
 use std::io::Write;
 use std::process::{Command, Stdio};
 
 use buffa::Message;
 use buffa_codegen::generated::compiler::{CodeGeneratorRequest, CodeGeneratorResponse};
 
-const BIN: &str = env!("CARGO_BIN_EXE_protoc-gen-buffa");
+const BIN: &str = env!("CARGO_BIN_EXE_protoc-gen-reallyme-buffa");
 
 #[test]
 fn version_prints_name_and_version() {
@@ -13,7 +14,7 @@ fn version_prints_name_and_version() {
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert_eq!(
         stdout.trim(),
-        format!("protoc-gen-buffa {}", env!("CARGO_PKG_VERSION"))
+        format!("protoc-gen-reallyme-buffa {}", env!("CARGO_PKG_VERSION"))
     );
 }
 
@@ -23,7 +24,7 @@ fn short_version_flag() {
     assert!(out.status.success());
     assert!(String::from_utf8(out.stdout)
         .unwrap()
-        .starts_with("protoc-gen-buffa "));
+        .starts_with("protoc-gen-reallyme-buffa "));
 }
 
 #[test]
@@ -32,7 +33,7 @@ fn help_mentions_protoc_plugin_protocol() {
     assert!(out.status.success());
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("protoc plugin protocol"));
-    assert!(stdout.contains("--buffa_opt"));
+    assert!(stdout.contains("--reallyme-buffa_opt"));
 }
 
 #[test]

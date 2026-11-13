@@ -1,5 +1,7 @@
 # Migrating from the `protobuf` crate to buffa
 
+<!-- Modified by ReallyMe Technologies Limited. -->
+
 This guide covers migration from both versions of the `protobuf` crate:
 
 - **stepancheg v3** (`protobuf = "3.x"`) — the community-maintained pure-Rust implementation that most existing Rust codebases use.
@@ -12,13 +14,13 @@ This guide covers migration from both versions of the `protobuf` crate:
 ```diff
  [dependencies]
 -protobuf = "3"
-+buffa = "0.9"
-+buffa-types = "0.9"
++buffa = { package = "reallyme-buffa", version = "=0.1.0" }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
 
  [build-dependencies]
 -protobuf-codegen = "3"
 -protoc-bin-vendored = "3"    # if using vendored protoc
-+buffa-build = "0.9"
++buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
 ```
 
 ### From Google v4
@@ -26,12 +28,12 @@ This guide covers migration from both versions of the `protobuf` crate:
 ```diff
  [dependencies]
 -protobuf = "=4.33.1-release"
-+buffa = "0.9"
-+buffa-types = "0.9"
++buffa = { package = "reallyme-buffa", version = "=0.1.0" }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
 
  [build-dependencies]
 -protobuf-codegen = "=4.33.1-release"
-+buffa-build = "0.9"
++buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
 ```
 
 ## 2. Rewrite `build.rs`

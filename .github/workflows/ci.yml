@@ -1,8 +1,9 @@
+# Modified by ReallyMe Technologies Limited.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'reallyme/**']
   pull_request:
   # Run required checks on merge queue groups so queued PRs can land.
   merge_group:
@@ -98,7 +99,7 @@ jobs:
       # ungated context survives `syn::parse_file` but fails this. Marked
       # `--ignored` so the default workspace test stays fast. (#113)
       - name: Feature-gating compile matrix
-        run: cargo test -p buffa-codegen --test feature_gating_compile -- --ignored
+        run: cargo test -p reallyme-buffa-codegen --test feature_gating_compile -- --ignored
 
       # Shared-pool mode emits each package's descriptor_pool() as a relative
       # `super::…::__buffa_fds` path, so the hop count has to match the module
@@ -106,7 +107,7 @@ jobs:
       # string-level tests check the arithmetic against itself. Also `#[ignore]`d
       # because it spawns cargo. (#311)
       - name: Shared descriptor pool compile
-        run: cargo test -p buffa-codegen --test shared_pool_compile -- --ignored
+        run: cargo test -p reallyme-buffa-codegen --test shared_pool_compile -- --ignored
 
       # `examples/bsr-quickstart` is outside the workspace, and its `src/gen/`
       # is checked-in output from the published BSR plugin, not in-tree
@@ -123,7 +124,7 @@ jobs:
       - name: Check cleanup with zeroize 1.9
         run: |
           cargo update -p zeroize --precise 1.9.1
-          cargo check -p buffa -p buffa-types --all-features
+          cargo check -p reallyme-buffa -p reallyme-buffa-types --all-features
 
   # ── Markdown lint ────────────────────────────────────────────────────────
   # Same pinned markdownlint-cli version as `task lint-md`. Node is
@@ -195,7 +196,7 @@ jobs:
         run: ./scripts/test-publish-order.sh
 
   # ── Changelog check ──────────────────────────────────────────────────────
-  # CHANGELOG.md is generated from .changes/ via changie. Fail if it has been
+  # FORK_CHANGELOG.md is generated from .changes/ via changie. Fail if it has been
   # edited directly or is stale relative to the per-version source files.
   check-changelog:
     runs-on: ubuntu-latest
@@ -216,14 +217,14 @@ jobs:
           tar -xzf /tmp/changie.tar.gz -C "${RUNNER_TEMP}/bin" changie
           echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
           "${RUNNER_TEMP}/bin/changie" --version
-      - name: Verify CHANGELOG.md is in sync
+      - name: Verify FORK_CHANGELOG.md is in sync
         run: |
           changie merge
           # The message below is single-quoted on purpose: its backticks are
           # literal markdown for the reader, not command substitution.
           # shellcheck disable=SC2016
-          git diff --exit-code -- CHANGELOG.md || {
-            echo '::error file=CHANGELOG.md::CHANGELOG.md is out of sync. Do not edit it directly — add a fragment via `task changelog-new` (see CONTRIBUTING.md), or run `task changelog-merge` if you edited a .changes/ file.'
+          git diff --exit-code -- FORK_CHANGELOG.md || {
+            echo '::error file=FORK_CHANGELOG.md::FORK_CHANGELOG.md is out of sync. Do not edit it directly — add a fragment via `task changelog-new` (see CONTRIBUTING.md), or run `task changelog-merge` if you edited a .changes/ file.'
             exit 1
           }
 
@@ -279,7 +280,7 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: '1.77'
         run: |
-          cargo test -p buffa --lib table:: --locked
+          cargo test -p reallyme-buffa --lib table:: --locked
           cargo test -p buffa-test --lib table_codec --locked
 
   # ── Miri: proves the `set_len`-publishing `unsafe` reads no uninit memory ──
@@ -327,7 +328,7 @@ jobs:
 
       - name: Miri (size_cache, copy_into_spare and pre-sized sink soundness)
         run: >-
-          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa --
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa --
           size_cache copy_into_spare encode_sink::tests contiguous_sink_
 
       # The table interpreters (table/) read and write message fields through
@@ -340,7 +341,7 @@ jobs:
       # emits runs natively only, in the differential tests of `buffa-test`,
       # not under Miri.
       - name: Miri (table interpreter soundness)
-        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa --lib -- 'table::'
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa --lib -- 'table::'
 
       # OwnedView: the view borrows from the Bytes it is stored beside, with
       # forged 'static lifetimes hidden behind a MaybeDangling wrapper. Miri
@@ -352,20 +353,20 @@ jobs:
       # PartialEq, reborrow and to_owned_message paths on a hand-written view.
       - name: Miri (OwnedView soundness)
         run: >-
-          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa --
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa --
           owned_view_drop owned_view_into_bytes owned_view_lifetime_parametric_contract
 
       # Cleanup moves values out of MaybeUninit slots and wipes vacated storage.
       # Exercise allocation ownership and nonzero niches, not just scalar values.
       - name: Miri (guarded storage soundness)
         run: >-
-          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa
           --no-default-features --features std,json,zeroize --lib --
           sensitive:: erasing::
 
       - name: Miri (borrowed inspection scalar slots)
         run: >-
-          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa-descriptor
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa-descriptor
           --no-default-features --features std,reflect,zeroize --lib --
           reflect::inspect::tests
 
@@ -394,40 +395,40 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 (sha-pinned)
 
       - name: Check buffa no_std (host)
-        run: cargo check -p buffa --no-default-features
+        run: cargo check -p reallyme-buffa --no-default-features
 
       - name: Test buffa no_std JSON options
-        run: cargo test -p buffa --no-default-features --features json --test nostd_json_options
+        run: cargo test -p reallyme-buffa --no-default-features --features json --test nostd_json_options
 
       - name: Check buffa no_std (bare-metal ARM)
-        run: cargo check -p buffa --no-default-features --target thumbv7em-none-eabihf
+        run: cargo check -p reallyme-buffa --no-default-features --target thumbv7em-none-eabihf
 
       - name: Check buffa-types no_std
-        run: cargo check -p buffa-types --no-default-features
+        run: cargo check -p reallyme-buffa-types --no-default-features
 
       - name: Check buffa-types no_std + chrono
-        run: cargo check -p buffa-types --no-default-features --features chrono
+        run: cargo check -p reallyme-buffa-types --no-default-features --features chrono
 
       - name: Check guarded WKTs no_std (bare-metal ARM)
-        run: cargo check -p buffa-types --no-default-features --features sensitive --target thumbv7em-none-eabihf
+        run: cargo check -p reallyme-buffa-types --no-default-features --features sensitive --target thumbv7em-none-eabihf
 
       - name: Check guarded WKTs no_std + JSON (bare-metal ARM)
-        run: cargo check -p buffa-types --no-default-features --features sensitive,json --target thumbv7em-none-eabihf
+        run: cargo check -p reallyme-buffa-types --no-default-features --features sensitive,json --target thumbv7em-none-eabihf
 
       - name: Check buffa-descriptor no_std
-        run: cargo check -p buffa-descriptor --no-default-features
+        run: cargo check -p reallyme-buffa-descriptor --no-default-features
 
       - name: Check buffa-descriptor no_std + json/reflect/text/views
-        run: cargo check -p buffa-descriptor --no-default-features --features json,reflect,text,views
+        run: cargo check -p reallyme-buffa-descriptor --no-default-features --features json,reflect,text,views
 
       - name: Test buffa-descriptor no_std reflective JSON
-        run: cargo test -p buffa-descriptor --no-default-features --features json,reflect --test '*'
+        run: cargo test -p reallyme-buffa-descriptor --no-default-features --features json,reflect --test '*'
 
       - name: Check buffa-proto-options no_std
-        run: cargo check -p buffa-proto-options --no-default-features
+        run: cargo check -p reallyme-buffa-proto-options --no-default-features
 
       - name: Check buffa-proto-options no_std + json/text/views
-        run: cargo check -p buffa-proto-options --no-default-features --features json,text,views
+        run: cargo check -p reallyme-buffa-proto-options --no-default-features --features json,text,views
 
       - name: Check workspace 32-bit
         run: cargo check --workspace --target i686-unknown-linux-gnu
@@ -476,8 +477,8 @@ jobs:
 
       - name: Regenerate WKT types
         run: |
-          cargo run -p buffa-codegen --bin gen_wkt_types -- /tmp/wkt.pb buffa-types/src/generated
-          cargo run -p buffa-codegen --bin gen_sensitive_wkt -- /tmp/wkt.pb buffa-types/src/sensitive/generated
+          cargo run -p reallyme-buffa-codegen --bin gen_wkt_types -- /tmp/wkt.pb buffa-types/src/generated
+          cargo run -p reallyme-buffa-codegen --bin gen_sensitive_wkt -- /tmp/wkt.pb buffa-types/src/sensitive/generated
 
       - name: Regenerate buffa-proto-options option types
         # descriptor.proto comes from buffa-descriptor/protos/ (pinned), so

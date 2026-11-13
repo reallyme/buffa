@@ -1,10 +1,11 @@
+// Modified by ReallyMe Technologies Limited.
 //! `DynamicMessage` reads `serde_json`'s private `RawValue` key as data when
 //! it buffers a `google.protobuf.Any`. See `buffa::json_helpers::buffered`
 //! for what the key does. `raw_value` is a dev-dependency feature of this
 //! crate, so these tests run with it on.
 //!
 //! Run standalone with (the file compiles to nothing without the features):
-//! `cargo test -p buffa-descriptor --features reflect,json --test json_private_key`
+//! `cargo test -p reallyme-buffa-descriptor --features reflect,json --test json_private_key`
 
 #![cfg(all(feature = "reflect", feature = "json"))]
 

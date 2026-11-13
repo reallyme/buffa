@@ -1,24 +1,23 @@
-# Buffa User Guide
+# ReallyMe Buffa User Guide
+
+<!-- Modified by ReallyMe Technologies Limited. -->
 
 A comprehensive guide to using buffa for Protocol Buffers in Rust.
 
 ## Installation
 
-Add buffa to your project:
+Use the fork packages through the aliases expected by generated Rust:
 
-```sh
-cargo add buffa
-cargo add buffa-types           # well-known types (Timestamp, Duration, Any, etc.)
-cargo add --build buffa-build
+```toml
+[dependencies]
+buffa = { package = "reallyme-buffa", version = "=0.1.0" }
+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
+
+[build-dependencies]
+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
 ```
 
-The Cargo dependency is all you need when generating code via `buffa-build` or the `buf.build/anthropics/buffa` remote plugin. A [Homebrew](https://brew.sh) formula is also available:
-
-```sh
-brew install buffa
-```
-
-This is **optional** — it does not install the library. It puts the `protoc-gen-buffa` and `protoc-gen-buffa-packaging` plugin binaries on your `PATH` (and pulls in `protobuf` for `protoc`), which is only useful if you are driving codegen through a `local:` buf plugin reference or invoking `protoc --buffa_out` directly. See [Installing the protoc plugins](#installing-the-protoc-plugins) for details and for pinning the plugin version to match your Cargo dependency.
+Use the matching local ReallyMe plugins for `buf generate`. The upstream BSR plugin and Homebrew formula install a different distribution. See [fork provenance and migration](../FORK.md).
 
 ### Feature flags
 
@@ -34,15 +33,15 @@ This is **optional** — it does not install the library. It puts the `protoc-ge
 
 ```sh
 # Enable JSON support
-cargo add buffa --features json
-cargo add buffa-types --features json
+cargo add reallyme-buffa@=0.1.0 --rename buffa --features json
+cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types --features json
 ```
 
 ## Prerequisites
 
 ### buf (recommended)
 
-[buf](https://buf.build/docs/cli/) is the easiest way to compile `.proto` files with buffa. It has a built-in protobuf compiler — no separate `protoc` required — and it can run `protoc-gen-buffa` as a [remote plugin](https://buf.build/docs/bsr/remote-plugins/overview/) on the [Buf Schema Registry](https://buf.build/anthropics/buffa): `buf generate` sends your compiled proto descriptors to the BSR, which executes the plugin in a sandbox and returns the generated Rust source. So the only thing you need to install is buf itself.
+[buf](https://buf.build/docs/cli/) compiles the schemas and runs the installed ReallyMe plugins locally. No separate `protoc` is required. Install the matching plugins as described below; this fork release does not publish a hosted BSR plugin.
 
 ```sh
 # Install buf — see https://buf.build/docs/installation for other methods
@@ -78,18 +77,18 @@ Note that the protoc version shipped by Debian and Ubuntu (`apt install protobuf
 
 There are two ways to generate Rust code from `.proto` files:
 
-1. **`buf generate`** (recommended) — uses the buf CLI with the published [`buf.build/anthropics/buffa`](https://buf.build/anthropics/buffa) remote plugin (or a locally-installed `protoc-gen-buffa`). No `protoc` required, no `build.rs` needed.
+1. **`buf generate`** (recommended) — uses the buf CLI with the locally installed `protoc-gen-reallyme-buffa` and optional packaging plugin. No `protoc` required, no `build.rs` needed.
 2. **`buffa-build`** — a `build.rs` helper that invokes `protoc` (or `buf`) at compile time, similar to `prost-build` or `tonic-build`.
 
 ### Using `buf generate` (recommended)
 
-See the [Using buf](#using-buf) section below for the full set of configurations. Quick start with the published remote plugin — no local plugin install required:
+See the [Using buf](#using-buf) section below for the full set of configurations. Quick start after installing the matching local plugin:
 
 ```yaml
 # buf.gen.yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - file_per_package=true
@@ -112,17 +111,17 @@ pub mod example {
 mod gen;
 ```
 
-To have the `mod.rs` generated for you, install [`protoc-gen-buffa-packaging`](#installing-the-protoc-plugins) locally and add it as a second plugin (and drop `file_per_package=true` — the packaging plugin reads the per-proto stitcher format):
+To have the `mod.rs` generated for you, install [`protoc-gen-reallyme-buffa-packaging`](#installing-the-protoc-plugins) locally and add it as a second plugin (and drop `file_per_package=true` — the packaging plugin reads the per-proto stitcher format):
 
 ```yaml
 # buf.gen.yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - json=true
-  - local: protoc-gen-buffa-packaging
+  - local: protoc-gen-reallyme-buffa-packaging
     out: src/gen
     strategy: all
 ```
@@ -132,26 +131,26 @@ plugins:
 mod gen;  // generated mod.rs handles #[allow] and module hierarchy
 ```
 
-See [`examples/bsr-quickstart/`](../examples/bsr-quickstart/) for a complete, runnable project using the remote plugin.
+The historical `examples/bsr-quickstart` demonstrates the upstream hosted plugin. For this fork, use the local plugin configurations above.
 
 With `reflection=true` (or `reflect_mode=bridge|vtable`) over many packages, add `shared_descriptor_pool=true` to **both** plugins. The descriptor set is then embedded once in a shared `__buffa_fds` module in the generated `mod.rs`, and every package's `descriptor_pool()` / `FILE_DESCRIPTOR_SET_BYTES` delegates to it — instead of each package embedding its own copy, which dominates crate size for large trees.
 
 ```yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - reflection=true
       - shared_descriptor_pool=true
-  - local: protoc-gen-buffa-packaging
+  - local: protoc-gen-reallyme-buffa-packaging
     out: src/gen
     strategy: all
     opt:
       - shared_descriptor_pool=true
 ```
 
-> **`shared_descriptor_pool` spans both plugins.** Like `exclude_package`, set the same option on `protoc-gen-buffa` and `protoc-gen-buffa-packaging`, and give both plugins the same inputs: the packaging plugin builds the shared set from the files *it* receives, so a per-plugin `exclude_types:` or a narrower input set leaves the pool missing types the generated code reflects on (a runtime lookup failure). If only the codegen plugin has the option, the generated code fails to compile with an unresolved `__buffa_fds` (the per-package delegations point at a root module the packaging plugin never emitted). If only the packaging plugin has it, `mod.rs` carries an extra copy nothing references when reflection is on, and fails to compile with an unresolved `buffa_descriptor` when it is off. Feature overrides (`open_enums_in` / `override_feature_in`), feature gating (`gate_impls=true`), and `file_per_package` (the packaging-plugin-free workflow, which never emits the root module) are not supported with `shared_descriptor_pool` on the plugin path (`protoc-gen-buffa` rejects the combinations); `buffa-build` supports all three with a shared pool because one process emits the root itself.
+> **`shared_descriptor_pool` spans both plugins.** Like `exclude_package`, set the same option on `protoc-gen-reallyme-buffa` and `protoc-gen-reallyme-buffa-packaging`, and give both plugins the same inputs: the packaging plugin builds the shared set from the files *it* receives, so a per-plugin `exclude_types:` or a narrower input set leaves the pool missing types the generated code reflects on (a runtime lookup failure). If only the codegen plugin has the option, the generated code fails to compile with an unresolved `__buffa_fds` (the per-package delegations point at a root module the packaging plugin never emitted). If only the packaging plugin has it, `mod.rs` carries an extra copy nothing references when reflection is on, and fails to compile with an unresolved `buffa_descriptor` when it is off. Feature overrides (`open_enums_in` / `override_feature_in`), feature gating (`gate_impls=true`), and `file_per_package` (the packaging-plugin-free workflow, which never emits the root module) are not supported with `shared_descriptor_pool` on the plugin path (`protoc-gen-reallyme-buffa` rejects the combinations); `buffa-build` supports all three with a shared pool because one process emits the root itself.
 
 ### Using `buffa-build` in `build.rs`
 
@@ -250,7 +249,7 @@ Well-known types (`google.protobuf.Timestamp`, `Duration`, `Any`, etc.) are auto
 This requires `buffa-types` as a dependency:
 
 ```sh
-cargo add buffa-types
+cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types
 ```
 
 `buffa-types` is a pure source crate — it does **not** run `protoc` or any code generation at build time. If your protos use WKTs but you generate your own Rust code ahead-of-time (via `buf generate` or a `protoc` script), then `buffa` + `buffa-types` is your entire runtime dependency surface.
@@ -272,16 +271,16 @@ This disables the automatic mapping and routes all `google.protobuf.*` reference
 `google/protobuf/descriptor.proto` and `google/protobuf/compiler/plugin.proto` types (`FieldDescriptorProto`, `FileOptions`, `Edition`, `CodeGeneratorRequest`, etc.) live in `buffa-descriptor`, not `buffa-types` — the latter ships the official well-known types (JSON-mappable WKTs plus `Api`/`Type`/`SourceContext`). Protos that reference a `descriptor.proto` type as a field type — most commonly via [protovalidate](https://buf.build/bufbuild/protovalidate)'s `buf/validate/validate.proto`, which uses `google.protobuf.FieldDescriptorProto.Type` — are automatically routed to `buffa-descriptor`, the same way WKTs are routed to `buffa-types`. Add it as a dependency:
 
 ```sh
-cargo add buffa-descriptor
+cargo add reallyme-buffa-descriptor@=0.1.0 --rename buffa-descriptor
 ```
 
 If your protos import `descriptor.proto` only to declare custom options (`extend google.protobuf.MessageOptions { ... }`) and never reference a descriptor type as a *field type*, no `buffa-descriptor` dependency is required — extension declarations don't generate field-type references.
 
-`buffa-descriptor` ships its view, JSON, text, and arbitrary impls behind crate features (`views`, `json`, `text`, `arbitrary`), all off by default; a separate `reflect` feature provides the runtime reflection API (`DescriptorPool`, `DynamicMessage` — see [Runtime reflection](#runtime-reflection)). The codegen toolchain depends on it with `default-features = false`, so building `buffa-codegen` / `buffa-build` / `protoc-gen-buffa` doesn't pull in `serde` or `serde_json`. **If your protos reference a descriptor message type as a field type and you generate with `views=true`, `json=true`, or `text=true`, enable the matching `buffa-descriptor` features**:
+`buffa-descriptor` ships its view, JSON, text, and arbitrary impls behind crate features (`views`, `json`, `text`, `arbitrary`), all off by default; a separate `reflect` feature provides the runtime reflection API (`DescriptorPool`, `DynamicMessage` — see [Runtime reflection](#runtime-reflection)). The codegen toolchain depends on it with `default-features = false`, so building `buffa-codegen` / `buffa-build` / `protoc-gen-reallyme-buffa` doesn't pull in `serde` or `serde_json`. **If your protos reference a descriptor message type as a field type and you generate with `views=true`, `json=true`, or `text=true`, enable the matching `buffa-descriptor` features**:
 
 ```sh
 # Codegen with .generate_views(true).generate_json(true)
-cargo add buffa-descriptor --features views,json
+cargo add reallyme-buffa-descriptor@=0.1.0 --rename buffa-descriptor --features views,json
 ```
 
 Descriptor **enum** types referenced as field types (the most common case — e.g. `google.protobuf.FieldDescriptorProto.Type` in protovalidate) work with the default feature set. The features are only needed for descriptor **message** types referenced as fields (e.g. `FileDescriptorSet`, `FileDescriptorProto`). If you hit a missing-impl error like `the trait bound FileDescriptorSet: serde::Deserialize is not satisfied`, add `buffa-descriptor` with the right features.
@@ -394,11 +393,11 @@ Key points:
 - **A custom string used as a `map` key needs `Hash + Eq`** (for the default / `HashMap` container) or `Ord` (for `map_type(BTreeMap)`). The bound is enforced at the generated map field type, so a missing impl is a clear compile error at that field.
 - **A custom type used as a `repeated` element, or as a `map` key/value, must be crate-local.** Codegen emits per-element `ReflectElement` (vtable reflection), `ReflectMapKey` (vtable, for a custom `string` map key), and base64 `ProtoElemJson` (JSON, bytes only) impls for it, which the orphan rule forbids for a foreign type — a local newtype satisfies this. Singular / optional / oneof uses have no such restriction.
 
-For `protoc-gen-buffa`, use the repeatable `bytes_type_custom_in=<proto_path>=<rust_type_path>` and `string_type_custom_in=<proto_path>=<rust_type_path>` options, and `repeated_type_custom_in=<proto_path>=<template>` for a custom `repeated` collection; `.` as the path selects every field. They follow the same proto-path prefix matching and last-match-wins ordering as the `buffa-build` methods. Plugin options are comma-separated, so use a local type alias for a generic Rust type whose path contains a comma.
+For `protoc-gen-reallyme-buffa`, use the repeatable `bytes_type_custom_in=<proto_path>=<rust_type_path>` and `string_type_custom_in=<proto_path>=<rust_type_path>` options, and `repeated_type_custom_in=<proto_path>=<template>` for a custom `repeated` collection; `.` as the path selects every field. They follow the same proto-path prefix matching and last-match-wins ordering as the `buffa-build` methods. Plugin options are comma-separated, so use a local type alias for a generic Rust type whose path contains a comma.
 
 ### Multi-package projects
 
-When your proto files span multiple packages that reference each other, buffa uses `super::`-based relative paths so cross-package types resolve automatically. This works when the module tree matches the protobuf package hierarchy — which `include_file` (for `buffa-build`) and `protoc-gen-buffa-packaging` (for the protoc plugin path) ensure.
+When your proto files span multiple packages that reference each other, buffa uses `super::`-based relative paths so cross-package types resolve automatically. This works when the module tree matches the protobuf package hierarchy — which `include_file` (for `buffa-build`) and `protoc-gen-reallyme-buffa-packaging` (for the protoc plugin path) ensure.
 
 **Example:** Two packages that reference each other:
 
@@ -415,7 +414,7 @@ message Request {
 }
 ```
 
-With `include_file` or `protoc-gen-buffa-packaging`, the generated module tree is:
+With `include_file` or `protoc-gen-reallyme-buffa-packaging`, the generated module tree is:
 
 ```text
 pub mod myapp {
@@ -489,88 +488,37 @@ Adding a type to a scope can therefore move a module: adding `enum mode` beside 
 
 ### Installing the protoc plugins
 
-There are two binaries: `protoc-gen-buffa` (the codegen plugin) and `protoc-gen-buffa-packaging` (the module-tree assembler). Both are released together.
-
-You only need a local install if you use `local:` plugin references. The codegen plugin is published to the Buf Schema Registry as [`buf.build/anthropics/buffa`](https://buf.build/anthropics/buffa) and can be referenced with `remote:` instead — see [Using buf](#using-buf). The packaging plugin is local-only; if you don't want to install it, use the [`file_per_package=true`](#remote-plugin-only-no-local-install) opt and write the `pub mod` tree yourself.
-
-**With Homebrew:**
+Install the two registry packages at the same version as the runtime:
 
 ```sh
-brew install buffa
+cargo install reallyme-protoc-gen-buffa --version '=0.1.0' --locked
+cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.0' --locked
+protoc-gen-reallyme-buffa --version
+protoc-gen-reallyme-buffa-packaging --version
 ```
 
-The [formula](https://formulae.brew.sh/formula/buffa) builds both plugins from the latest crates.io release and declares `protobuf` as a dependency, so `protoc` comes along with it. Homebrew always tracks the latest release; if you need the plugin version to match an older `buffa = "x.y"` in your `Cargo.toml`, use `cargo install` with an explicit `--version` instead:
+The binary names deliberately differ from the package names and from the upstream binaries. A generation guard should require the exact binary names and version `0.1.0`.
 
-```sh
-cargo install --locked --version <version> protoc-gen-buffa protoc-gen-buffa-packaging
-```
+From a checked-out release, install with `cargo install --locked --path protoc-gen-buffa` and `cargo install --locked --path protoc-gen-buffa-packaging`. The source directories retain their original names. `cargo install` does not inherit the workspace release profile; set `CARGO_PROFILE_RELEASE_LTO=true` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` if those optimizations are desired.
 
-**From source (requires Rust toolchain):**
-
-From crates.io (recommended):
-
-```sh
-cargo install --locked protoc-gen-buffa protoc-gen-buffa-packaging
-```
-
-`cargo install` builds with its own default release profile, so the workspace's `lto = true` / `codegen-units = 1` settings (used for the prebuilt release binaries below) are not applied. For the smallest binary, set them via the environment:
-
-```sh
-CARGO_PROFILE_RELEASE_LTO=true CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-    cargo install --locked protoc-gen-buffa protoc-gen-buffa-packaging
-```
-
-Or from a git ref, for unreleased changes:
-
-```sh
-cargo install --locked --git https://github.com/anthropics/buffa protoc-gen-buffa protoc-gen-buffa-packaging
-```
-
-**From GitHub releases:**
-
-Download the binaries for your platform from the [releases page](https://github.com/anthropics/buffa/releases) using the `gh` CLI:
-
-```sh
-# Download binaries + cosign signatures + certificates (both plugins match)
-gh release download v0.7.0 --repo anthropics/buffa \
-    --pattern 'protoc-gen-buffa*-linux-x86_64*'
-
-# Verify with GitHub attestations (requires gh CLI ≥ 2.49)
-gh attestation verify protoc-gen-buffa-v0.7.0-linux-x86_64 --repo anthropics/buffa
-gh attestation verify protoc-gen-buffa-packaging-v0.7.0-linux-x86_64 --repo anthropics/buffa
-
-# Or with cosign (standalone, no gh required) — shown for one binary
-cosign verify-blob \
-    --signature protoc-gen-buffa-v0.7.0-linux-x86_64.sig \
-    --certificate protoc-gen-buffa-v0.7.0-linux-x86_64.pem \
-    --certificate-identity-regexp "github.com/anthropics/buffa" \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    protoc-gen-buffa-v0.7.0-linux-x86_64
-
-# Install both
-chmod +x protoc-gen-buffa-v0.7.0-linux-x86_64 protoc-gen-buffa-packaging-v0.7.0-linux-x86_64
-mv protoc-gen-buffa-v0.7.0-linux-x86_64 ~/.local/bin/protoc-gen-buffa
-mv protoc-gen-buffa-packaging-v0.7.0-linux-x86_64 ~/.local/bin/protoc-gen-buffa-packaging
-```
-
-Available platforms: `linux-x86_64`, `linux-aarch64`, `darwin-x86_64`, `darwin-aarch64`, `windows-x86_64` (`.exe`). All releases include SHA-256 checksums, Sigstore cosign signatures, and signed SLSA build provenance for supply chain verification.
+For any prebuilt binaries offered separately, use only the [ReallyMe release](https://github.com/reallyme/buffa/releases) for the matching version and verify its published checksums. The upstream Homebrew formula and hosted plugin do not install this fork.
 
 ### Using buf
 
 [buf](https://buf.build/docs/cli/) is the recommended way to invoke the plugins. It has a built-in protobuf compiler and handles dependency management, so no separate `protoc` install is needed.
 
-There are two parts to a buffa code generation pass:
+There are two local plugins:
 
-1. **`protoc-gen-buffa`** emits the message types — one `.rs` per proto file (default), or one `<dotted.package>.rs` per package with `file_per_package=true`. It is published to the Buf Schema Registry as [`buf.build/anthropics/buffa`](https://buf.build/anthropics/buffa), so it can run as a `remote:` plugin with no local install: `buf generate` sends your compiled proto descriptors to the BSR, which executes the plugin remotely and returns the generated source.
-2. **`protoc-gen-buffa-packaging`** is a small, optional second plugin that reads the full proto file set and emits a `mod.rs` with nested `pub mod` blocks that `include!` each generated file at the right package nesting. It is local-only ([install instructions](#installing-the-protoc-plugins)) — if you'd rather not install anything, use `file_per_package=true` and write the `pub mod` tree yourself.
+1. **`protoc-gen-reallyme-buffa`** emits message types, either per proto file or per package with `file_per_package=true`.
+2. **`protoc-gen-reallyme-buffa-packaging`** optionally emits the module tree. Run it with `strategy: all` and the same input set.
 
-#### Remote plugin only (no local install)
+#### Single local plugin
 
 ```yaml
 # buf.gen.yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - file_per_package=true
@@ -591,23 +539,23 @@ pub mod example {
 mod gen;
 ```
 
-Pin the plugin version for reproducible builds: `remote: buf.build/anthropics/buffa:vX.Y.Z`, matching the `buffa` runtime crate version in your `Cargo.toml` — generated code from a newer plugin may reference items that don't exist in an older runtime.
+Pin both local plugin packages to `=0.1.0` and require the matching version output in the generation guard. Regenerate every schema when switching to this package family.
 
-The complete, runnable [`examples/bsr-quickstart/`](../examples/bsr-quickstart/) project uses this layout.
+The `file_per_package` layout is independent of where the plugin runs; for this release, run the ReallyMe plugin locally.
 
-#### Remote plugin + local packaging plugin
+#### Both local plugins
 
-If you'd rather have the `mod.rs` generated for you, install [`protoc-gen-buffa-packaging`](#installing-the-protoc-plugins) and add it as a second plugin. Drop `file_per_package=true` — the packaging plugin reads the per-proto stitcher format (`<stem>.rs` + `<dotted.pkg>.mod.rs`):
+If you'd rather have the `mod.rs` generated for you, install [`protoc-gen-reallyme-buffa-packaging`](#installing-the-protoc-plugins) and add it as a second plugin. Drop `file_per_package=true` — the packaging plugin reads the per-proto stitcher format (`<stem>.rs` + `<dotted.pkg>.mod.rs`):
 
 ```yaml
 # buf.gen.yaml
 version: v2
 plugins:
-  - remote: buf.build/anthropics/buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - json=true
-  - local: protoc-gen-buffa-packaging
+  - local: protoc-gen-reallyme-buffa-packaging
     out: src/gen
     strategy: all
 ```
@@ -621,24 +569,24 @@ No hand-written bridge file is needed. The generated `mod.rs` includes `#![allow
 
 #### Local plugins (development)
 
-When iterating on `.proto` files alongside an in-tree `protoc-gen-buffa` build (e.g. contributing to buffa itself, or testing a pre-release), use `local:` for both plugins:
+When iterating on `.proto` files alongside an in-tree `protoc-gen-reallyme-buffa` build (e.g. contributing to buffa itself, or testing a pre-release), use `local:` for both plugins:
 
 ```yaml
 # buf.gen.yaml
 version: v2
 plugins:
-  - local: protoc-gen-buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
-  - local: protoc-gen-buffa-packaging
+  - local: protoc-gen-reallyme-buffa-packaging
     out: src/gen
     strategy: all
 ```
 
-`protoc-gen-buffa` does not emit `mod.rs` and does not require `strategy: all` — buf can invoke it per-directory. `protoc-gen-buffa-packaging` requires `strategy: all` to see the full proto file set. Run it once per output directory; if you have multiple codegen plugins emitting to different directories, invoke it once per directory with the appropriate `out:`.
+`protoc-gen-reallyme-buffa` does not emit `mod.rs` and does not require `strategy: all` — buf can invoke it per-directory. `protoc-gen-reallyme-buffa-packaging` requires `strategy: all` to see the full proto file set. Run it once per output directory; if you have multiple codegen plugins emitting to different directories, invoke it once per directory with the appropriate `out:`.
 
 #### Plugin options
 
-Passed via `opt:` (works for `remote:` and `local:`):
+Passed to the local codegen plugin via `opt:`:
 
 | Option | Description |
 |--------|-------------|
@@ -673,29 +621,29 @@ Passed via `opt:` (works for `remote:` and `local:`):
 | `unbox_oneof_in=<path>` | Store matching non-recursive message/group oneof variants inline instead of `Box<T>`. Repeatable; leading dot optional. Use `.` to match all variants. Recursive variants stay boxed for broad matches; exact recursive matches are rejected. |
 | `reflection=true` | Emit reflection support (vtable mode) plus an embedded per-package descriptor pool — see [Runtime reflection](#runtime-reflection) |
 | `reflect_mode=off\|bridge\|vtable` | Finer-grained reflection selector; `reflection=true` is shorthand for `vtable` |
-| `shared_descriptor_pool=true` | Deduplicate the embedded descriptor set: per-package reflect modules delegate to one shared `__buffa_fds` root module. Pass a matching `shared_descriptor_pool=true` to `protoc-gen-buffa-packaging` so the root module is emitted. See [Runtime reflection](#runtime-reflection) |
+| `shared_descriptor_pool=true` | Deduplicate the embedded descriptor set: per-package reflect modules delegate to one shared `__buffa_fds` root module. Pass a matching `shared_descriptor_pool=true` to `protoc-gen-reallyme-buffa-packaging` so the root module is emitted. See [Runtime reflection](#runtime-reflection) |
 | `bytes_type_custom_in=.pkg.Msg.field=crate::Bytes` | Custom owned bytes representation for a protobuf path prefix, or `.` for every field (repeatable, last matching rule wins) |
 | `string_type_custom_in=.pkg.Msg.field=crate::Text` | Custom owned string representation for a protobuf path prefix, or `.` for every field (repeatable, last matching rule wins) |
-| `repeated_type_custom_in=.pkg.Msg.field=crate::List<*>` | Custom owned collection for `repeated` fields under a protobuf path prefix; `*` is replaced by the element type (repeatable, last matching rule wins). See [`repeated_type_custom_in`](https://docs.rs/buffa-build/latest/buffa_build/struct.Config.html#method.repeated_type_custom_in) for the `ProtoList` requirements |
+| `repeated_type_custom_in=.pkg.Msg.field=crate::List<*>` | Custom owned collection for `repeated` fields under a protobuf path prefix; `*` is replaced by the element type (repeatable, last matching rule wins). See [`repeated_type_custom_in`](https://docs.rs/reallyme-buffa-build/latest/buffa_build/struct.Config.html#method.repeated_type_custom_in) for the `ProtoList` requirements |
 | `custom_type_impls=false` | Use integration traits supplied by the representation crate instead of emitting foreign or duplicate impls |
 | `allow_unmatched_message_rules=true` | Permit global cleanup/view selectors absent from a directory request, with warnings; full-project validation stays strict by default |
 | `json_policy_type=crate::Secret` | Route a custom bytes or string representation's protobuf JSON, in owned messages and views, through its `ProtoBytesJson` / `ProtoStringJson` impl (repeatable) — see [JSON policies for custom types](#json-policies-for-custom-types) |
 | `extern_path=.pkg=::rust` | Map a proto package — or a single type, e.g. `extern_path=.pkg.Type=::rust::Type` — to an external Rust path. The proto side is a dotted protobuf name with an optional leading dot; an empty or non-identifier segment is an error |
-| `exclude_package=.pkg` | Drop a proto package and its subpackages from generation (repeatable; leading dot optional). For option-only imports that `include_imports` pulls in but that are never used as field types, e.g. `buf.validate`, `gnostic`. **Pass the same `exclude_package` to `protoc-gen-buffa-packaging`** (see the note below the table) so the generated `mod.rs` omits the same packages. |
-| `file_per_package=true` | Emit one `<dotted.package>.rs` per package instead of per-proto-file content + a `<dotted.pkg>.mod.rs` stitcher. Use this with the remote plugin when you don't want to install `protoc-gen-buffa-packaging` — see [Remote plugin only](#remote-plugin-only-no-local-install). Under `strategy: directory`, requires the input module to be `PACKAGE_DIRECTORY_MATCH`-clean. |
+| `exclude_package=.pkg` | Drop a proto package and its subpackages from generation (repeatable; leading dot optional). For option-only imports that `include_imports` pulls in but that are never used as field types, e.g. `buf.validate`, `gnostic`. **Pass the same `exclude_package` to `protoc-gen-reallyme-buffa-packaging`** (see the note below the table) so the generated `mod.rs` omits the same packages. |
+| `file_per_package=true` | Emit one `<dotted.package>.rs` per package instead of per-proto-file content + a `<dotted.pkg>.mod.rs` stitcher. Use this when you do not need `protoc-gen-reallyme-buffa-packaging` — see [Single local plugin](#single-local-plugin). Under `strategy: directory`, requires the input module to be `PACKAGE_DIRECTORY_MATCH`-clean. |
 | `idiomatic_imports=true` | **Experimental.** Emit `use`-backed short type names at the package root. Requires `file_per_package=true`. Only type declarations are shortened; the generated file must keep its `#[allow]` wrapper. |
 
-> **`exclude_package` spans both plugins.** It is accepted by both `protoc-gen-buffa` (which skips generating the package's files) and `protoc-gen-buffa-packaging` (which omits the package from the emitted `mod.rs`). Pass the identical `exclude_package` opt to both — the two share one exclusion predicate, so a mismatch leaves the `mod.rs` `include!`-ing a stitcher that was never generated (or dropping one that was). Example, excluding the option-only `buf.validate` and `gnostic` imports that `include_imports` pulls in:
+> **`exclude_package` spans both plugins.** It is accepted by both `protoc-gen-reallyme-buffa` (which skips generating the package's files) and `protoc-gen-reallyme-buffa-packaging` (which omits the package from the emitted `mod.rs`). Pass the identical `exclude_package` opt to both — the two share one exclusion predicate, so a mismatch leaves the `mod.rs` `include!`-ing a stitcher that was never generated (or dropping one that was). Example, excluding the option-only `buf.validate` and `gnostic` imports that `include_imports` pulls in:
 >
 > ```yaml
 > plugins:
->   - local: protoc-gen-buffa
+>   - local: protoc-gen-reallyme-buffa
 >     out: src/gen
 >     opt:
 >       - exclude_package=.buf.validate
 >       - exclude_package=.gnostic
 >     include_imports: true
->   - local: protoc-gen-buffa-packaging
+>   - local: protoc-gen-reallyme-buffa-packaging
 >     out: src/gen
 >     strategy: all
 >     opt:
@@ -711,7 +659,7 @@ The plugins bound how much memory a `CodeGeneratorRequest` may decode into, at 1
 
 ```yaml
 plugins:
-  - local: protoc-gen-buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - element_memory_limit=unlimited
@@ -725,47 +673,30 @@ Generated `descriptor_pool()` needs no configuration at any schema size: it scal
 
 #### BSR-generated SDKs
 
-If your protos are published as a [BSR module](https://buf.build/docs/bsr/module/), you can skip code generation entirely and depend on the BSR's pre-built [Generated SDK](https://buf.build/docs/bsr/generated-sdks/cargo) for that module. Add the BSR Cargo registry to `.cargo/config.toml` and depend on the generated crate:
-
-```toml
-# .cargo/config.toml
-[registries.buf]
-index = "sparse+https://buf.build/gen/cargo/"
-credential-provider = "cargo:token"
-```
-
-```toml
-# Cargo.toml
-[dependencies]
-bufbuild_registry_<owner>_<module> = { version = "<buffa_version>-<commit>", registry = "buf" }
-```
-
-The SDK already declares `buffa`, `buffa-types`, and `serde` as dependencies. This is the lowest-friction path when you consume protos owned by another team or organisation — no local toolchain at all.
+The upstream hosted SDKs select the upstream package family and are not a substitute for this fork's generated code. Fetch schema dependencies with buf as usual, then generate with the matching local ReallyMe plugins. A fork-specific hosted SDK is outside this release.
 
 ### Using protoc directly
 
 If you prefer to use `protoc` without buf:
 
 ```sh
-protoc --buffa_out=. --plugin=protoc-gen-buffa my_service.proto
+protoc --reallyme-buffa_out=. --plugin=protoc-gen-reallyme-buffa my_service.proto
 
 # With extern_path (package-level or per-type):
-protoc --buffa_out=. \
-    --buffa_opt=extern_path=.my.common=::common_protos \
-    --plugin=protoc-gen-buffa my_service.proto
+protoc --reallyme-buffa_out=. \
+    --reallyme-buffa_opt=extern_path=.my.common=::common_protos \
+    --plugin=protoc-gen-reallyme-buffa my_service.proto
 ```
 
 See the [protoc (alternative)](#protoc-alternative) section in the Prerequisites for minimum version requirements.
 
 ### Requirements summary
 
-**`buf generate` with the remote plugin** requires only `buf` on your PATH. No `protoc`, no local plugin install — buf sends your compiled proto descriptors to the BSR, which runs the plugin remotely and returns the generated source. Needs network access to `buf.build` at generation time. Add `protoc-gen-buffa-packaging` locally if you want a generated `mod.rs`.
-
-**`buf generate` with local plugins** requires `buf` and `protoc-gen-buffa` (and optionally `protoc-gen-buffa-packaging`) on your PATH. No `protoc` needed.
+**`buf generate` with local plugins** requires `buf` and `protoc-gen-reallyme-buffa` (and optionally `protoc-gen-reallyme-buffa-packaging`) on your PATH. No `protoc` needed.
 
 **`buffa-build`** requires `protoc` on your PATH (or set via `PROTOC`), unless `.use_buf()` is configured (which uses `buf` instead).
 
-**BSR-generated SDKs** require nothing locally beyond Cargo; the BSR Cargo registry must be configured in `.cargo/config.toml` (see [BSR-generated SDKs](#bsr-generated-sdks)).
+**Upstream BSR-generated SDKs** use a different runtime package family; use the local generation flow for this fork.
 
 ## Generated code shape
 
@@ -805,10 +736,10 @@ Key design choices:
   by decoding, with `Foo { x, ..Default::default() }`, or by starting from
   `Foo::default()` and assigning fields; exhaustive struct literals and
   destructuring are not covered by buffa's semver guarantees. See the
-  [`Message` trait documentation](https://docs.rs/buffa/latest/buffa/trait.Message.html#struct-evolution-policy)
+  [`Message` trait documentation](https://docs.rs/reallyme-buffa/latest/buffa/trait.Message.html#struct-evolution-policy)
   for the full policy.
 - **Module nesting** for nested message types (`outer::Inner`, not `OuterInner`)
-- **No serialization state** — sizes live in an external [`SizeCache`](https://docs.rs/buffa/latest/buffa/struct.SizeCache.html), so the struct holds only its proto fields plus the unknown-fields plumbing, with no interior mutability
+- **No serialization state** — sizes live in an external [`SizeCache`](https://docs.rs/reallyme-buffa/latest/buffa/struct.SizeCache.html), so the struct holds only its proto fields plus the unknown-fields plumbing, with no interior mutability
 
 ### Generated module layout
 
@@ -878,7 +809,7 @@ msg.address = maybe_address.into();
 
 `==` includes presence, as on `Option`: an unset `address` differs from one set to `Address::default()`, since only the set one is encoded. Write `*a.address == *b.address` to compare the values alone; message fields nested inside `Address` still compare presence. `Hash` follows `==`: it covers presence and the value, as `Option<&Address>` does.
 
-See the [`MessageField` rustdoc](https://docs.rs/buffa/latest/buffa/struct.MessageField.html#construction-and-conversion) for the complete construction and consuming-conversion examples.
+See the [`MessageField` rustdoc](https://docs.rs/reallyme-buffa/latest/buffa/struct.MessageField.html#construction-and-conversion) for the complete construction and consuming-conversion examples.
 
 ### `EnumValue<T>` — type-safe open enums
 
@@ -938,7 +869,7 @@ assert_eq!(Status::values().len(), 3);
 
 Aliases (additional names sharing an existing value, allowed by `option allow_alias = true`) are not enum variants in Rust — they're emitted as `pub const` aliases — so they don't appear in `values()`.
 
-**Idiomatic `UpperCamelCase` aliases.** Generated enums also carry one associated `const` per value with the enum-name prefix (if present) stripped and the rest converted to `UpperCamelCase` — for the `Status` example above, `Status::ACTIVE` is also reachable as `Status::Active`, and a prefixed value like `STATUS_ACTIVE` would produce the same alias. The aliases work in expressions and in `match` patterns, and like the `allow_alias` consts they don't appear in `values()` or in `Debug` output. If two values of an enum would collide after conversion, the aliases are suppressed for that enum as a whole, with a build warning. Disable per compilation unit with `.idiomatic_enum_aliases(false)` on the `buffa_build::Config` builder, or `idiomatic_enum_aliases=false` as a `protoc-gen-buffa` plugin option. With the aliases disabled, the consts are not generated, so code that references `Status::Active` no longer compiles; `Status::ACTIVE` is unaffected.
+**Idiomatic `UpperCamelCase` aliases.** Generated enums also carry one associated `const` per value with the enum-name prefix (if present) stripped and the rest converted to `UpperCamelCase` — for the `Status` example above, `Status::ACTIVE` is also reachable as `Status::Active`, and a prefixed value like `STATUS_ACTIVE` would produce the same alias. The aliases work in expressions and in `match` patterns, and like the `allow_alias` consts they don't appear in `values()` or in `Debug` output. If two values of an enum would collide after conversion, the aliases are suppressed for that enum as a whole, with a build warning. Disable per compilation unit with `.idiomatic_enum_aliases(false)` on the `buffa_build::Config` builder, or `idiomatic_enum_aliases=false` as a `protoc-gen-reallyme-buffa` plugin option. With the aliases disabled, the consts are not generated, so code that references `Status::Active` no longer compiles; `Status::ACTIVE` is unaffected.
 
 ### Oneofs
 
@@ -1008,7 +939,7 @@ Recursive variants remain boxed when matched by a broad rule. Naming a recursive
 
 ```yaml
 plugins:
-  - local: protoc-gen-buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - unbox_oneof_in=.my.pkg.Contact.info.address
@@ -1234,7 +1165,7 @@ msg.clear();
 
 Buffa uses a two-pass model to avoid the exponential-time size computation that affects prost with deeply nested messages:
 
-1. **`compute_size(&self, cache)`** — walks the message tree, recording each length-delimited sub-message's encoded size in a [`SizeCache`](https://docs.rs/buffa/latest/buffa/struct.SizeCache.html).
+1. **`compute_size(&self, cache)`** — walks the message tree, recording each length-delimited sub-message's encoded size in a [`SizeCache`](https://docs.rs/reallyme-buffa/latest/buffa/struct.SizeCache.html).
 2. **`write_to(&self, cache, buf)`** — walks the tree again, consuming cached sizes for length-delimited sub-message headers.
 
 `encode()`, `encode_to_vec()`, and `encode_to_bytes()` perform both passes with a fresh `SizeCache` automatically — most callers never name the cache. Use `encoded_len()` if you only need the size.
@@ -1297,10 +1228,10 @@ bound (logs, snapshots, accumulators) should use the `try_*` variants and
 split or shrink on error. This is the only encode error today (the enum is
 `#[non_exhaustive]`, so match with a wildcard arm) — contiguous sinks grow
 as needed via `BufMut`; a
-[`Rope`](https://docs.rs/buffa/latest/buffa/struct.Rope.html) appends
+[`Rope`](https://docs.rs/reallyme-buffa/latest/buffa/struct.Rope.html) appends
 segments.
 
-Decoding returns `Result<T, DecodeError>`. See [`buffa::DecodeError`](https://docs.rs/buffa/latest/buffa/enum.DecodeError.html)
+Decoding returns `Result<T, DecodeError>`. See [`buffa::DecodeError`](https://docs.rs/reallyme-buffa/latest/buffa/enum.DecodeError.html)
 for the full list of variants (the enum is `#[non_exhaustive]`). Common cases:
 
 - `UnexpectedEof` — truncated input
@@ -1621,7 +1552,7 @@ impl): if it did, field borrows would *appear* `'static` to the compiler and
 could be kept past the point where the `OwnedView` (and its buffer) is
 dropped.
 
-[`OwnedView::reborrow()`](https://docs.rs/buffa/latest/buffa/view/struct.OwnedView.html#method.reborrow)
+[`OwnedView::reborrow()`](https://docs.rs/reallyme-buffa/latest/buffa/view/struct.OwnedView.html#method.reborrow)
 is the access path: it returns the view with the `'static` narrowed down to
 the OwnedView's real lifetime, so the borrow checker enforces exactly how
 long each field borrow may live. Returning a borrow tied to the request's
@@ -1730,7 +1661,7 @@ to make hand-building map views ergonomic.
 Enable the `json` feature and `generate_json(true)` in your build config:
 
 ```sh
-cargo add buffa --features json
+cargo add reallyme-buffa@=0.1.0 --rename buffa --features json
 cargo add serde --features derive
 cargo add serde_json
 ```
@@ -1938,7 +1869,7 @@ float formatting. Use binary or JSON for data on the wire.
 Enable the `text` feature and `generate_text(true)`:
 
 ```sh
-cargo add buffa --features text
+cargo add reallyme-buffa@=0.1.0 --rename buffa --features text
 ```
 
 ```rust,ignore
@@ -2180,8 +2111,8 @@ let obj = Struct::from_fields([
 Buffa works without `std` (requires `alloc`):
 
 ```sh
-cargo add buffa --no-default-features
-cargo add buffa-types --no-default-features
+cargo add reallyme-buffa@=0.1.0 --rename buffa --no-default-features
+cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types --no-default-features
 ```
 
 In `no_std` mode:
@@ -2191,8 +2122,8 @@ In `no_std` mode:
 - Scoped [`with_json_parse_options`] is unavailable (requires thread-local); use [`set_global_json_parse_options`] to set options process-wide once at startup. The options cannot vary between individual parse calls. The `buffa::json` module docs list how `ignore_unknown_enum_values` treats each field shape, and the one shape where `no_std` differs.
 - JSON serialization via serde works fully (both `serde` and `serde_json` support `no_std` + `alloc`)
 
-[`with_json_parse_options`]: https://docs.rs/buffa/latest/buffa/json/fn.with_json_parse_options.html
-[`set_global_json_parse_options`]: https://docs.rs/buffa/latest/buffa/json/fn.set_global_json_parse_options.html
+[`with_json_parse_options`]: https://docs.rs/reallyme-buffa/latest/buffa/json/fn.with_json_parse_options.html
+[`set_global_json_parse_options`]: https://docs.rs/reallyme-buffa/latest/buffa/json/fn.set_global_json_parse_options.html
 
 ## Proto2 support
 
@@ -2411,7 +2342,7 @@ all, and a generated-code half (`generate_reflection` / `reflect_mode`) that
 lets generated types hand out the same reflective interface.
 
 ```sh
-cargo add buffa-descriptor --features reflect   # use --features reflect,json for JSON
+cargo add reallyme-buffa-descriptor@=0.1.0 --rename buffa-descriptor --features reflect   # use --features reflect,json for JSON
 ```
 
 ### Loading descriptors: `DescriptorPool`
@@ -2593,8 +2524,8 @@ the include file: each package delegates to the shared root by a fixed number
 of `super::` hops, so `include_proto!` per package does not compile in this
 mode, and two shared-pool `compile()` calls need separate enclosing modules.
 On the plugin path, pass `shared_descriptor_pool=true` to both
-`protoc-gen-buffa` and `protoc-gen-buffa-packaging` (see
-[Remote plugin](#remote-plugin-only-no-local-install) for the `buf.gen.yaml`
+`protoc-gen-reallyme-buffa` and `protoc-gen-reallyme-buffa-packaging` (see
+[Single local plugin](#single-local-plugin) for the `buf.gen.yaml`
 shape and the combinations that path cannot support); the packaging plugin
 embeds the set inline in `mod.rs`, since the plugin protocol carries only
 text. Packages generated with the option *off* silently keep building their

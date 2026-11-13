@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "example-addressbook"
 version = "0.1.0"
@@ -5,8 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-buffa = { path = "../../buffa", features = ["text"] }
-buffa-types = { path = "../../buffa-types" }
+buffa = { package = "reallyme-buffa", path = "../../buffa", features = ["text"] }
+buffa-types = { package = "reallyme-buffa-types", path = "../../buffa-types" }
 
 [build-dependencies]
-buffa-build = { path = "../../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }

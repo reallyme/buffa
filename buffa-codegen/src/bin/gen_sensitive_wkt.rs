@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Regenerate opt-in guarded WKT representations without changing ordinary WKTs.
 use buffa_codegen::generated::descriptor::FileDescriptorSet;
 use std::{fs, path::PathBuf};

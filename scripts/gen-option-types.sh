@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Modified by ReallyMe Technologies Limited.
 # Regenerate buffa-proto-options/src/generated/ from
 # buffa-proto-options/protos/buffa/ext/options.proto.
 #
@@ -45,5 +46,5 @@ trap 'rm -rf "$desc_dir"' EXIT
     -I buffa-proto-options/protos -I buffa-descriptor/protos \
     buffa/ext/options.proto
 
-cargo run -p buffa-codegen --bin gen_option_types -- \
+cargo run -p reallyme-buffa-codegen --bin gen_option_types -- \
     "$desc_dir/options.pb" buffa-proto-options/src/generated

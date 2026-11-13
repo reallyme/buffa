@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "example-custom-types"
 version = "0.1.0"
@@ -5,8 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-buffa = { path = "../../buffa", features = ["std", "json"] }
-buffa-remote-derive = { path = "../../buffa-remote-derive" }
+buffa = { package = "reallyme-buffa", path = "../../buffa", features = ["std", "json"] }
+buffa-remote-derive = { package = "reallyme-buffa-remote-derive", path = "../../buffa-remote-derive" }
 # `generate_json(true)` emits `#[derive(serde::Serialize, ...)]`, which expands
 # to `extern crate serde as _serde;` — so `serde` must be a *direct* dependency
 # of this crate. buffa re-exports `bytes`/`alloc`/`serde_json` for generated
@@ -22,4 +23,4 @@ smallbox = "0.8"
 indexmap = { version = "2", features = ["serde"] }
 
 [build-dependencies]
-buffa-build = { path = "../../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }

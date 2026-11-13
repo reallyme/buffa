@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Code generation for `impl Message` and `impl DefaultInstance`.
 //!
 //! Generates `compute_size`, `write_to`, and `merge` implementations

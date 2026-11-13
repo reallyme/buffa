@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 # Build and run the buffa protobuf conformance tests.
 #
 # Usage:
@@ -12,7 +13,7 @@ ARG TOOLS_IMAGE=ghcr.io/anthropics/buffa/tools:v33.5
 FROM ${TOOLS_IMAGE} AS tools
 
 # ── Stage 2: build our conformance binary ─────────────────────────────────
-FROM rust:1.87-slim AS rust-builder
+FROM rust:1.95.0-slim AS rust-builder
 
 # System deps for linking.
 RUN apt-get update && apt-get install -y pkg-config \
@@ -26,6 +27,11 @@ COPY --from=tools /protos /workspace/conformance/protos
 
 # Copy the workspace source.
 COPY Cargo.toml Cargo.lock ./
+COPY buffa-proto-options/ buffa-proto-options/
+COPY buffa-remote-derive/ buffa-remote-derive/
+COPY buffa-yaml/ buffa-yaml/
+COPY examples/buffa-smolstr/ examples/buffa-smolstr/
+COPY protoc-gen-buffa-packaging/ protoc-gen-buffa-packaging/
 COPY buffa/             buffa/
 COPY buffa-build/       buffa-build/
 COPY buffa-codegen/     buffa-codegen/

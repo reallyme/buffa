@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! One-shot tool to generate Rust types for descriptor.proto and plugin.proto.
 //!
 //! This is the bootstrap step: it reads a binary FileDescriptorSet (produced
@@ -12,7 +13,7 @@
 //!       -I buffa-descriptor/protos \
 //!       google/protobuf/descriptor.proto \
 //!       google/protobuf/compiler/plugin.proto
-//!   cargo run -p buffa-codegen --bin gen_descriptor_types -- \
+//!   cargo run -p reallyme-buffa-codegen --bin gen_descriptor_types -- \
 //!       descriptor_set.pb buffa-descriptor/src/generated
 //! ```
 
@@ -44,7 +45,7 @@ fn main() {
     // features (`json` / `views` / `text` / `arbitrary`).
     //
     // - **codegen toolchain** (`buffa-codegen` / `buffa-build` /
-    //   `protoc-gen-buffa`) deps on `buffa-descriptor` with
+    //   `protoc-gen-reallyme-buffa`) deps on `buffa-descriptor` with
     //   `default-features = false` — only the binary codec compiles. No
     //   `serde` / `serde_json` / `base64` in the build graph.
     // - **downstream consumers** whose protos reference `descriptor.proto`

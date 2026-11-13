@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Temporary map slots; cleanup is opt-in with the `zeroize` feature.
 #[cfg(feature = "zeroize")]
 pub use guarded::Erasing;
