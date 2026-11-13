@@ -60,6 +60,7 @@ dependencies = [
  "rustversion",
  "serde",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

@@ -15,6 +15,7 @@ rustversion = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 arbitrary = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
 
 [features]
 # Generated impls are wrapped in `#[cfg(feature = "json"|"views"|"text")]`
@@ -33,7 +34,7 @@ default = ["std"]
 # (it's `no_std` by default with `alloc` baked in). The other optional deps
 # do have one and need it propagated for `--no-default-features --features
 # std` builds.
-std = ["buffa/std", "serde?/std", "serde_json?/std"]
+std = ["buffa/std", "serde?/std", "serde_json?/std", "thiserror?/std"]
 ## Zero-copy view types (`FileDescriptorProtoView<'a>`, …).
 views = []
 ## `serde::Serialize` / `serde::Deserialize` impls for proto3 JSON.
@@ -44,6 +45,8 @@ text = ["buffa/text"]
 arbitrary = ["buffa/arbitrary", "dep:arbitrary"]
 ## Runtime reflection: `DescriptorPool`, edition feature resolution.
 reflect = []
+## Borrowed inspection of wipe-owning runtime collections.
+zeroize = ["buffa/zeroize", "dep:thiserror"]
 
 [dev-dependencies]
 # `tests/json_private_key.rs` needs `serde_json::Value` to parse the string under
