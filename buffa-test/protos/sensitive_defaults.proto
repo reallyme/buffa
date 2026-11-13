@@ -1,0 +1,22 @@
+syntax = "proto2";
+package sensitive_test;
+
+message DeclaredDefaults {
+  enum State {
+    FIRST = 7;
+    SECOND = 8;
+  }
+  enum MapState {
+    UNSET = 0;
+    PRESENT = 1;
+  }
+  required int64 count = 1 [default = 37];
+  required string label = 2 [default = "configured"];
+  required bytes data = 3 [default = "initial"];
+  required State state = 4 [default = SECOND];
+  optional string note = 5 [default = "optional"];
+  repeated State history = 6;
+  map<int32, MapState> states = 7;
+  optional State optional_state = 8;
+  oneof choice { State selected_state = 9; }
+}

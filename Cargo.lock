@@ -196,9 +196,12 @@ dependencies = [
  "chrono",
  "criterion",
  "jiff",
+ "secrecy",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]

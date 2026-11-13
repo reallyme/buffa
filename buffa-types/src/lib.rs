@@ -292,3 +292,9 @@ mod full_name_tests {
         assert_eq!(Option::FULL_NAME, "google.protobuf.Option");
     }
 }
+
+/// Wipe-owning temporal and dynamic WKTs, selected explicitly through extern paths.
+#[cfg(feature = "sensitive")]
+pub mod sensitive;
+#[cfg(feature = "zeroize")]
+mod zeroize_ext;

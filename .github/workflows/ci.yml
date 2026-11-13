@@ -117,6 +117,14 @@ jobs:
       - name: Check bsr-quickstart example
         run: cargo check --locked --manifest-path examples/bsr-quickstart/Cargo.toml
 
+      # Consumers may require zeroize 1.9 while the checked-in lockfile keeps
+      # 1.8.2 for the minimum compiler. An upper bound would prevent those
+      # applications from sharing the cleanup traits with generated messages.
+      - name: Check cleanup with zeroize 1.9
+        run: |
+          cargo update -p zeroize --precise 1.9.1
+          cargo check -p buffa -p buffa-types --all-features
+
   # ── Markdown lint ────────────────────────────────────────────────────────
   # Same pinned markdownlint-cli version as `task lint-md`. Node is
   # preinstalled on ubuntu-latest so no setup-node step is needed.
@@ -347,6 +355,20 @@ jobs:
           cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa --
           owned_view_drop owned_view_into_bytes owned_view_lifetime_parametric_contract
 
+      # Cleanup moves values out of MaybeUninit slots and wipes vacated storage.
+      # Exercise allocation ownership and nonzero niches, not just scalar values.
+      - name: Miri (guarded storage soundness)
+        run: >-
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa
+          --no-default-features --features std,json,zeroize --lib --
+          sensitive:: erasing::
+
+      - name: Miri (borrowed inspection scalar slots)
+        run: >-
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa-descriptor
+          --no-default-features --features std,reflect,zeroize --lib --
+          reflect::inspect::tests
+
   # ── no_std and 32-bit compilation checks ─────────────────────────────────
   check-nostd:
     runs-on: ubuntu-latest
@@ -385,6 +407,12 @@ jobs:
 
       - name: Check buffa-types no_std + chrono
         run: cargo check -p buffa-types --no-default-features --features chrono
+
+      - name: Check guarded WKTs no_std (bare-metal ARM)
+        run: cargo check -p buffa-types --no-default-features --features sensitive --target thumbv7em-none-eabihf
+
+      - name: Check guarded WKTs no_std + JSON (bare-metal ARM)
+        run: cargo check -p buffa-types --no-default-features --features sensitive,json --target thumbv7em-none-eabihf
 
       - name: Check buffa-descriptor no_std
         run: cargo check -p buffa-descriptor --no-default-features
@@ -447,7 +475,9 @@ jobs:
               google/protobuf/wrappers.proto
 
       - name: Regenerate WKT types
-        run: cargo run -p buffa-codegen --bin gen_wkt_types -- /tmp/wkt.pb buffa-types/src/generated
+        run: |
+          cargo run -p buffa-codegen --bin gen_wkt_types -- /tmp/wkt.pb buffa-types/src/generated
+          cargo run -p buffa-codegen --bin gen_sensitive_wkt -- /tmp/wkt.pb buffa-types/src/sensitive/generated
 
       - name: Regenerate buffa-proto-options option types
         # descriptor.proto comes from buffa-descriptor/protos/ (pinned), so
@@ -456,7 +486,7 @@ jobs:
 
       - name: Check for differences
         run: |
-          if ! git diff --exit-code buffa-descriptor/src/generated/ buffa-types/src/generated/ buffa-proto-options/src/generated/; then
+          if ! git diff --exit-code buffa-descriptor/src/generated/ buffa-types/src/generated/ buffa-types/src/sensitive/generated/ buffa-proto-options/src/generated/; then
             echo "::error::Checked-in generated code is stale. Run 'task gen-wkt-types', 'task gen-option-types' and/or regenerate bootstrap types, then commit."
             exit 1
           fi

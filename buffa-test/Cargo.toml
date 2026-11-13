@@ -11,13 +11,13 @@ arbitrary = ["dep:arbitrary", "buffa/arbitrary", "buffa-types/arbitrary"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
-buffa = { workspace = true, features = ["std", "json", "text"] }
+buffa = { workspace = true, features = ["std", "json", "text", "zeroize"] }
 # `reflect`+`json` so the codegen-emitted `impl Reflectable` and the
 # embedded descriptor pool resolve. `json` because `basic.proto` is also
 # generated with `generate_text(true)` and the pool decodes the WKT
 # descriptors that need it.
-buffa-descriptor = { workspace = true, features = ["reflect", "json", "std"] }
-buffa-types = { workspace = true, features = ["json", "chrono", "jiff", "reflect"] }
+buffa-descriptor = { workspace = true, features = ["reflect", "json", "std", "zeroize"] }
+buffa-types = { workspace = true, features = ["json", "chrono", "jiff", "reflect", "sensitive"] }
 # The `buffa.ext` option types, for reading the options that
 # `protos/ext_options.proto` sets (`src/tests/ext_options.rs`).
 buffa-proto-options = { workspace = true }

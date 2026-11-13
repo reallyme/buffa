@@ -84,7 +84,7 @@ hashbrown = { version = "0.15", default-features = false, features = ["default-h
 jiff = { version = "0.2", default-features = false, features = ["alloc"] }
 once_cell = { version = "1", default-features = false }
 rustversion = { version = "1" }
-# Guarded-field test fixtures in buffa-test only; no published crate uses them.
+# Guarded-field fixtures and the opt-in guarded WKT string owner.
 secrecy = { version = "0.10", default-features = false }
 serde = { version = "1", default-features = false }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
@@ -93,8 +93,9 @@ arbitrary = { version = "1", default-features = false, features = ["derive"] }
 smoothutf8 = { version = "0.2.3", default-features = false }
 subtle = { version = "2.6", default-features = false }
 thiserror = { version = "2", default-features = false }
-# The lockfile keeps 1.8.2 for MSRV checks. Allow newer compatible releases so
-# consumers can share cleanup traits with dependencies requiring zeroize 1.9.
+# Allow newer compatible releases for consumers sharing cleanup traits.
+# MSRV CI regenerates a compatible lockfile using modern Cargo's resolver;
+# older Cargo users can pin with `cargo update -p zeroize --precise 1.8.2`.
 zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
 # Optional `string` field representations that will be selectable via
 # `buffa_build`'s forthcoming `string_type` knob. Declared

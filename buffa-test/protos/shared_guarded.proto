@@ -1,0 +1,13 @@
+syntax = "proto3";
+package shared_guarded;
+
+message Credentials {
+  repeated bytes keys = 1;
+  repeated string labels = 2;
+  map<string, bytes> values = 3;
+  optional string identity = 4;
+  oneof detail {
+    bytes token = 5;
+    string note = 6;
+  }
+}

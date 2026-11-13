@@ -134,4 +134,6 @@ mod wkt;
 
 mod guarded;
 
+mod sensitive;
+
 mod drop_serde;

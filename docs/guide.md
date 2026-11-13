@@ -200,14 +200,19 @@ The macro pulls in `OUT_DIR/<dotted.pkg>.mod.rs`, which in turn includes the per
 | `.out_dir(path)` | `$OUT_DIR` | Output directory for generated files |
 | `.generate_views(bool)` | `true` | Generate zero-copy view types |
 | `.generate_json(bool)` | `false` | Generate serde Serialize/Deserialize for proto3 JSON |
+| `.deny_view_json(&[...])` | — | Reject JSON serialization of selected views and views containing them, while keeping owned-message JSON available |
 | `.generate_text(bool)` | `false` | Generate `impl buffa::text::TextFormat` for textproto encoding/decoding |
 | `.deny_unknown_json_fields(bool)` | `false` | Reject unknown keys when parsing JSON instead of ignoring them; see [Unknown fields in JSON](#unknown-fields-in-json) |
 | `.deny_unknown_json_fields_in(&[...])` | — | Reject unknown JSON keys for matching messages and the messages nested in them (proto-path prefixes), on top of the global setting. Rules can only enable |
+| `.generate_zeroize(bool)` | `false` | Generate recursive owned-message cleanup; requires `buffa/zeroize` and guarded representations, see [Guarded fields](guarded-fields.md) |
+| `.zeroize_in(&[...])` | — | Select message families for recursive cleanup by protobuf path prefix |
+| `.allow_unmatched_message_rules(bool)` | `false` | Permit global message selectors absent from a directory-scoped generation, with warnings; validate the complete project with this disabled |
+| `.emit_custom_type_impls(bool)` | `true` | Emit custom representation integration traits; disable when their defining crate supplies them |
 | `.preserve_unknown_fields(bool)` | `true` | Preserve unknown fields for round-trip fidelity |
 | `.preserve_unknown_fields_in(&[...])` | — | Re-enable unknown-field preservation for matching messages and the messages nested in them (proto-path prefixes). Pair with `.preserve_unknown_fields(false)` to keep the memory savings globally while selected types still round-trip; see [Path-scoped re-enable](#path-scoped-re-enable) |
 | `.override_feature_in(path, feature)` | — | Apply a path-scoped editions feature override to the compiled descriptors — for protos you cannot modify; see [Enums](#enumvaluet--type-safe-open-enums) for the `enum_type` override's semantics |
 | `.open_enums_in(&[...])` | — | Shorthand for `override_feature_in(path, FeatureOverride::EnumType(EnumTypeOverride::Open))` per path: treat matching closed enums (or closed enum fields) as open in generated Rust (`EnumValue<E>`) |
-| `.generate_with_setters(bool)` | `true` | Emit `with_<name>()` builder-style setters for explicit-presence fields |
+| `.generate_with_setters(bool)` | `true` | Emit `with_<name>()` builder-style setters for explicit-presence fields (all fields in the cleanup profile) |
 | `.map_entries_omit_defaults(bool)` | `false` | Encode map entries as prost does: an entry's key or value at its default is left out, the entry itself is kept. Each crate's types encode as that crate was generated; the well-known types and `DynamicMessage` write both. For multi-entry maps to match prost's bytes, also use `.map_type(MapRepr::BTreeMap)` where prost used `btree_map`. See [Map entries](migration-from-prost.md#map-entries) |
 | `.generate_arbitrary(bool)` | `false` | Emit `#[derive(arbitrary::Arbitrary)]` gated behind the `arbitrary` feature (for fuzzing) |
 | `.skip_debug(&[...])` | — | Omit the generated `Debug` impl for matching messages (proto-path prefixes), with their oneof enums, and for enums named exactly, so your crate can write its own. A matched enum needs a hand-written impl to compile. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
@@ -639,7 +644,10 @@ Passed via `opt:` (works for `remote:` and `local:`):
 |--------|-------------|
 | `views=true` | Generate zero-copy view types (default: true) |
 | `json=true` | Generate serde Serialize/Deserialize for proto3 JSON |
+| `deny_view_json=<path>` | Reject JSON serialization of selected eager, lazy and owned views, propagating through containing messages. Repeatable message prefixes; `.` selects all. Owned-message JSON is unchanged |
 | `text=true` | Generate `impl buffa::text::TextFormat` for textproto encoding/decoding |
+| `zeroize=true` | Generate recursive cleanup for every message; see [Guarded fields](guarded-fields.md) |
+| `zeroize_in=<path>` | Select message families for recursive cleanup (repeatable protobuf path prefixes) |
 | `unknown_fields=false` | Disable unknown field preservation |
 | `unknown_fields_in=<path>` | Re-enable unknown-field preservation for matching messages and the messages nested in them. Repeatable; same proto-path prefix matching as `open_enums_in`; see [Path-scoped re-enable](#path-scoped-re-enable) |
 | `deny_unknown_json_fields=true` | Reject unknown keys when parsing JSON instead of ignoring them; without `json=true` it changes nothing and the plugin prints a warning. See [Unknown fields in JSON](#unknown-fields-in-json) |
@@ -669,6 +677,8 @@ Passed via `opt:` (works for `remote:` and `local:`):
 | `bytes_type_custom_in=.pkg.Msg.field=crate::Bytes` | Custom owned bytes representation for a protobuf path prefix, or `.` for every field (repeatable, last matching rule wins) |
 | `string_type_custom_in=.pkg.Msg.field=crate::Text` | Custom owned string representation for a protobuf path prefix, or `.` for every field (repeatable, last matching rule wins) |
 | `repeated_type_custom_in=.pkg.Msg.field=crate::List<*>` | Custom owned collection for `repeated` fields under a protobuf path prefix; `*` is replaced by the element type (repeatable, last matching rule wins). See [`repeated_type_custom_in`](https://docs.rs/buffa-build/latest/buffa_build/struct.Config.html#method.repeated_type_custom_in) for the `ProtoList` requirements |
+| `custom_type_impls=false` | Use integration traits supplied by the representation crate instead of emitting foreign or duplicate impls |
+| `allow_unmatched_message_rules=true` | Permit global cleanup/view selectors absent from a directory request, with warnings; full-project validation stays strict by default |
 | `json_policy_type=crate::Secret` | Route a custom bytes or string representation's protobuf JSON, in owned messages and views, through its `ProtoBytesJson` / `ProtoStringJson` impl (repeatable) — see [JSON policies for custom types](#json-policies-for-custom-types) |
 | `extern_path=.pkg=::rust` | Map a proto package — or a single type, e.g. `extern_path=.pkg.Type=::rust::Type` — to an external Rust path. The proto side is a dotted protobuf name with an optional leading dot; an empty or non-identifier segment is an error |
 | `exclude_package=.pkg` | Drop a proto package and its subpackages from generation (repeatable; leading dot optional). For option-only imports that `include_imports` pulls in but that are never used as field types, e.g. `buf.validate`, `gnostic`. **Pass the same `exclude_package` to `protoc-gen-buffa-packaging`** (see the note below the table) so the generated `mod.rs` omits the same packages. |
@@ -2695,6 +2705,13 @@ Leave preservation enabled unless you are memory-constrained (embedded / `no_std
 targets) or maintain large in-memory collections of small messages where struct
 size dominates cache footprint. "I don't need round-trip fidelity" alone is not a
 strong reason to disable it.
+
+Unknown wire-field limits apply whether fields are preserved or discarded.
+Use `DecodeOptions::reject_unknown_fields()` (equivalently,
+`with_unknown_field_limit(0)`) to reject them independently of storage. This
+also counts unknown closed-enum occurrences, including overwritten values.
+Lazy nested messages are validated when materialized; choose owned decoding
+or an eager view for complete validation at the input boundary.
 
 ### Path-scoped re-enable
 

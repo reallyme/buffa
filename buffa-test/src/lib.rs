@@ -1368,6 +1368,11 @@ pub mod guarded {
     buffa::include_proto!("guarded");
 }
 
+/// Messages exercising scalar cleanup and wipe-owning collections.
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod sensitive_test {
+    buffa::include_proto!("sensitive_test");
+}
 /// Messages exercising serde defaults in the presence of Drop.
 pub mod drop_defaults {
     buffa::include_proto!("drop_defaults");
@@ -1376,5 +1381,36 @@ pub mod drop_defaults {
     }
     pub(crate) fn custom_values() -> Vec<i32> {
         vec![37]
+    }
+}
+
+/// Enum-level edition overrides must reach borrowed inspection too.
+// Enum defaults are emitted explicitly, as in the other flat include fixtures.
+#[allow(clippy::derivable_impls)]
+pub mod sensitive_editions {
+    buffa::include_proto!("sensitive_editions");
+}
+
+/// Foreign guarded representations shared across independent generations.
+pub mod shared_guarded {
+    buffa::include_proto!("shared_guarded");
+}
+/// A second generation using the same foreign representations.
+pub mod shared_guarded_second {
+    buffa::include_proto!("shared_guarded_second");
+}
+
+/// Separate nominal guard types for the independent cleanup fixture generation.
+// Reusing the fixture source deliberately creates distinct local types: each
+// generation emits element trait impls, which would conflict on one shared type.
+#[allow(clippy::duplicate_mod)]
+#[path = "guarded_repr.rs"]
+pub mod sensitive_repr;
+
+// The defining crate supplies this borrowed integration once; independently
+// generated consumers use it without emitting an orphan implementation.
+impl buffa_descriptor::reflect::InspectElement for guarded_repr::SecretBytes {
+    fn as_inspect_value(&self) -> buffa_descriptor::reflect::InspectValueRef<'_> {
+        buffa_descriptor::reflect::InspectValueRef::Bytes(self.as_ref())
     }
 }

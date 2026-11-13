@@ -1,0 +1,12 @@
+edition = "2023";
+package sensitive_editions;
+
+enum State {
+  option features.enum_type = CLOSED;
+  STATE_UNSPECIFIED = 0;
+  STATE_PRESENT = 1;
+}
+message States {
+  repeated State values = 1;
+  map<int32, State> entries = 2;
+}

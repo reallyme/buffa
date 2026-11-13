@@ -251,10 +251,91 @@ fn rustc_minor() -> u32 {
 }
 
 fn main() {
+    // Separate generations share foreign representations without emitting
+    // implementations for either foreign type in this consuming crate.
+    for file in [
+        "protos/shared_guarded.proto",
+        "protos/shared_guarded_second.proto",
+    ] {
+        buffa_build::Config::new()
+            .files(&[file])
+            .includes(&["protos/"])
+            .bytes_type_custom("crate::guarded_repr::SecretBytes")
+            .string_type_custom("::buffa_types::sensitive::SecretString")
+            .json_policy_type("crate::guarded_repr::SecretBytes")
+            .json_policy_type("::buffa_types::sensitive::SecretString")
+            .emit_custom_type_impls(false)
+            .preserve_unknown_fields(false)
+            .generate_zeroize(true)
+            .generate_json(true)
+            .generate_reflection(true)
+            .generate_arbitrary(true)
+            .lazy_views(true)
+            .compile()
+            .expect("shared guarded fixture generation failed");
+    }
+    buffa_build::Config::new()
+        .files(&["protos/drop_defaults.proto"])
+        .includes(&["protos/"])
+        .generate_views(false)
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .generate_text(true)
+        .generate_arbitrary(true)
+        .deny_unknown_json_fields(true)
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.label",
+            "#[serde(default = \"crate::drop_defaults::custom_label\")]",
+        )
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.values",
+            "#[serde(default = \"crate::drop_defaults::custom_values\")]",
+        )
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.conditional",
+            "#[cfg_attr(feature = \"arbitrary\", serde(default = \"crate::drop_defaults::custom_label\"))]",
+        )
+        .compile()
+        .expect("drop-compatible serde fixture generation failed");
+
+    buffa_build::Config::new()
+        .files(&[
+            "protos/sensitive.proto",
+            "protos/sensitive_defaults.proto",
+            "protos/sensitive_editions.proto",
+        ])
+        .includes(&["protos/"])
+        .bytes_type_custom_in("crate::sensitive_repr::SecretBytes", &[".sensitive_test"])
+        .string_type_custom_in("crate::sensitive_repr::SecretString", &[".sensitive_test"])
+        .json_policy_type("crate::sensitive_repr::SecretBytes")
+        .json_policy_type("crate::sensitive_repr::SecretString")
+        .preserve_unknown_fields(false)
+        .extern_path(
+            ".google.protobuf.Timestamp",
+            "::buffa_types::sensitive::Timestamp",
+        )
+        .extern_path(".google.protobuf.Value", "::buffa_types::sensitive::Value")
+        .message_attribute(".sensitive_test.Numeric", "#[repr(C)]")
+        .generate_arbitrary(true)
+        .generate_reflection(true)
+        .generate_json(true)
+        .generate_text(true)
+        .lazy_views(true)
+        .deny_unknown_json_fields(true)
+        .zeroize_in(&[".sensitive_test", ".sensitive_editions"])
+        .deny_view_json(&[".sensitive_test.ViewPrivate"])
+        .compile()
+        .expect("sensitive fixture generation failed");
+
     buffa_build::Config::new()
         .files(&["protos/guarded.proto"])
         .includes(&["protos/"])
         .bytes_type_custom_in("crate::guarded_repr::SecretBytes", &[".guarded"])
+        // Parsed-equivalent spelling must not duplicate per-type impls.
+        .bytes_type_custom_in(
+            "crate :: guarded_repr :: SecretBytes",
+            &[".guarded.Credentials.keys"],
+        )
         .string_type_custom_in(
             "crate::guarded_repr::SecretString",
             &[
@@ -1545,27 +1626,4 @@ fn main() {
             println!("cargo:warning=editions_2024.proto skipped (protoc too old?): {e}");
         }
     }
-    buffa_build::Config::new()
-        .files(&["protos/drop_defaults.proto"])
-        .includes(&["protos/"])
-        .generate_views(false)
-        .preserve_unknown_fields(false)
-        .generate_json(true)
-        .generate_text(true)
-        .generate_arbitrary(true)
-        .deny_unknown_json_fields(true)
-        .field_attribute(
-            ".drop_defaults.CallerDefaults.label",
-            "#[serde(default = \"crate::drop_defaults::custom_label\")]",
-        )
-        .field_attribute(
-            ".drop_defaults.CallerDefaults.values",
-            "#[serde(default = \"crate::drop_defaults::custom_values\")]",
-        )
-        .field_attribute(
-            ".drop_defaults.CallerDefaults.conditional",
-            "#[cfg_attr(feature = \"arbitrary\", serde(default = \"crate::drop_defaults::custom_label\"))]",
-        )
-        .compile()
-        .expect("drop-compatible serde fixture generation failed");
 }

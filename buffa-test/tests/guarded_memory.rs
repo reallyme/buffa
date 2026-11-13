@@ -14,12 +14,18 @@ struct ObservedAllocator;
 struct WatchedAllocation {
     pointer: AtomicPtr<u8>,
     length: AtomicUsize,
+    offset: AtomicUsize,
+    stride: AtomicUsize,
+    count: AtomicUsize,
 }
 impl WatchedAllocation {
     const fn new() -> Self {
         Self {
             pointer: AtomicPtr::new(std::ptr::null_mut()),
             length: AtomicUsize::new(0),
+            offset: AtomicUsize::new(0),
+            stride: AtomicUsize::new(0),
+            count: AtomicUsize::new(1),
         }
     }
 }
@@ -38,6 +44,7 @@ static WATCHED: [WatchedAllocation; OBSERVATION_SLOTS] = [
     WatchedAllocation::new(),
 ];
 static ALLOCATION_SIZE: AtomicUsize = AtomicUsize::new(0);
+static ALLOCATION_ALIGNMENT: AtomicUsize = AtomicUsize::new(1);
 static OBSERVED: AtomicUsize = AtomicUsize::new(0);
 static RELEASED: AtomicUsize = AtomicUsize::new(0);
 static ALL_WIPED: AtomicBool = AtomicBool::new(true);
@@ -45,8 +52,8 @@ static OVERFLOWED: AtomicBool = AtomicBool::new(false);
 static REALLOCATED: AtomicBool = AtomicBool::new(false);
 
 // SAFETY: layouts and releases are forwarded unchanged to System. This
-// observer is specific to the u8/str buffers in these fixtures; no typed values
-// with padding are moved into watched blocks. Matched allocations are fully
+// observer is specific to the u8/str and f32 buffers in these fixtures; no typed
+// values with padding are moved into watched blocks. Matched allocations are fully
 // initialized, including spare capacity, and explicit watches cover buffers
 // initialized beforehand. Reallocations involving a watched block or target
 // size fail the observation without inspecting potentially uninitialized
@@ -55,7 +62,7 @@ unsafe impl GlobalAlloc for ObservedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: this forwards the caller's valid allocation layout.
         let pointer = unsafe { System.alloc(layout) };
-        if layout.align() == 1
+        if layout.align() == ALLOCATION_ALIGNMENT.load(Ordering::SeqCst)
             && layout.size() == ALLOCATION_SIZE.load(Ordering::SeqCst)
             && !pointer.is_null()
         {
@@ -75,6 +82,9 @@ unsafe impl GlobalAlloc for ObservedAllocator {
                     .is_ok()
                 {
                     // The new pointer cannot be released before alloc returns.
+                    slot.offset.store(0, Ordering::SeqCst);
+                    slot.stride.store(0, Ordering::SeqCst);
+                    slot.count.store(1, Ordering::SeqCst);
                     slot.length.store(layout.size(), Ordering::SeqCst);
                     OBSERVED.fetch_add(1, Ordering::SeqCst);
                     return pointer;
@@ -88,7 +98,9 @@ unsafe impl GlobalAlloc for ObservedAllocator {
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         // System's realloc can copy uninitialized spare capacity from an
         // unobserved old block. Reject that topology instead of inspecting it.
-        if layout.align() == 1 && new_size == ALLOCATION_SIZE.load(Ordering::SeqCst) {
+        if layout.align() == ALLOCATION_ALIGNMENT.load(Ordering::SeqCst)
+            && new_size == ALLOCATION_SIZE.load(Ordering::SeqCst)
+        {
             REALLOCATED.store(true, Ordering::SeqCst);
         }
         for slot in &WATCHED {
@@ -117,7 +129,10 @@ unsafe impl GlobalAlloc for ObservedAllocator {
             }
             // Read length before freeing the slot for reuse by an allocation
             // on another thread. The current pointer is still live here.
-            let length = slot.length.load(Ordering::SeqCst).min(layout.size());
+            let length = slot.length.load(Ordering::SeqCst);
+            let offset = slot.offset.load(Ordering::SeqCst);
+            let stride = slot.stride.load(Ordering::SeqCst);
+            let count = slot.count.load(Ordering::SeqCst);
             if slot
                 .pointer
                 .compare_exchange(
@@ -130,8 +145,22 @@ unsafe impl GlobalAlloc for ObservedAllocator {
             {
                 // SAFETY: the allocation is live and length <= layout.size().
                 // Its observed bytes were initialized as described above.
-                let bytes = unsafe { std::slice::from_raw_parts(pointer, length) };
-                ALL_WIPED.fetch_and(bytes.iter().all(|byte| *byte == 0), Ordering::SeqCst);
+                for index in 0..count {
+                    let start = index
+                        .checked_mul(stride)
+                        .and_then(|value| offset.checked_add(value));
+                    let range =
+                        start.and_then(|start| start.checked_add(length).map(|end| (start, end)));
+                    if let Some((start, end)) = range.filter(|(_, end)| *end <= layout.size()) {
+                        // SAFETY: this range was registered from initialized
+                        // field references and is within the live allocation.
+                        let bytes =
+                            unsafe { std::slice::from_raw_parts(pointer.add(start), end - start) };
+                        ALL_WIPED.fetch_and(bytes.iter().all(|byte| *byte == 0), Ordering::SeqCst);
+                    } else {
+                        ALL_WIPED.store(false, Ordering::SeqCst);
+                    }
+                }
                 RELEASED.fetch_add(1, Ordering::SeqCst);
                 break;
             }
@@ -147,6 +176,7 @@ const SECRET_LENGTH: usize = 4093;
 
 fn reset_observation() {
     ALLOCATION_SIZE.store(0, Ordering::SeqCst);
+    ALLOCATION_ALIGNMENT.store(1, Ordering::SeqCst);
     assert!(WATCHED
         .iter()
         .all(|slot| slot.pointer.load(Ordering::SeqCst).is_null()));
@@ -161,6 +191,9 @@ fn reset_observation() {
 // the buffer, so the observer can inspect even its no-longer-live elements.
 fn watch(pointer: *const u8, capacity: usize) {
     reset_observation();
+    WATCHED[0].offset.store(0, Ordering::SeqCst);
+    WATCHED[0].stride.store(0, Ordering::SeqCst);
+    WATCHED[0].count.store(1, Ordering::SeqCst);
     WATCHED[0].length.store(capacity, Ordering::SeqCst);
     WATCHED[0]
         .pointer
@@ -198,6 +231,7 @@ fn finish_observation() -> bool {
     ALL_WIPED.load(Ordering::SeqCst)
 }
 
+#[track_caller]
 fn assert_wiped() {
     assert!(
         finish_observation(),
@@ -214,6 +248,148 @@ fn length_delimited(field: u32, payload: &[u8], wire: &mut Vec<u8>) {
 // be shared by concurrent test cases in this integration-test executable.
 #[test]
 fn guarded_allocations_are_wiped_before_release_on_every_lifecycle_path() {
+    // Only element borrows are mutable. Neither List nor its iterator can
+    // expose allocating mutable-slice algorithms; compile-fail docs freeze
+    // those boundaries. Valid mutation keeps the one backing owner intact.
+    let mut list: buffa::sensitive::List<u64> = vec![0x5a5a5a5a5a5a5a5a; 20_000].into();
+    watch(
+        list.as_ptr().cast(),
+        list.capacity() * core::mem::size_of::<u64>(),
+    );
+    for value in &mut list {
+        *value ^= 1;
+    }
+    *list.get_mut(0).unwrap() = 37;
+    drop(list);
+    assert_wiped();
+
+    // A serde backend can transfer an owned key instead of lending text.
+    // Invalid numeric keys must not drop that text before establishing a guard.
+    let private_key = "K".repeat(SECRET_LENGTH);
+    let pointer = private_key.as_ptr();
+    let mut object = serde_json::Map::new();
+    object.insert(private_key, serde_json::Value::from(1));
+    watch(pointer, SECRET_LENGTH);
+    let result = buffa::json_helpers::guarded_map::deserialize::<buffa::sensitive::Map<i64, u64>, _>(
+        serde_json::Value::Object(object),
+    );
+    assert!(result.is_err());
+    drop(result);
+    assert_wiped();
+
+    // The raw bytes-key helper is outside guarded codegen, but its owned
+    // base64 text still follows the opt-in scratch cleanup contract.
+    for invalid_key in [false, true] {
+        let key = if invalid_key {
+            "%".repeat(SECRET_LENGTH)
+        } else {
+            "Q".repeat(SECRET_LENGTH - 1)
+        };
+        if !invalid_key {
+            use base64::Engine as _;
+            assert!(base64::engine::general_purpose::STANDARD
+                .decode(&key)
+                .is_ok());
+        }
+        let source = format!(r#"{{"{key}":[]}}"#);
+        watch_next_allocation(key.len());
+        let result = buffa::json_helpers::bytes_key_map::deserialize::<
+            buffa::sensitive::Map<Vec<u8>, u64>,
+            _,
+        >(&mut serde_json::Deserializer::from_str(&source));
+        assert!(result.is_err());
+        drop(result);
+        assert_wiped();
+    }
+
+    // Invalid enum values must be rejected before Buffa materializes an owned
+    // JSON string/tree. The input and parser buffering have separate owners.
+    let private = "X".repeat(SECRET_LENGTH);
+    let decode_record =
+        |source: &str| serde_json::from_str::<buffa_test::sensitive_test::Record>(source).map(drop);
+    let decode_closed = |source: &str| {
+        serde_json::from_str::<buffa_test::sensitive_test::DeclaredDefaults>(source).map(drop)
+    };
+    type EnumDecode = fn(&str) -> Result<(), serde_json::Error>;
+    let enum_inputs: [(String, EnumDecode); 8] = [
+        (
+            format!("{{\"optionalStatus\":{{\"private\":\"{private}\"}}}}"),
+            decode_record,
+        ),
+        (
+            format!("{{\"statusValues\":{{\"3\":\"{private}\"}}}}"),
+            decode_record,
+        ),
+        (
+            format!("{{\"statusValues\":{{\"3\":{{\"private\":\"{private}\"}}}}}}"),
+            decode_record,
+        ),
+        (
+            format!("{{\"selectedStatus\":\"{private}\"}}"),
+            decode_record,
+        ),
+        (
+            format!("{{\"optionalState\":{{\"private\":\"{private}\"}}}}"),
+            decode_closed,
+        ),
+        (
+            format!("{{\"states\":{{\"3\":\"{private}\"}}}}"),
+            decode_closed,
+        ),
+        (
+            format!("{{\"states\":{{\"3\":{{\"private\":\"{private}\"}}}}}}"),
+            decode_closed,
+        ),
+        (format!("{{\"state\":\"{private}\"}}"), decode_closed),
+    ];
+    for (source, decode) in enum_inputs {
+        watch_next_allocation(SECRET_LENGTH);
+        let error = decode(&source).unwrap_err();
+        assert!(!error.to_string().contains(&private));
+        drop(error);
+        ALLOCATION_SIZE.store(0, Ordering::SeqCst);
+        assert_eq!(
+            OBSERVED.load(Ordering::SeqCst),
+            0,
+            "enum decoding staged owned input"
+        );
+        reset_observation();
+    }
+    // Deserializers may transfer an owned token too. In that case the enum
+    // seed becomes its cleanup owner even when the token is rejected.
+    let owned = "X".repeat(SECRET_LENGTH);
+    watch(owned.as_ptr(), owned.capacity());
+    let token = serde::de::value::StringDeserializer::<serde::de::value::Error>::new(owned);
+    assert!(
+        buffa::json_helpers::guarded_enum::optional_closed::deserialize::<
+            buffa_test::sensitive_test::declared_defaults::State,
+            _,
+        >(token)
+        .is_err()
+    );
+    assert_wiped();
+
+    // Decimal object keys must go directly into numeric key slots, for both
+    // primitive and message-valued maps, including a later value failure.
+    for source in [
+        r#"{"numericScores":{"9223372036854775807":1.5}}"#,
+        r#"{"numericScores":{"9223372036854775807":[]}}"#,
+        r#"{"numericMessages":{"9223372036854775807":{"first":1.5}}}"#,
+        r#"{"numericMessages":{"9223372036854775807":{"first":1.5,"second":[]}}}"#,
+    ] {
+        watch_next_allocation("9223372036854775807".len());
+        drop(serde_json::from_str::<buffa_test::sensitive_test::Record>(
+            source,
+        ));
+        ALLOCATION_SIZE.store(0, Ordering::SeqCst);
+        assert_eq!(
+            OBSERVED.load(Ordering::SeqCst),
+            0,
+            "numeric key was staged in a String"
+        );
+        reset_observation();
+    }
+
     // An unwiped release must stay visible even if another equal-sized
     // allocation is subsequently wiped correctly.
     watch_next_allocation(SECRET_LENGTH);
@@ -397,5 +573,248 @@ fn guarded_allocations_are_wiped_before_release_on_every_lifecycle_path() {
         let output = serde_json::to_string(&value).unwrap();
         assert_wiped();
         drop(output);
+    }
+
+    // A rejected field name can itself be private data. Supply an owned key
+    // directly, so the observation isolates the generated visitor's allocation
+    // from JSON tokenizer scratch and input buffers.
+    fn rejected_key_is_wiped<T: serde::de::DeserializeOwned>() {
+        watch_next_allocation(SECRET_LENGTH);
+        let key = "P".repeat(SECRET_LENGTH);
+        let source = serde::de::value::MapDeserializer::<_, serde::de::value::Error>::new(
+            core::iter::once((key, ())),
+        );
+        let result = T::deserialize(source);
+        assert!(result.is_err());
+        drop(result);
+        assert_wiped();
+    }
+    rejected_key_is_wiped::<buffa_test::sensitive_test::Record>();
+    rejected_key_is_wiped::<buffa_test::sensitive_test::Empty>();
+    rejected_key_is_wiped::<buffa_test::sensitive_test::DeclaredDefaults>();
+
+    // Explicit wiping on ordinary WKTs must recurse through string values,
+    // list elements and object keys too. This feature promises explicit
+    // cleanup; the separate guarded family supplies automatic drop cleanup.
+    use buffa_types::google::protobuf::{
+        ListValue as NativeList, Struct as NativeStruct, Value as NativeValue,
+    };
+    use zeroize::Zeroize;
+    watch_next_allocation(SECRET_LENGTH);
+    let mut native = NativeValue::from(NativeStruct::from_fields([
+        (
+            "K".repeat(SECRET_LENGTH),
+            NativeValue::from("S".repeat(SECRET_LENGTH)),
+        ),
+        (
+            "other".to_owned(),
+            NativeValue::from(NativeList {
+                values: vec![
+                    NativeValue::from("T".repeat(SECRET_LENGTH)),
+                    NativeValue::from(1.25),
+                ],
+                ..Default::default()
+            }),
+        ),
+    ]));
+    native.zeroize();
+    assert!(native.kind.is_none());
+    assert_wiped();
+
+    // A map's numeric message stays protected when a later JSON field fails.
+    // Numeric is repr(C) and consists of eight initialized eight-byte fields.
+    let numeric_size = core::mem::size_of::<buffa_test::sensitive_test::Numeric>();
+    assert_eq!(numeric_size, 64);
+    for json in [
+        r#"{"auditValues":{"private":{"first":1.25,"second":"42"}},"enabled":[]}"#,
+        r#"{"auditValues":{"private":{"first":1.25},"second":[]}}"#,
+    ] {
+        watch_next_allocation(numeric_size);
+        ALLOCATION_ALIGNMENT.store(
+            core::mem::align_of::<buffa_test::sensitive_test::Numeric>(),
+            Ordering::SeqCst,
+        );
+        assert!(serde_json::from_str::<buffa_test::sensitive_test::Record>(json).is_err());
+        assert_wiped();
+    }
+
+    // A deferred malformed child fails after the numeric map has been copied
+    // into the owned parent. The converted map allocation must still be wiped.
+    let mut source = buffa_test::sensitive_test::Record::default();
+    source.audit_values.insert(
+        "private".to_owned().into(),
+        buffa_test::sensitive_test::Numeric::default().with_first(1.25),
+    );
+    let mut wire = source.encode_to_vec();
+    length_delimited(19, &[0], &mut wire);
+    let lazy =
+        <buffa_test::sensitive_test::RecordLazyView as buffa::LazyMessageView>::decode_lazy(&wire)
+            .unwrap();
+    watch_next_allocation(numeric_size);
+    ALLOCATION_ALIGNMENT.store(
+        core::mem::align_of::<buffa_test::sensitive_test::Numeric>(),
+        Ordering::SeqCst,
+    );
+    assert!(buffa::LazyMessageView::to_owned_message(&lazy).is_err());
+    assert_wiped();
+    drop(lazy);
+
+    // Observe only the initialized f64 payloads of a dynamic Value list.
+    // Value's enum and pointer padding must never be read by this allocator.
+    use buffa_types::sensitive::{__buffa::oneof::value::Kind, Value};
+    let mut values = buffa::sensitive::List::<Value>::default();
+    for _ in 0..8 {
+        values.push(Value::number(1.25));
+    }
+    let old_capacity = values.capacity();
+    while values.len() < old_capacity {
+        values.push(Value::number(1.25));
+    }
+    let base = values.as_ptr().cast::<u8>();
+    let Some(Kind::NumberValue(number)) = &values[0].kind else {
+        panic!("numeric fixture")
+    };
+    // SAFETY: both pointers refer to the same initialized Vec allocation.
+    let offset =
+        usize::try_from(unsafe { (number as *const f64).cast::<u8>().offset_from(base) }).unwrap();
+    watch(base, core::mem::size_of::<f64>());
+    WATCHED[0].offset.store(offset, Ordering::SeqCst);
+    WATCHED[0]
+        .stride
+        .store(core::mem::size_of::<Value>(), Ordering::SeqCst);
+    WATCHED[0].count.store(values.len(), Ordering::SeqCst);
+    values.push(Value::number(2.5));
+    assert!(values.capacity() > old_capacity);
+    assert_wiped();
+    let base = values.as_ptr().cast::<u8>();
+    watch(base, core::mem::size_of::<f64>());
+    WATCHED[0].offset.store(offset, Ordering::SeqCst);
+    WATCHED[0]
+        .stride
+        .store(core::mem::size_of::<Value>(), Ordering::SeqCst);
+    WATCHED[0].count.store(values.len(), Ordering::SeqCst);
+    drop(values);
+    assert_wiped();
+
+    // Consuming an iterator transfers its yielded value, while wiping every
+    // consumed and abandoned slot before the shared backing buffer is freed.
+    let values: buffa::sensitive::List<f32> = (0..20).map(|_| 1.25).collect();
+    watch(values.as_ptr().cast::<u8>(), core::mem::size_of::<f32>());
+    WATCHED[0]
+        .stride
+        .store(core::mem::size_of::<f32>(), Ordering::SeqCst);
+    WATCHED[0].count.store(values.len(), Ordering::SeqCst);
+    let mut iter = values.into_iter();
+    assert_eq!(iter.next(), Some(1.25));
+    drop(iter);
+    assert_wiped();
+
+    // Observe a root view's inline handle in its still-live Box allocation.
+    // Read only the initialized u64 field, never neighboring struct padding.
+    let wire = buffa_test::sensitive_test::Record::default()
+        .with_handle(42)
+        .encode_to_vec();
+    let boxed = Box::new(
+        <buffa_test::sensitive_test::RecordView as buffa::MessageView>::decode_view(&wire).unwrap(),
+    );
+    let base = core::ptr::addr_of!(*boxed).cast::<u8>();
+    let field = core::ptr::addr_of!(boxed.handle).cast::<u8>();
+    // SAFETY: the field and root pointers lie in the same Box allocation.
+    let offset = usize::try_from(unsafe { field.offset_from(base) }).unwrap();
+    watch(base, core::mem::size_of::<u64>());
+    WATCHED[0].offset.store(offset, Ordering::SeqCst);
+    drop(boxed);
+    assert_wiped();
+
+    // Inspection returns scalar owners too: observe only their initialized
+    // numeric payloads, never the padding of the surrounding enums.
+    use buffa_descriptor::reflect::{InspectMapKeyRef, InspectValueRef, MapKeyRef};
+    let boxed = Box::new(InspectValueRef::U64(37));
+    let base = core::ptr::addr_of!(*boxed).cast::<u8>();
+    let field = match &*boxed {
+        InspectValueRef::U64(value) => core::ptr::addr_of!(*value).cast::<u8>(),
+        _ => unreachable!("constructed numeric inspection slot"),
+    };
+    // SAFETY: both pointers belong to this live Box allocation.
+    let offset = usize::try_from(unsafe { field.offset_from(base) }).unwrap();
+    watch(base, core::mem::size_of::<u64>());
+    WATCHED[0].offset.store(offset, Ordering::SeqCst);
+    drop(boxed);
+    assert_wiped();
+
+    let boxed = Box::new(InspectMapKeyRef::from(MapKeyRef::U64(37)));
+    let base = core::ptr::addr_of!(*boxed).cast::<u8>();
+    let field = match boxed.value() {
+        MapKeyRef::U64(value) => core::ptr::addr_of!(*value).cast::<u8>(),
+        _ => unreachable!("constructed numeric inspection key"),
+    };
+    // SAFETY: both pointers belong to this live Box allocation.
+    let offset = usize::try_from(unsafe { field.offset_from(base) }).unwrap();
+    watch(base, core::mem::size_of::<u64>());
+    WATCHED[0].offset.store(offset, Ordering::SeqCst);
+    drop(boxed);
+    assert_wiped();
+
+    // A view owns decoded scalar buffers even while its byte fields borrow.
+    // Multiple unpacked occurrences force growth, and the final malformed tag
+    // exercises cleanup of a partially decoded view.
+    use buffa::MessageView;
+    let mut wire = Vec::new();
+    for _ in 0..100 {
+        buffa::encoding::Tag::new(9, buffa::encoding::WireType::Fixed32).encode(&mut wire);
+        wire.extend_from_slice(&1.25f32.to_le_bytes());
+    }
+    for invalid in [false, true] {
+        if invalid {
+            wire.push(0);
+        }
+        watch_next_allocation(64usize.checked_mul(core::mem::size_of::<f32>()).unwrap());
+        ALLOCATION_ALIGNMENT.store(core::mem::align_of::<f32>(), Ordering::SeqCst);
+        let view = buffa_test::sensitive_test::RecordView::decode_view(&wire);
+        assert_eq!(view.is_err(), invalid);
+        drop(view);
+        assert_wiped();
+    }
+
+    #[cfg(feature = "arbitrary")]
+    {
+        use buffa::sensitive::GuardedArbitrary;
+        for invalid in [false, true] {
+            let mut input = Vec::new();
+            for _ in 0..100 {
+                input.push(1); // Continue the repeated field.
+                input.extend_from_slice(&1.25f32.to_le_bytes());
+            }
+            input.push(0); // Finish the repeated field.
+            input.push(u8::from(invalid)); // Exceed the child depth when set.
+            watch_next_allocation(64usize.checked_mul(core::mem::size_of::<f32>()).unwrap());
+            ALLOCATION_ALIGNMENT.store(core::mem::align_of::<f32>(), Ordering::SeqCst);
+            let result = buffa_test::sensitive_test::ArbitraryValues::arbitrary_guarded(
+                &mut arbitrary::Unstructured::new(&input),
+                1,
+            );
+            assert_eq!(result.is_err(), invalid);
+            drop(result);
+            assert_wiped();
+        }
+    }
+
+    // Scalar embeddings must enter their guarded collection while parsing,
+    // rather than after a temporary Vec has already grown or failed. Observe
+    // an intermediate capacity as well as the final buffer, including spare
+    // capacity, for both successful parses and errors after valid elements.
+    for count in [40, 100] {
+        let elements = vec!["1.25"; count].join(",");
+        for invalid in [false, true] {
+            let suffix = if invalid { ",\"invalid\"" } else { "" };
+            let json = format!("{{\"embedding\":[{elements}{suffix}]}}");
+            let capacity_bytes = 64usize.checked_mul(core::mem::size_of::<f32>()).unwrap();
+            watch_next_allocation(capacity_bytes);
+            ALLOCATION_ALIGNMENT.store(core::mem::align_of::<f32>(), Ordering::SeqCst);
+            let result = serde_json::from_str::<Credentials>(&json);
+            assert_eq!(result.is_err(), invalid);
+            drop(result);
+            assert_wiped();
+        }
     }
 }

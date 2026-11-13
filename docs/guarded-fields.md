@@ -144,7 +144,10 @@ logs that must not contain attacker-controlled text.
 
 The default runtime and generator do not require a secret-storage library. A
 representation may use `zeroize`, `secrecy` and its own `base64` dependency.
-Application byte representations stay in the consuming crate.
+Application byte representations stay in the consuming crate. The optional
+guarded WKT family supplies the `SecretString` owner required for its dynamic
+tree keys and string values; enabling `buffa-types/sensitive` pulls in its
+`secrecy` and `subtle` dependencies. Ordinary WKT users do not enable them.
 `buffa-test/src/guarded_repr.rs` and its allocator test show a complete
 integration; they are test fixtures, not a general-purpose secure parsing
 library.
@@ -226,7 +229,7 @@ decode hook to control fragmented-input scratch: implementing `from_wire` and
 `ZeroizeOnDrop` alone still permits the default hook's ordinary `Bytes`
 temporary. Its JSON policy and `Clone` implementation must also preserve guarded
 ownership. Audit these implementations and test fragmented input and failures;
-the test representations provide examples.
+the guarded WKT types and test representations provide examples.
 
 A custom guarded map must also override `MapStorage::storage_erase_key` and
 `storage_erase_value`. The decoder uses those hooks to wipe temporary entry
@@ -310,7 +313,8 @@ or containing generation, as with imported view-export policies.
 
 With `arbitrary=true`, cleanup messages use generated implementations rather
 than deriving through partial aggregates. Enable the consumer's `arbitrary`
-feature and `buffa/arbitrary`.
+feature and `buffa/arbitrary`. Imported guarded WKTs additionally need
+`buffa-types/arbitrary`.
 
 Other imported message families must also provide `GuardedArbitrary`; enable
 their arbitrary feature or supply the implementation in their defining crate.
@@ -323,6 +327,32 @@ as for binary decoding. Map keys remain guarded if a later value fails.
 `Arbitrary` entry point uses Buffa's recursion limit. Each message or oneof
 construction consumes a level, so recursive schemas terminate even when values
 would otherwise consume no input. Input storage remains the harness's owner.
+
+## Guard well-known types
+
+Enable `buffa-types/sensitive` and map imported types to this separate family:
+
+```yaml
+opt:
+  - extern_path=.google.protobuf.Timestamp=::buffa_types::sensitive::Timestamp
+  - extern_path=.google.protobuf.Duration=::buffa_types::sensitive::Duration
+  - extern_path=.google.protobuf.Value=::buffa_types::sensitive::Value
+  - extern_path=.google.protobuf.Struct=::buffa_types::sensitive::Struct
+  - extern_path=.google.protobuf.ListValue=::buffa_types::sensitive::ListValue
+```
+
+These types preserve protobuf wire and JSON forms while owning recursive
+cleanup. Dynamic trees use guarded strings, lists and maps; temporal JSON
+formatting uses bounded wipe-owning stack storage. Borrowed and owned views
+are available; JSON serialization of a view materializes a guarded owned
+value. The guarded family supports borrowed inspection with `sensitive,reflect`
+and guarded arbitrary construction with `sensitive,arbitrary`. It has no
+chrono/jiff adapter implementations.
+
+Ordinary WKTs remain source-compatible and do not gain `Drop`. The lighter
+`buffa-types/zeroize` feature adds explicit `Zeroize` implementations for these
+five ordinary WKTs; that alone is insufficient for a cleanup-profile child,
+which also requires `ZeroizeOnDrop`.
 
 ## Reject unknown wire fields
 

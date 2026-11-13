@@ -30,8 +30,15 @@ chrono = ["dep:chrono"]
 # `jiff::SignedDuration`. `no_std`-compatible (`jiff` is pulled with
 # `default-features = false` + `alloc`); the `std` feature adds `jiff/std`.
 jiff = ["dep:jiff"]
+# Explicit wiping for ordinary temporal and dynamic WKTs.
+zeroize = ["dep:zeroize", "buffa/zeroize"]
+# Separate wipe-owning WKT family for secret-bearing messages.
+sensitive = ["zeroize", "dep:secrecy", "dep:subtle", "buffa-descriptor?/zeroize"]
 
 [dependencies]
+zeroize = { workspace = true, optional = true }
+secrecy = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
 arbitrary = { workspace = true, optional = true }
 # `buffa/text` is zero-dep and the WKT generated code unconditionally impls
 # `TextFormat` — enabled here so the checked-in src/generated/ always compiles.

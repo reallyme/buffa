@@ -1,0 +1,62 @@
+syntax = "proto3";
+package sensitive_test;
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+message Record {
+ uint64 handle = 1;
+ int32 index = 2;
+ bool enabled = 3;
+ double score = 4;
+ Status status = 5;
+ string identity = 6;
+ bytes key = 7;
+ optional uint64 sequence = 8;
+ repeated float embedding = 9;
+ map<string, double> scores = 10;
+ Record child = 11;
+ google.protobuf.Timestamp created_at = 12;
+ google.protobuf.Value claims = 13;
+ map<string, Numeric> audit_values = 17;
+ repeated Status status_history = 18;
+ Record late_child = 19;
+ repeated Record history = 20;
+ optional Status optional_status = 21;
+ map<int32, Status> status_values = 22;
+ map<int64, double> numeric_scores = 24;
+ map<int64, Numeric> numeric_messages = 25;
+ oneof secret { uint64 count = 14; string label = 15; Status selected_status = 23; }
+}
+enum Status { STATUS_UNSPECIFIED = 0; STATUS_VALID = 1; }
+
+// All fields are initialized eight-byte primitives, suitable for observing
+// a wipe-owned map value at its allocator release boundary without padding.
+message Numeric {
+ double first = 1;
+ uint64 second = 2;
+ uint64 third = 3;
+ uint64 fourth = 4;
+ uint64 fifth = 5;
+ uint64 sixth = 6;
+ uint64 seventh = 7;
+ uint64 eighth = 8;
+}
+
+message Empty {}
+
+// Exercises arbitrary collection growth before a later depth failure.
+message ArbitraryValues {
+ repeated float values = 1;
+ ArbitraryValues child = 2;
+}
+
+// Numeric-only messages still need a view export policy independent of fields.
+message ViewPrivate {
+ uint64 token_handle = 1;
+}
+message ViewPrivateParent {
+ ViewPrivate child = 1;
+ uint64 count = 2;
+}
+message ViewPrivateMap {
+ map<string, ViewPrivate> values = 1;
+}
