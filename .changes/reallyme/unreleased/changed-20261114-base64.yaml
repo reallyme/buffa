@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  Update the ProtoJSON base64 dependency to 0.23.1 with the same scalar engine and allocation-only features.
+time: 2026-11-14T00:00:00Z
