@@ -13,6 +13,9 @@ Versioning is independent of upstream. Compatible updates increment the patch ve
 
 - Generated eager, lazy, and owned views and view oneofs honor skip_debug by formatting only a redaction marker with the type name. Preserved unknown fields still round-trip. Regenerate existing bindings to replace their old Debug implementations.
 
+- ProtoJSON decoding errors from map-key parsing, numeric conversion and range checks, base64 decoding, malformed Timestamp and Duration strings, and Any payload decoding omit rejected values. Accepted inputs are unchanged. Unknown-field diagnostics outside Any (including Serde-derived errors), parser and deserializer errors at other boundaries, and serialization errors are outside this change.
+- With the runtime `zeroize` feature enabled, standalone enum deserialization wipes string allocations transferred by Serde, including on rejection. Deserializers retain responsibility for their own buffers.
+
 ### Added
 
 - `borrowed_views_only_in` omits standard owned wrappers and their `HasMessageView` bindings for selected messages and their containers. Eager and lazy borrowed views remain available.

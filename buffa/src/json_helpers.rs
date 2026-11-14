@@ -48,6 +48,59 @@ pub use policy::{ProtoBytesJson, ProtoStringJson};
 
 use buffered::BufferedValue;
 
+/// Fixed diagnostics shared by the runtime and its well-known type codecs.
+///
+/// Never include the token or a parser's original error in these reasons.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum JsonValueError {
+    #[error("invalid protobuf map key")]
+    MapKey,
+    #[error("invalid i32 value")]
+    Int32,
+    #[error("invalid u32 value")]
+    Uint32,
+    #[error("invalid i64 value")]
+    Int64,
+    #[error("invalid u64 value")]
+    Uint64,
+    #[error("invalid float value, expected a finite f32 or a protobuf special value")]
+    Float,
+    #[error("invalid double value, expected a finite f64 or a protobuf special value")]
+    Double,
+    #[error("invalid base64 string")]
+    Base64,
+    #[error("invalid Duration string")]
+    Duration,
+    #[error("invalid RFC 3339 timestamp")]
+    Timestamp,
+    #[error("invalid JSON payload for a registered Any message")]
+    AnyMessage,
+    #[error("invalid JSON value for a registered Any well-known type")]
+    AnyWellKnownType,
+    #[error("@type is not a valid type URL: it names no type")]
+    AnyEmptyType,
+    #[error("@type must contain a '/' (e.g. type.googleapis.com/pkg.Type)")]
+    AnyBareType,
+    #[error("Any with a well-known type requires a \"value\" key")]
+    AnyMissingValue,
+    #[error("Any with a well-known type has an unexpected field")]
+    AnyUnexpectedField,
+    #[error("Any type is not registered in the descriptor pool")]
+    AnyUnregisteredType,
+    #[error("Any: no type registry is installed to resolve a bare @type; install one with `set_type_registry`, or send a type URL")]
+    AnyBareTypeWithoutRegistry,
+    #[error("Any: bare @type has no JSON entry in the type registry; register the message or send a type URL")]
+    AnyBareTypeWithoutEntry,
+    #[error("Any: no type registry is installed; send the message encoded as a base64 string under \"value\", or install a registry with `set_type_registry`")]
+    AnyOpaqueWithoutRegistry,
+    #[error("Any: type has no JSON entry in the type registry; send the message encoded as a base64 string under \"value\", or register the message with `register_types`")]
+    AnyOpaqueWithoutEntry,
+    #[error("Any opaque payload field cannot be parsed")]
+    AnyOpaqueField,
+}
+
 // ── Lenient base64 engines ──────────────────────────────────────────────────
 //
 // The pre-built `general_purpose` engines reject non-zero trailing bits.
@@ -373,7 +426,6 @@ pub mod proto_map {
     where
         C: MapStorage + Default,
         C::Key: FromStr,
-        <C::Key as FromStr>::Err: Display,
         C::Value: ProtoElemJson,
         D: Deserializer<'de>,
     {
@@ -382,7 +434,6 @@ pub mod proto_map {
         where
             C: MapStorage + Default,
             C::Key: FromStr,
-            <C::Key as FromStr>::Err: Display,
             C::Value: ProtoElemJson,
         {
             type Value = C;
@@ -398,9 +449,8 @@ pub mod proto_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key) = map.next_key::<String>()? {
-                    let k = <C::Key as FromStr>::from_str(&key).map_err(|e| {
-                        serde::de::Error::custom(alloc::format!("invalid map key '{key}': {e}"))
-                    })?;
+                    let k = <C::Key as FromStr>::from_str(&key)
+                        .map_err(|_| serde::de::Error::custom(super::JsonValueError::MapKey))?;
                     let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
@@ -1062,18 +1112,16 @@ fn f64_to_int<I: TryFrom<i128>>(v: f64) -> Option<I> {
 ///   value identifier and serializer identifier.
 /// - `expecting`: expecting string for the visitor.
 /// - `doc`: doc string for the generated module.
-/// - `visit_i64_body` / `visit_u64_body`: function pointers
-///   `fn(value, &Expected) -> Result` for converting incoming visitor values.
-/// - `visit_str_body`: function pointer for `visit_str`.
+/// - `reason`: fixed diagnostic for malformed or out-of-range values.
+/// - `parse_str`: parser for the quoted numeric form.
 macro_rules! int_serde_module {
     (
         $mod_name:ident, $int_type:ty,
         doc = $doc:expr,
         serialize_body = |$val:ident, $ser:ident| $ser_body:expr,
         expecting = $expecting:expr,
-        visit_i64_body = $visit_i64:expr,
-        visit_u64_body = $visit_u64:expr,
-        visit_str_body = $visit_str:expr $(,)?
+        reason = $reason:ident,
+        parse_str = $parse_str:ident $(,)?
     ) => {
         #[doc = $doc]
         pub mod $mod_name {
@@ -1096,38 +1144,26 @@ macro_rules! int_serde_module {
                     fn visit_unit<E>(self) -> Result<$int_type, E> {
                         Ok(0)
                     }
+                    fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<$int_type, E> {
+                        Err(E::custom(JsonValueError::$reason))
+                    }
                     fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<$int_type, E> {
-                        let convert: fn(i64, &dyn serde::de::Expected) -> Result<$int_type, E> =
-                            $visit_i64;
-                        convert(v, &self)
+                        <$int_type>::try_from(v).map_err(|_| E::custom(JsonValueError::$reason))
                     }
                     fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<$int_type, E> {
-                        let convert: fn(u64, &dyn serde::de::Expected) -> Result<$int_type, E> =
-                            $visit_u64;
-                        convert(v, &self)
+                        <$int_type>::try_from(v).map_err(|_| E::custom(JsonValueError::$reason))
                     }
                     fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<$int_type, E> {
-                        f64_to_int::<$int_type>(v)
-                            .ok_or_else(|| E::invalid_value(serde::de::Unexpected::Float(v), &self))
+                        f64_to_int::<$int_type>(v).ok_or_else(|| E::custom(JsonValueError::$reason))
                     }
                     fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<$int_type, E> {
-                        let convert: fn(&str, &dyn serde::de::Expected) -> Result<$int_type, E> =
-                            $visit_str;
-                        convert(v, &self)
+                        $parse_str(v).ok_or_else(|| E::custom(JsonValueError::$reason))
                     }
                 }
                 d.deserialize_any(Vis)
             }
         }
     };
-}
-
-/// Default `visit_str` implementation: delegates to `parse_int_from_str`.
-fn default_visit_str<I: TryFrom<i128>, E: serde::de::Error>(
-    v: &str,
-    exp: &dyn serde::de::Expected,
-) -> Result<I, E> {
-    parse_int_from_str::<I>(v).ok_or_else(|| E::invalid_value(serde::de::Unexpected::Str(v), exp))
 }
 
 int_serde_module!(
@@ -1139,15 +1175,8 @@ int_serde_module!(
            Use with `#[serde(with = \"::buffa::json_helpers::int32\")]`.",
     serialize_body = |v, s| s.serialize_i32(*v),
     expecting = "an i32 as integer, string, float, or null",
-    visit_i64_body = |v, exp| {
-        i32::try_from(v)
-            .map_err(|_| serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), exp))
-    },
-    visit_u64_body = |v, exp| {
-        i32::try_from(v)
-            .map_err(|_| serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), exp))
-    },
-    visit_str_body = default_visit_str,
+    reason = Int32,
+    parse_str = parse_int_from_str,
 );
 
 int_serde_module!(
@@ -1159,15 +1188,8 @@ int_serde_module!(
            Use with `#[serde(with = \"::buffa::json_helpers::uint32\")]`.",
     serialize_body = |v, s| s.serialize_u32(*v),
     expecting = "a u32 as integer, string, float, or null",
-    visit_i64_body = |v, exp| {
-        u32::try_from(v)
-            .map_err(|_| serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), exp))
-    },
-    visit_u64_body = |v, exp| {
-        u32::try_from(v)
-            .map_err(|_| serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), exp))
-    },
-    visit_str_body = default_visit_str,
+    reason = Uint32,
+    parse_str = parse_int_from_str,
 );
 
 int_serde_module!(
@@ -1187,22 +1209,13 @@ int_serde_module!(
         }
     },
     expecting = "an i64 as a quoted decimal string, integer, float, or null",
-    visit_i64_body = |v: i64, _exp| Ok(v),
-    visit_u64_body = |v, _exp| {
-        i64::try_from(v).map_err(|_| {
-            serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &"an i64 value")
-        })
-    },
-    visit_str_body = default_visit_str,
+    reason = Int64,
+    parse_str = parse_int_from_str,
 );
 
-/// `visit_str` for `u64`: tries direct `parse::<u64>` first to handle large
-/// values exactly, then falls back to `parse_int_from_str` for float notation.
-fn u64_visit_str<E: serde::de::Error>(v: &str, exp: &dyn serde::de::Expected) -> Result<u64, E> {
-    if let Ok(n) = v.parse::<u64>() {
-        return Ok(n);
-    }
-    parse_int_from_str::<u64>(v).ok_or_else(|| E::invalid_value(serde::de::Unexpected::Str(v), exp))
+// Try the full unsigned range before accepting decimal or exponent notation.
+fn parse_u64(value: &str) -> Option<u64> {
+    value.parse().ok().or_else(|| parse_int_from_str(value))
 }
 
 int_serde_module!(
@@ -1222,13 +1235,8 @@ int_serde_module!(
         }
     },
     expecting = "a u64 as a quoted decimal string, integer, float, or null",
-    visit_i64_body = |v, _exp| {
-        u64::try_from(v).map_err(|_| {
-            serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &"a u64 value")
-        })
-    },
-    visit_u64_body = |v: u64, _exp| Ok(v),
-    visit_str_body = u64_visit_str,
+    reason = Uint64,
+    parse_str = parse_u64,
 );
 
 // ── float ────────────────────────────────────────────────────────────────────
@@ -1287,6 +1295,10 @@ pub mod float {
                 Ok(0.0)
             }
 
+            fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<f32, E> {
+                Err(E::custom(super::JsonValueError::Float))
+            }
+
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<f32, E> {
                 match v {
                     "NaN" => Ok(f32::NAN),
@@ -1301,10 +1313,7 @@ pub mod float {
                     // up to infinity.
                     _ => match v.parse::<f32>() {
                         Ok(f) if f.is_finite() => Ok(f),
-                        _ => Err(E::invalid_value(
-                            serde::de::Unexpected::Str(v),
-                            &r#"a float within f32 range, or "NaN", "Infinity", "-Infinity""#,
-                        )),
+                        _ => Err(E::custom(super::JsonValueError::Float)),
                     },
                 }
             }
@@ -1319,10 +1328,7 @@ pub mod float {
                 // canonical text of `f32::MAX` (`3.4028235e+38`) does.
                 let f = v as f32;
                 if v.is_finite() && !f.is_finite() {
-                    return Err(E::invalid_value(
-                        serde::de::Unexpected::Float(v),
-                        &"a finite f32 value",
-                    ));
+                    return Err(E::custom(super::JsonValueError::Float));
                 }
                 Ok(f)
             }
@@ -1378,6 +1384,10 @@ pub mod double {
                 Ok(0.0)
             }
 
+            fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<f64, E> {
+                Err(E::custom(super::JsonValueError::Double))
+            }
+
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<f64, E> {
                 match v {
                     "NaN" => Ok(f64::NAN),
@@ -1387,10 +1397,7 @@ pub mod double {
                     // overflow or a spelling ProtoJSON does not have.
                     _ => match v.parse::<f64>() {
                         Ok(f) if f.is_finite() => Ok(f),
-                        _ => Err(E::invalid_value(
-                            serde::de::Unexpected::Str(v),
-                            &r#"a double within f64 range, or "NaN", "Infinity", "-Infinity""#,
-                        )),
+                        _ => Err(E::custom(super::JsonValueError::Double)),
                     },
                 }
             }
@@ -1461,6 +1468,22 @@ pub mod bytes {
 
             fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.write_str("a base64-encoded string, or null")
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<alloc::vec::Vec<u8>, E> {
+                Err(E::custom(super::JsonValueError::Base64))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<alloc::vec::Vec<u8>, E> {
+                Err(E::custom(super::JsonValueError::Base64))
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<alloc::vec::Vec<u8>, E> {
+                Err(E::custom(super::JsonValueError::Base64))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<alloc::vec::Vec<u8>, E> {
+                Err(E::custom(super::JsonValueError::Base64))
             }
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<alloc::vec::Vec<u8>, E> {
@@ -1691,7 +1714,6 @@ pub mod string_key_map {
     where
         C: MapStorage + Default,
         C::Key: FromStr,
-        <C::Key as FromStr>::Err: Display,
         C::Value: serde::Deserialize<'de>,
         D: Deserializer<'de>,
     {
@@ -1700,7 +1722,6 @@ pub mod string_key_map {
         where
             C: MapStorage + Default,
             C::Key: FromStr,
-            <C::Key as FromStr>::Err: Display,
             C::Value: serde::Deserialize<'de>,
         {
             type Value = C;
@@ -1716,13 +1737,9 @@ pub mod string_key_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key_str) = map.next_key::<alloc::string::String>()? {
-                    let key = key_str.parse::<C::Key>().map_err(|e| {
-                        serde::de::Error::custom(alloc::format!(
-                            "invalid map key '{}': {}",
-                            key_str,
-                            e
-                        ))
-                    })?;
+                    let key = key_str
+                        .parse::<C::Key>()
+                        .map_err(|_| serde::de::Error::custom(super::JsonValueError::MapKey))?;
                     let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let value = map.next_value()?;
                     out.storage_insert(key.into_inner(), value);
@@ -1745,11 +1762,12 @@ impl serde::Serialize for Base64Wrapper<'_> {
 
 /// Decode a base64 string, accepting standard and URL-safe alphabets with
 /// lenient trailing-bit and padding handling.
-pub(crate) fn decode_base64(v: &str) -> Result<alloc::vec::Vec<u8>, base64::DecodeError> {
+pub(crate) fn decode_base64(v: &str) -> Result<alloc::vec::Vec<u8>, JsonValueError> {
     use base64::Engine as _;
     STANDARD_LENIENT
         .decode(v)
-        .or_else(|std_err| URL_SAFE_LENIENT.decode(v).map_err(|_| std_err))
+        .or_else(|_| URL_SAFE_LENIENT.decode(v))
+        .map_err(|_| JsonValueError::Base64)
 }
 
 // ── Option<T> wrappers for proto2 optional scalar fields ─────────────────────
@@ -2108,6 +2126,16 @@ pub mod closed_enum {
             }
             fn visit_bool<Err: serde::de::Error>(self, _: bool) -> Result<E, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
+            }
+            #[cfg(feature = "zeroize")]
+            fn visit_string<Err: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<E, Err> {
+                // Only the owned-token callback transfers the allocation.
+                // Borrowed text and parser scratch stay with the deserializer.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
             }
             fn visit_str<Err: serde::de::Error>(self, v: &str) -> Result<E, Err> {
                 match E::from_proto_name(v) {

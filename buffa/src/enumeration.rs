@@ -233,6 +233,17 @@ impl<'de, E: Enumeration> serde::Deserialize<'de> for EnumValue<E> {
                 }
             }
 
+            #[cfg(feature = "zeroize")]
+            fn visit_string<Err: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<Self::Value, Err> {
+                // Serde transferred this allocation, so wipe it even when
+                // the enum name cannot be resolved.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+
             fn visit_i64<Err: serde::de::Error>(self, v: i64) -> Result<EnumValue<E>, Err> {
                 let n =
                     i32::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
