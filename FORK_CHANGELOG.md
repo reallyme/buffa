@@ -5,6 +5,16 @@ Upstream release history remains in [CHANGELOG.md](CHANGELOG.md).
 
 Versioning is independent of upstream. Compatible updates increment the patch version; breaking changes increment the minor version while the major version is zero.
 
+## [0.1.1] - 2026-11-14
+
+### Security
+
+- Enum JSON value errors omit the input name or number. This covers generated enum values, enum field values and elements, registered enum extensions, and reflective enum values. The accepted values and lenient parsing behavior are unchanged. Regenerate existing bindings with the matching generator to update standalone enum deserialization.
+
+- Generated eager, lazy, and owned views and view oneofs honor skip_debug by formatting only a redaction marker with the type name. Preserved unknown fields still round-trip. Regenerate existing bindings to replace their old Debug implementations.
+
+[0.1.1]: https://github.com/reallyme/buffa/releases/tag/reallyme-v0.1.1
+
 ## [0.1.0] - 2026-11-13
 
 First ReallyMe release. The upstream base is commit `104716922c66e21cf26895a2a5a2a42e6292f9d4`; the reviewed fork integration is `332349be3bd40ae7a33588529ae31f9d8ccba040`. This base is later than upstream tag `v0.9.2`.

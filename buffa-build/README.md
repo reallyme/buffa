@@ -12,9 +12,9 @@ The fork adds opt-in mechanisms for guarded field storage, zeroization, controll
 
 **Upstream direction:** our preference is to use upstream Buffa. If upstream provides equivalent secret-handling capabilities and guarantees, and our applications can migrate safely, we intend to migrate back upstream and retire active development of this fork. Published ReallyMe versions would remain available for reproducible builds.
 
-This is the **0.1.0** ReallyMe release, distributed under Apache-2.0. Upstream license and attribution notices are retained; upstream endorsement is not implied.
+This is the **0.1.1** ReallyMe release, distributed under Apache-2.0. Upstream license and attribution notices are retained; upstream endorsement is not implied.
 
-[Configuration and limits](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guarded-fields.md) · [Migration and provenance](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/FORK.md)
+[Configuration and limits](https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guarded-fields.md) · [Migration and provenance](https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/FORK.md)
 
 **Package role:** Generation from build.rs, including selection of guarded representations and cleanup/export policies.
 
@@ -33,7 +33,7 @@ needs a `buf.yaml` at the crate root, ignores `.includes()`, and takes
 `.files()` paths relative to the buf module directory. You can also pass a
 precompiled descriptor set with `.descriptor_set()`.
 
-See the [prerequisites section of the user guide](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guide.md#prerequisites)
+See the [prerequisites section of the user guide](https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guide.md#prerequisites)
 for how to install either compiler.
 
 ## Quick start
@@ -42,9 +42,9 @@ Add the runtime and build dependencies. Add `buffa-types` too when your
 schemas use protobuf well-known types such as `Timestamp` or `Any`.
 
 ```sh
-cargo add reallyme-buffa@=0.1.0 --rename buffa
-cargo add --build reallyme-buffa-build@=0.1.0 --rename buffa-build
-cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types           # optional: the well-known types
+cargo add reallyme-buffa@=0.1.1 --rename buffa
+cargo add --build reallyme-buffa-build@=0.1.1 --rename buffa-build
+cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types           # optional: the well-known types
 ```
 
 Compile your schemas and generate a module tree:
@@ -73,5 +73,5 @@ mod proto {
 `include_file` creates the nested module tree for the protobuf packages,
 including packages that refer to one another.
 
-See the [user guide](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guide.md#using-buffa-build-in-buildrs)
+See the [user guide](https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guide.md#using-buffa-build-in-buildrs)
 for the full set of code generation options.

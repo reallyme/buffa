@@ -10,11 +10,11 @@ Use the fork packages through the aliases expected by generated Rust:
 
 ```toml
 [dependencies]
-buffa = { package = "reallyme-buffa", version = "=0.1.0" }
-buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
+buffa = { package = "reallyme-buffa", version = "=0.1.1" }
+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1" }
 
 [build-dependencies]
-buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.1" }
 ```
 
 Use the matching local ReallyMe plugins for `buf generate`. The upstream BSR plugin and Homebrew formula install a different distribution. See [fork provenance and migration](../FORK.md).
@@ -33,8 +33,8 @@ Use the matching local ReallyMe plugins for `buf generate`. The upstream BSR plu
 
 ```sh
 # Enable JSON support
-cargo add reallyme-buffa@=0.1.0 --rename buffa --features json
-cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types --features json
+cargo add reallyme-buffa@=0.1.1 --rename buffa --features json
+cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types --features json
 ```
 
 ## Prerequisites
@@ -214,7 +214,7 @@ The macro pulls in `OUT_DIR/<dotted.pkg>.mod.rs`, which in turn includes the per
 | `.generate_with_setters(bool)` | `true` | Emit `with_<name>()` builder-style setters for explicit-presence fields (all fields in the cleanup profile) |
 | `.map_entries_omit_defaults(bool)` | `false` | Encode map entries as prost does: an entry's key or value at its default is left out, the entry itself is kept. Each crate's types encode as that crate was generated; the well-known types and `DynamicMessage` write both. For multi-entry maps to match prost's bytes, also use `.map_type(MapRepr::BTreeMap)` where prost used `btree_map`. See [Map entries](migration-from-prost.md#map-entries) |
 | `.generate_arbitrary(bool)` | `false` | Emit `#[derive(arbitrary::Arbitrary)]` gated behind the `arbitrary` feature (for fuzzing) |
-| `.skip_debug(&[...])` | — | Omit the generated `Debug` impl for matching messages (proto-path prefixes), with their oneof enums, and for enums named exactly, so your crate can write its own. A matched enum needs a hand-written impl to compile. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
+| `.skip_debug(&[...])` | — | Omit the generated `Debug` impl for matching owned messages (proto-path prefixes), with their oneof enums, and for enums named exactly, so your crate can write its own. A matched enum needs a hand-written impl to compile. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
 | `.gate_impls_on_crate_features(bool)` | `false` | Wrap json/views/text impls in `#[cfg(feature = ...)]` for library crates whose generated code is a public dependency surface |
 | `.json_feature_name(name)` etc. | `"json"`, `"views"`, `"text"`, `"reflect"` | Rename the crate feature a gated impl kind is conditioned on (one setter per kind: `json_feature_name`, `views_feature_name`, `text_feature_name`, `reflect_feature_name`); inert without `gate_impls_on_crate_features`. The renamed feature must be declared in the consuming crate's `[features]` table — an undeclared name leaves the `#[cfg]` permanently false and the impls silently absent |
 | `.strict_utf8_mapping(bool)` | `false` | Map `utf8_validation = NONE` string fields to `Vec<u8>` / `&[u8]` instead of `String` (see [Skipping UTF-8 validation](#skipping-utf-8-validation)) |
@@ -249,7 +249,7 @@ Well-known types (`google.protobuf.Timestamp`, `Duration`, `Any`, etc.) are auto
 This requires `buffa-types` as a dependency:
 
 ```sh
-cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types
+cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types
 ```
 
 `buffa-types` is a pure source crate — it does **not** run `protoc` or any code generation at build time. If your protos use WKTs but you generate your own Rust code ahead-of-time (via `buf generate` or a `protoc` script), then `buffa` + `buffa-types` is your entire runtime dependency surface.
@@ -271,7 +271,7 @@ This disables the automatic mapping and routes all `google.protobuf.*` reference
 `google/protobuf/descriptor.proto` and `google/protobuf/compiler/plugin.proto` types (`FieldDescriptorProto`, `FileOptions`, `Edition`, `CodeGeneratorRequest`, etc.) live in `buffa-descriptor`, not `buffa-types` — the latter ships the official well-known types (JSON-mappable WKTs plus `Api`/`Type`/`SourceContext`). Protos that reference a `descriptor.proto` type as a field type — most commonly via [protovalidate](https://buf.build/bufbuild/protovalidate)'s `buf/validate/validate.proto`, which uses `google.protobuf.FieldDescriptorProto.Type` — are automatically routed to `buffa-descriptor`, the same way WKTs are routed to `buffa-types`. Add it as a dependency:
 
 ```sh
-cargo add reallyme-buffa-descriptor@=0.1.0 --rename buffa-descriptor
+cargo add reallyme-buffa-descriptor@=0.1.1 --rename buffa-descriptor
 ```
 
 If your protos import `descriptor.proto` only to declare custom options (`extend google.protobuf.MessageOptions { ... }`) and never reference a descriptor type as a *field type*, no `buffa-descriptor` dependency is required — extension declarations don't generate field-type references.
@@ -280,7 +280,7 @@ If your protos import `descriptor.proto` only to declare custom options (`extend
 
 ```sh
 # Codegen with .generate_views(true).generate_json(true)
-cargo add reallyme-buffa-descriptor@=0.1.0 --rename buffa-descriptor --features views,json
+cargo add reallyme-buffa-descriptor@=0.1.1 --rename buffa-descriptor --features views,json
 ```
 
 Descriptor **enum** types referenced as field types (the most common case — e.g. `google.protobuf.FieldDescriptorProto.Type` in protovalidate) work with the default feature set. The features are only needed for descriptor **message** types referenced as fields (e.g. `FileDescriptorSet`, `FileDescriptorProto`). If you hit a missing-impl error like `the trait bound FileDescriptorSet: serde::Deserialize is not satisfied`, add `buffa-descriptor` with the right features.
@@ -491,13 +491,13 @@ Adding a type to a scope can therefore move a module: adding `enum mode` beside 
 Install the two registry packages at the same version as the runtime:
 
 ```sh
-cargo install reallyme-protoc-gen-buffa --version '=0.1.0' --locked
-cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.0' --locked
+cargo install reallyme-protoc-gen-buffa --version '=0.1.1' --locked
+cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.1' --locked
 protoc-gen-reallyme-buffa --version
 protoc-gen-reallyme-buffa-packaging --version
 ```
 
-The binary names deliberately differ from the package names and from the upstream binaries. A generation guard should require the exact binary names and version `0.1.0`.
+The binary names deliberately differ from the package names and from the upstream binaries. A generation guard should require the exact binary names and version `0.1.1`.
 
 From a checked-out release, install with `cargo install --locked --path protoc-gen-buffa` and `cargo install --locked --path protoc-gen-buffa-packaging`. The source directories retain their original names. `cargo install` does not inherit the workspace release profile; set `CARGO_PROFILE_RELEASE_LTO=true` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` if those optimizations are desired.
 
@@ -539,7 +539,7 @@ pub mod example {
 mod gen;
 ```
 
-Pin both local plugin packages to `=0.1.0` and require the matching version output in the generation guard. Regenerate every schema when switching to this package family.
+Pin both local plugin packages to `=0.1.1` and require the matching version output in the generation guard. Regenerate every schema when switching to this package family.
 
 The `file_per_package` layout is independent of where the plugin runs; for this release, run the ReallyMe plugin locally.
 
@@ -600,7 +600,7 @@ Passed to the local codegen plugin via `opt:`:
 | `unknown_fields_in=<path>` | Re-enable unknown-field preservation for matching messages and the messages nested in them. Repeatable; same proto-path prefix matching as `open_enums_in`; see [Path-scoped re-enable](#path-scoped-re-enable) |
 | `deny_unknown_json_fields=true` | Reject unknown keys when parsing JSON instead of ignoring them; without `json=true` it changes nothing and the plugin prints a warning. See [Unknown fields in JSON](#unknown-fields-in-json) |
 | `deny_unknown_json_fields_in=<path>` | Reject unknown JSON keys for matching messages and the messages nested in them; rules can only enable, and need `json=true` like the global option. Repeatable; same proto-path prefix matching as `unknown_fields_in`. See [Unknown fields in JSON](#unknown-fields-in-json) |
-| `skip_debug=<path>` | Omit the generated `Debug` impl for matching messages (with their oneof enums) and for enums named exactly, so the crate can write its own. A matched enum needs a hand-written impl to compile. Repeatable; message paths use the same proto-path prefix matching as `unknown_fields_in`. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
+| `skip_debug=<path>` | Omit the generated `Debug` impl for matching owned messages (with their oneof enums) and for enums named exactly, so the crate can write its own. A matched enum needs a hand-written impl to compile. Repeatable; message paths use the same proto-path prefix matching as `unknown_fields_in`. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
 | `arbitrary=true` | Emit `#[derive(arbitrary::Arbitrary)]` for fuzzing |
 | `gate_impls=true` | Wrap json/views/text impls in `#[cfg(feature = ...)]` for library crates whose generated code is a public dependency surface (default: emitted unconditionally) |
 | `json_feature=<name>` | Rename the crate feature a gated impl kind is conditioned on (also `views_feature=`, `text_feature=`, `reflect_feature=`); inert without `gate_impls=true` |
@@ -1114,7 +1114,7 @@ are bare. Your attribute, with its note, is on the owned struct's field only.
 
 - A message path (`.demo.Uuid4`) covers that message, its oneof enums and the messages nested in it. A package path (`.demo`) covers every message in the package and its sub-packages, and `.` covers every message.
 - An enum loses its `Debug` only when a rule is its exact name (`.demo.Level`). A message or package rule leaves the enums under it as they are.
-- View types keep their generated `Debug`, so a view still prints every field. `skip_debug` is for formatting; to hide a value, use `[debug_redact = true]`, which covers the owned message, the view and reflective output. The option does not reach a matched message or oneof, whose output is your impl's.
+- Views of a matched message (eager, lazy, and owned), including its view oneofs, keep `Debug` but show only the type name and `[REDACTED]`. This hides preserved unknown fields too. The rule affects generated formatting only. For selective redaction in generated and reflective formatting, use `[debug_redact = true]`. Your hand-written impl decides what a matched owned message or oneof prints.
 
 Your crate then implements `Debug` where something needs it:
 
@@ -1661,7 +1661,7 @@ to make hand-building map views ergonomic.
 Enable the `json` feature and `generate_json(true)` in your build config:
 
 ```sh
-cargo add reallyme-buffa@=0.1.0 --rename buffa --features json
+cargo add reallyme-buffa@=0.1.1 --rename buffa --features json
 cargo add serde --features derive
 cargo add serde_json
 ```
@@ -1869,7 +1869,7 @@ float formatting. Use binary or JSON for data on the wire.
 Enable the `text` feature and `generate_text(true)`:
 
 ```sh
-cargo add reallyme-buffa@=0.1.0 --rename buffa --features text
+cargo add reallyme-buffa@=0.1.1 --rename buffa --features text
 ```
 
 ```rust,ignore
@@ -2111,8 +2111,8 @@ let obj = Struct::from_fields([
 Buffa works without `std` (requires `alloc`):
 
 ```sh
-cargo add reallyme-buffa@=0.1.0 --rename buffa --no-default-features
-cargo add reallyme-buffa-types@=0.1.0 --rename buffa-types --no-default-features
+cargo add reallyme-buffa@=0.1.1 --rename buffa --no-default-features
+cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types --no-default-features
 ```
 
 In `no_std` mode:
@@ -2342,7 +2342,7 @@ all, and a generated-code half (`generate_reflection` / `reflect_mode`) that
 lets generated types hand out the same reflective interface.
 
 ```sh
-cargo add reallyme-buffa-descriptor@=0.1.0 --rename buffa-descriptor --features reflect   # use --features reflect,json for JSON
+cargo add reallyme-buffa-descriptor@=0.1.1 --rename buffa-descriptor --features reflect   # use --features reflect,json for JSON
 ```
 
 ### Loading descriptors: `DescriptorPool`

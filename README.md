@@ -37,13 +37,13 @@ Cleanup is opt-in. It does not wipe parser scratch, transport bodies, foreign-ru
 
 ## Use the ReallyMe packages
 
-The first fork version is **0.1.0**. Registry package names have a `reallyme-` prefix; Rust library names remain unchanged:
+The current fork version is **0.1.1**. Registry package names have a `reallyme-` prefix; Rust library names remain unchanged:
 
 ```toml
 [workspace.dependencies]
-buffa = { package = "reallyme-buffa", version = "=0.1.0" }
-buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
-buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
+buffa = { package = "reallyme-buffa", version = "=0.1.1" }
+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1" }
+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.1" }
 ```
 
 Enable only the features required by the application. Guarded generated messages need `buffa/zeroize`; guarded well-known types need `buffa-types/sensitive`. JSON support remains a separate feature. Preserve `default-features = false` for `no_std` consumers.
@@ -51,11 +51,13 @@ Enable only the features required by the application. Guarded generated messages
 Install the matching generator packages:
 
 ```sh
-cargo install reallyme-protoc-gen-buffa --version '=0.1.0' --locked
-cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.0' --locked
+cargo install reallyme-protoc-gen-buffa --version '=0.1.1' --locked
+cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.1' --locked
 ```
 
-Their executable names are `protoc-gen-reallyme-buffa` and `protoc-gen-reallyme-buffa-packaging`. Use these names for Buf's local plugins. Both report version `0.1.0`. Regenerate every schema when switching to this runtime; an upstream generator or hosted SDK is not a substitute for the matching fork build.
+Their executable names are `protoc-gen-reallyme-buffa` and `protoc-gen-reallyme-buffa-packaging`. Use these names for Buf's local plugins. Both report version `0.1.1`. Regenerate every schema when switching to this runtime; an upstream generator or hosted SDK is not a substitute for the matching fork build.
+
+Regenerate all bindings when updating to 0.1.1. The new generator keeps input values out of enum JSON value diagnostics and redacts generated view Debug output for messages matched by `skip_debug`.
 
 The [migration guide](FORK.md#consumer-migration) lists all nine packages, generator checks and Buf configuration. The [logging example](examples/logging/) demonstrates local plugins; the [user guide](docs/guide.md) also covers `build.rs`.
 

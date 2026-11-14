@@ -75,6 +75,18 @@ fn guarded_enum_fields_stream_and_keep_null_and_unknown_policies() {
 }
 
 #[test]
+fn guarded_enum_json_rejects_wrong_scalar_types_with_a_fixed_diagnostic() {
+    for input in [
+        serde_json::json!({"optionalStatus": true}),
+        serde_json::json!({"selectedStatus": 1.0}),
+        serde_json::json!({"statusValues": {"3": false}}),
+    ] {
+        let err = serde_json::from_value::<Record>(input).unwrap_err();
+        assert_eq!(err.to_string(), "expected a protobuf enum name or integer");
+    }
+}
+
+#[test]
 fn guarded_numeric_map_keys_decode_without_intermediate_strings() {
     let value: Record = serde_json::from_str(r#"{"numericScores":{"9223372036854775807":1.5},"numericMessages":{"9223372036854775807":{"first":2.5}}}"#).unwrap();
     assert_eq!(value.numeric_scores.get(&i64::MAX), Some(&1.5));

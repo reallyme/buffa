@@ -108,7 +108,10 @@ impl<'de, E: crate::Enumeration> DeserializeSeed<'de> for EnumSeed<E> {
                 self,
                 _number: f64,
             ) -> Result<Self::Value, Error> {
-                Err(Error::custom(ErrorReason::Range))
+                Err(Error::custom(super::EnumJsonErrorReason::InvalidType))
+            }
+            fn visit_bool<Error: serde::de::Error>(self, _: bool) -> Result<Self::Value, Error> {
+                Err(Error::custom(super::EnumJsonErrorReason::InvalidType))
             }
             fn visit_str<Error: serde::de::Error>(self, name: &str) -> Result<Self::Value, Error> {
                 match E::from_proto_name(name) {

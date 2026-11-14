@@ -17,16 +17,16 @@ Use the pinned Rust/Cargo 1.95.0 release tooling. Keep workspace and packaged lo
 
 1. Update the workspace version, exact internal dependencies, package/install examples and fork release notes. Regenerate schemas and checked-in code. Review the complete release commit and run the applicable [contribution checks](CONTRIBUTING.md).
 2. After approval, merge the release changes onto `main` in `reallyme/buffa`. Push only the approved source; the workflow creates the release tag after all nine crates are published.
-3. Wait for the complete **CI** workflow to succeed on that exact `main` commit. Dispatch **Crates Package Preflight** on `main`, with version `0.1.0`. As in SSI, this is a separate workflow: it verifies the successful CI run and compiles all nine packaged crates without a publishing credential.
+3. Wait for the complete **CI** workflow to succeed on that exact `main` commit. Dispatch **Crates Package Preflight** on `main`, with version `0.1.1`. As in SSI, this is a separate workflow: it verifies the successful CI run and compiles all nine packaged crates without a publishing credential.
 4. Inspect the successful preflight and its two artifacts: `reallyme-buffa-crates-preflight-<version>-<commit>` records the source, version and CI run; `reallyme-buffa-crate-archives-<version>-<commit>` contains the nine `.crate` files and `release.json`, binding their SHA-256 checksums and dependency order to the source commit. Both the preflight record and crate archives have GitHub build-provenance attestations. Artifacts are retained for 30 days; preserve the release record separately for long-term retention.
 5. Dispatch **Crates.io Release** on the same approved `main` commit. It requires the newest matching preflight run to succeed for that version and commit, verifies its signed evidence, and waits for the `crates-io` environment approval. The upload job reproduces and compares the archives without executing Rust build scripts, and authenticates only for publication. Keep `main` at the reviewed commit until the release completes.
-6. After every crate upload and checksum check succeeds, the separate finalization job creates `reallyme-v0.1.0` at that exact commit and the GitHub release **Release 0.1.0**, using the fork release notes. It attaches `release.json` as the publication record. A publication failure prevents tag and release creation.
+6. After every crate upload and checksum check succeeds, the separate finalization job creates `reallyme-v0.1.1` at that exact commit and the GitHub release **Release 0.1.1**, using the fork release notes. It attaches `release.json` as the publication record. A publication failure prevents tag and release creation.
 7. Verify the published packages and add the ReallyMe team ownership. The separate **Attach protoc plugin binaries** workflow can then add downloadable generator binaries to the existing GitHub release; it cannot create a release itself.
 
 The GitHub CLI supports an explicit preflight dispatch:
 
 ```sh
-gh workflow run crates-package-preflight.yml --repo reallyme/buffa --ref main -f version=0.1.0
+gh workflow run crates-package-preflight.yml --repo reallyme/buffa --ref main -f version=0.1.1
 ```
 
 After reviewing that successful preflight, request publication separately:

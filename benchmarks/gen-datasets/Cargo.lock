@@ -15,53 +15,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
-name = "buffa"
-version = "0.8.0"
-dependencies = [
- "bytes",
- "foldhash",
- "hashbrown 0.15.5",
- "once_cell",
- "rustversion",
- "serde",
- "serde_json",
- "smoothutf8",
- "thiserror",
-]
-
-[[package]]
-name = "buffa-build"
-version = "0.8.0"
-dependencies = [
- "buffa",
- "buffa-codegen",
- "tempfile",
-]
-
-[[package]]
-name = "buffa-codegen"
-version = "0.8.0"
-dependencies = [
- "buffa",
- "buffa-descriptor",
- "prettyplease",
- "proc-macro2",
- "quote",
- "syn",
- "thiserror",
-]
-
-[[package]]
-name = "buffa-descriptor"
-version = "0.8.0"
-dependencies = [
- "buffa",
- "rustversion",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "bytes"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -105,9 +58,9 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 name = "gen-datasets"
 version = "0.1.0"
 dependencies = [
- "buffa",
- "buffa-build",
  "rand",
+ "reallyme-buffa",
+ "reallyme-buffa-build",
 ]
 
 [[package]]
@@ -286,6 +239,54 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"
 dependencies = [
  "getrandom 0.3.4",
+]
+
+[[package]]
+name = "reallyme-buffa"
+version = "0.1.1"
+dependencies = [
+ "bytes",
+ "foldhash",
+ "hashbrown 0.15.5",
+ "once_cell",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "smoothutf8",
+ "thiserror",
+]
+
+[[package]]
+name = "reallyme-buffa-build"
+version = "0.1.1"
+dependencies = [
+ "reallyme-buffa",
+ "reallyme-buffa-codegen",
+ "tempfile",
+]
+
+[[package]]
+name = "reallyme-buffa-codegen"
+version = "0.1.1"
+dependencies = [
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "reallyme-buffa",
+ "reallyme-buffa-descriptor",
+ "syn",
+ "thiserror",
+]
+
+[[package]]
+name = "reallyme-buffa-descriptor"
+version = "0.1.1"
+dependencies = [
+ "reallyme-buffa",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
