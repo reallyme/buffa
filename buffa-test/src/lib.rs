@@ -45,6 +45,24 @@ pub mod oneof_struct_field_attr {
     buffa::include_proto!("oneof_struct_field_attr");
 }
 
+/// Views selected by the borrowed-only rule do not expose a standard handle.
+///
+/// ```compile_fail,E0277
+/// use buffa_test::borrowed_only::PrivateRecord;
+/// type Raw = <PrivateRecord as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
+///
+/// ```compile_fail,E0277
+/// use buffa_test::borrowed_only::Envelope;
+/// type Raw = <Envelope as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod borrowed_only {
+    buffa::include_proto!("borrowed_only");
+}
+
 /// `skip_debug` — hand-written `Debug` impls for the types `build.rs` names
 /// in its rules.
 #[allow(clippy::derivable_impls, clippy::match_single_binding)]

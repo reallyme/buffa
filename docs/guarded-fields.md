@@ -451,3 +451,38 @@ its traits with newer dependencies. MSRV CI regenerates a compatible lockfile
 with modern Cargo's MSRV-aware resolver. Older Cargo can otherwise select a
 `zeroize` release requiring newer Rust; before building on Rust 1.75, use
 `cargo update -p zeroize --precise 1.8.2` and retain that lockfile.
+
+## Clearing an existing destination after a failed merge
+
+For an existing guarded message, use
+`DecodeOptions::new().clear_on_merge_error()` with `merge` or
+`merge_from_slice`. A failed merge clears the whole destination, including
+old values and fields applied earlier in that input. It also clears on an
+input size rejection. A successful merge still follows normal protobuf merge
+rules. This option calls the message's own `clear` implementation; it only wipes
+memory for fields whose cleanup implementation does so. It does not erase
+the caller's input.
+
+## Owning a guarded borrowed view
+
+Use the build option `borrowed_views_only_in(&[".my.pkg.Private"])` or the
+repeatable plugin parameter `borrowed_views_only_in=.my.pkg.Private` to omit
+standard owned wrappers and the `HasMessageView` impl that exposes them.
+Containing messages are covered too, so their standard handles do not become
+an alternative way to retain the nested wire bytes. Eager and lazy borrowed
+views remain available. Apply the same selectors in every generation step
+that can see the relevant schemas. Coverage follows protobuf message fields;
+it cannot infer the type inside `Any` or an opaque wire buffer.
+
+Use `buffa::sensitive::GuardedOwnedView::<PrivateView<'static>>` to own an eager
+view with private backing storage. Supply the same `DecodeOptions` you use for
+admission. `decode` copies from caller-owned storage; `from_owned` encodes
+directly into a private wiping allocation. Neither hands out a clonable handle
+or a `Bytes` copy or alias. The guarded owner does not implement JSON export. Use guarded generation
+to wipe separately allocated values the view itself owns. The message's JSON
+and debug policies still apply to the borrowed view.
+
+The generator option removes the automatic owned-view API. Rust code that
+deliberately calls the public low-level `OwnedView` constructor with a borrowed
+view type can still choose ordinary backing storage. Keep the guarded owner
+and admission function at the application boundary.

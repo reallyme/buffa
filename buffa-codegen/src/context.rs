@@ -53,6 +53,7 @@ pub struct CodeGenContext<'a> {
     /// Code generation configuration.
     pub config: &'a CodeGenConfig,
     denied_view_json: std::cell::OnceCell<HashSet<String>>,
+    borrowed_views_only: std::cell::OnceCell<HashSet<String>>,
     guarded_reflection_messages: std::cell::OnceCell<HashSet<String>>,
     /// Map from fully-qualified protobuf name (e.g., ".my.package.MyMessage")
     /// to Rust type path (e.g., "my::package::MyMessage").
@@ -655,6 +656,7 @@ impl<'a> CodeGenContext<'a> {
             files,
             config,
             denied_view_json: std::cell::OnceCell::new(),
+            borrowed_views_only: std::cell::OnceCell::new(),
             guarded_reflection_messages: std::cell::OnceCell::new(),
             type_map,
             package_of,
@@ -1383,6 +1385,25 @@ impl<'a> CodeGenContext<'a> {
             }
         }
         denied
+    }
+
+    pub(crate) fn borrowed_views_only(&self, msg_fqn: &str) -> bool {
+        if self.config.borrowed_views_only_in.is_empty() {
+            return false;
+        }
+        let selected = self.borrowed_views_only.get_or_init(|| {
+            self.containing_messages(|name| {
+                self.config
+                    .borrowed_views_only_in
+                    .iter()
+                    .any(|rule| matches_proto_prefix(rule, name))
+            })
+        });
+        if msg_fqn.starts_with('.') {
+            selected.contains(msg_fqn)
+        } else {
+            selected.contains(&format!(".{msg_fqn}"))
+        }
     }
 
     pub(crate) fn denies_view_json(&self, msg_fqn: &str) -> bool {

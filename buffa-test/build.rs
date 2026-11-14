@@ -1212,6 +1212,17 @@ fn main() {
         .compile()
         .expect("buffa_build failed for oneof_struct_field_attr.proto");
 
+    buffa_build::Config::new()
+        .files(&["protos/borrowed_only.proto"])
+        .includes(&["protos/"])
+        .borrowed_views_only_in(&[
+            ".borrowed_only.PrivateRecord",
+            ".borrowed_only.Nested.Private",
+        ])
+        .lazy_views(true)
+        .compile()
+        .expect("buffa_build failed for borrowed_only.proto");
+
     // `skip_debug` — the hand-written `Debug` impls in `src/lib.rs` compile
     // only if the generated ones are omitted. Views enabled so the view of a
     // matched message compiles too.

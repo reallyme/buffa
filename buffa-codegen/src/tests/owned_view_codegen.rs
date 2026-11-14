@@ -86,6 +86,53 @@ fn test_owned_view_wrapper_struct_and_value_accessors() {
 }
 
 #[test]
+fn borrowed_only_views_do_not_expose_standard_owners() {
+    let mut file = simple_msg_file("item.proto");
+    let mut child = make_field("child", 1, Label::LABEL_OPTIONAL, Type::TYPE_MESSAGE);
+    child.type_name = Some(".Item".into());
+    file.message_type.extend([
+        DescriptorProto {
+            name: Some("Container".into()),
+            field: vec![child],
+            ..Default::default()
+        },
+        DescriptorProto {
+            name: Some("Unrelated".into()),
+            ..Default::default()
+        },
+    ]);
+    let config = CodeGenConfig {
+        borrowed_views_only_in: vec![".Item".into()],
+        lazy_views: true,
+        ..Default::default()
+    };
+    let content = joined(&generate(&[file], &["item.proto".into()], &config).unwrap());
+    for name in ["Item", "Container"] {
+        assert!(content.contains(&format!("pub struct {name}View<'a>")));
+        assert!(content.contains(&format!("pub struct {name}LazyView<'a>")));
+        assert!(!content.contains(&format!("{name}OwnedView")));
+    }
+    assert!(!content.contains("type ViewHandle = ItemOwnedView"));
+    assert!(content.contains("type ViewHandle = UnrelatedOwnedView"));
+}
+
+#[test]
+fn borrowed_only_view_rule_fails_when_unmatched() {
+    let config = CodeGenConfig {
+        borrowed_views_only_in: vec![".Misspelled".into()],
+        ..Default::default()
+    };
+    assert!(matches!(
+        generate(
+            &[simple_msg_file("item.proto")],
+            &["item.proto".into()],
+            &config,
+        ),
+        Err(CodeGenError::BorrowedViewsRuleMatchedNothing { rule_index: 0 })
+    ));
+}
+
+#[test]
 fn test_owned_view_optional_string_accessor_returns_option() {
     let mut file = proto3_file("opt.proto");
     file.message_type.push(DescriptorProto {

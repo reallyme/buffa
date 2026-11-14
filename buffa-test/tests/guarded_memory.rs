@@ -6,8 +6,10 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
-use buffa::{bytes::Buf, Message};
-use buffa_test::guarded::{credentials::Credential, Credentials, DirectCredentials};
+use buffa::{bytes::Buf, DecodeError, DecodeOptions, Message};
+use buffa_test::guarded::{
+    credentials::Credential, Credentials, CredentialsView, DirectCredentials,
+};
 use buffa_test::guarded_repr::{SecretBytes, SecretString};
 
 struct ObservedAllocator;
@@ -441,6 +443,74 @@ fn guarded_allocations_are_wiped_before_release_on_every_lifecycle_path() {
     };
     watch(message.key.as_ptr(), SECRET_LENGTH);
     message.clear();
+    assert_wiped();
+
+    // A malformed duplicate must not leave the old secret or any earlier
+    // field merged from this input in the caller's destination.
+    let options = DecodeOptions::new().clear_on_merge_error();
+    message.key = vec![b'K'; SECRET_LENGTH].into();
+    watch(message.key.as_ptr(), SECRET_LENGTH);
+    let mut malformed = Vec::new();
+    length_delimited(2, b"partially merged", &mut malformed);
+    buffa::encoding::Tag::new(1, buffa::encoding::WireType::LengthDelimited).encode(&mut malformed);
+    buffa::encoding::encode_varint(5, &mut malformed);
+    assert_eq!(
+        options.merge_from_slice(&mut message, &malformed),
+        Err(DecodeError::UnexpectedEof)
+    );
+    assert!(message.key.is_empty());
+    assert!(message.identity.is_empty());
+    assert_wiped();
+
+    // The guarded view encodes straight into the allocation watched here.
+    // Its borrowed field points into that owner, which wipes before freeing.
+    let source = Credentials {
+        key: b"guarded backing bytes".to_vec().into(),
+        ..Default::default()
+    };
+    let view = buffa::sensitive::GuardedOwnedView::<CredentialsView<'static>>::from_owned(
+        &source,
+        &DecodeOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(view.bytes(), source.encode_to_vec());
+    assert_eq!(view.to_owned_message().unwrap(), source);
+    let pointer = view.bytes().as_ptr();
+    let len = view.bytes().len();
+    watch(pointer, len);
+    drop(view);
+    assert_wiped();
+
+    let wire = source.encode_to_vec();
+    let view = buffa::sensitive::GuardedOwnedView::<CredentialsView<'static>>::decode(
+        &wire,
+        &DecodeOptions::new(),
+    )
+    .unwrap();
+    assert_ne!(view.bytes().as_ptr(), wire.as_ptr());
+    assert_eq!(view.bytes(), wire);
+    assert!(matches!(
+        buffa::sensitive::GuardedOwnedView::<CredentialsView<'static>>::from_owned(
+            &source,
+            &DecodeOptions::new().with_max_message_size(1),
+        ),
+        Err(buffa::sensitive::GuardedViewError::SizeLimit)
+    ));
+    drop(view);
+
+    // Decode failure after copying into the clearing owner must wipe too.
+    watch_next_allocation(SECRET_LENGTH);
+    let mut invalid = [0_u8; SECRET_LENGTH];
+    invalid[0] = 0; // illegal field number
+    let err = buffa::sensitive::GuardedOwnedView::<CredentialsView<'static>>::decode(
+        &invalid,
+        &DecodeOptions::new(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        err,
+        buffa::sensitive::GuardedViewError::Decode(DecodeError::InvalidFieldNumber)
+    );
     assert_wiped();
 
     // Replacement through ordinary field assignment is protected too.

@@ -57,7 +57,7 @@ cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.1' --locked
 
 Their executable names are `protoc-gen-reallyme-buffa` and `protoc-gen-reallyme-buffa-packaging`. Use these names for Buf's local plugins. Both report version `0.1.1`. Regenerate every schema when switching to this runtime; an upstream generator or hosted SDK is not a substitute for the matching fork build.
 
-Regenerate all bindings when updating to 0.1.1. The new generator keeps input values out of enum JSON value diagnostics and redacts generated view Debug output for messages matched by `skip_debug`.
+Regenerate all bindings when updating to 0.1.1. The new generator keeps input values out of enum JSON value diagnostics and redacts generated view Debug output for messages matched by `skip_debug`. For secret-bearing views and messages, see [guarded owners and merge cleanup](docs/guarded-fields.md#clearing-an-existing-destination-after-a-failed-merge).
 
 The [migration guide](FORK.md#consumer-migration) lists all nine packages, generator checks and Buf configuration. The [logging example](examples/logging/) demonstrates local plugins; the [user guide](docs/guide.md) also covers `build.rs`.
 

@@ -1,0 +1,23 @@
+// Modified by ReallyMe Technologies Limited.
+syntax = "proto3";
+
+package borrowed_only;
+
+message PrivateRecord {
+  bytes data = 1;
+}
+
+message Envelope {
+  map<string, PrivateRecord> records = 1;
+}
+
+message PublicRecord {
+  bytes data = 1;
+}
+
+message Nested {
+  message Private {
+    bytes data = 1;
+  }
+  Private data = 1;
+}

@@ -700,13 +700,15 @@ macro_rules! unsafe_impl_view_lifetime_parametric {
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
-        message = "`{Self}` does not implement `HasMessageView` — its message-view family was not generated or is not enabled",
+        message = "`{Self}` does not implement `HasMessageView` — its standard owned-view API is unavailable",
         note = "the `HasMessageView` impl is emitted next to each message's view types: \
                 regenerate the crate that defines `{Self}` with the matching ReallyMe generator release and \
                 views enabled — `generate_views(true)` (on by default) in a buffa-build / \
                 buffa-codegen config, or `views=true` for protoc-gen-reallyme-buffa",
         note = "if the defining crate feature-gates its generated impls, enabling its views \
-                feature is enough — no regeneration needed"
+                feature is enough — no regeneration needed",
+        note = "if the generator uses `borrowed_views_only_in`, use the generated borrowed view \
+                directly or the clearing `buffa::sensitive::GuardedOwnedView` owner"
     )
 )]
 pub trait HasMessageView: crate::Message + Sized {
@@ -3024,6 +3026,10 @@ where
     ///
     /// For the common case where you already have wire bytes, prefer
     /// [`decode`](Self::decode) instead.
+    ///
+    /// This uses ordinary shared backing bytes. With the `zeroize` feature,
+    /// use `buffa::sensitive::GuardedOwnedView::from_owned` to encode into a
+    /// private wiping allocation instead.
     ///
     /// # Errors
     ///

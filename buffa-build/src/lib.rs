@@ -310,6 +310,22 @@ impl Config {
         self
     }
 
+    /// Omit standard owned-view wrappers and `HasMessageView` for matching
+    /// messages and their containers. Borrowed views remain available.
+    /// Use `.` to select every message. Rules must match a known message.
+    ///
+    /// This controls what code is generated. It does not disable explicit
+    /// use of the public `buffa::OwnedView` runtime with a borrowed view type.
+    #[must_use]
+    pub fn borrowed_views_only_in(mut self, paths: &[impl AsRef<str>]) -> Self {
+        self.codegen_config.borrowed_views_only_in.extend(
+            paths
+                .iter()
+                .map(|path| normalize_override_path(path.as_ref())),
+        );
+        self
+    }
+
     /// Wrap generated `impl`s in `#[cfg(feature = "...")]` instead of
     /// emitting them unconditionally (default: false).
     ///
