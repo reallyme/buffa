@@ -10,11 +10,11 @@ Use the fork packages through the aliases expected by generated Rust:
 
 ```toml
 [dependencies]
-buffa = { package = "reallyme-buffa", version = "=0.1.1" }
-buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1" }
+buffa = { package = "reallyme-buffa", version = "=0.1.2" }
+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.2" }
 
 [build-dependencies]
-buffa-build = { package = "reallyme-buffa-build", version = "=0.1.1" }
+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.2" }
 ```
 
 Use the matching local ReallyMe plugins for `buf generate`. The upstream BSR plugin and Homebrew formula install a different distribution. See [fork provenance and migration](../FORK.md).
@@ -33,8 +33,8 @@ Use the matching local ReallyMe plugins for `buf generate`. The upstream BSR plu
 
 ```sh
 # Enable JSON support
-cargo add reallyme-buffa@=0.1.1 --rename buffa --features json
-cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types --features json
+cargo add reallyme-buffa@=0.1.2 --rename buffa --features json
+cargo add reallyme-buffa-types@=0.1.2 --rename buffa-types --features json
 ```
 
 ## Prerequisites
@@ -250,7 +250,7 @@ Well-known types (`google.protobuf.Timestamp`, `Duration`, `Any`, etc.) are auto
 This requires `buffa-types` as a dependency:
 
 ```sh
-cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types
+cargo add reallyme-buffa-types@=0.1.2 --rename buffa-types
 ```
 
 `buffa-types` is a pure source crate — it does **not** run `protoc` or any code generation at build time. If your protos use WKTs but you generate your own Rust code ahead-of-time (via `buf generate` or a `protoc` script), then `buffa` + `buffa-types` is your entire runtime dependency surface.
@@ -272,7 +272,7 @@ This disables the automatic mapping and routes all `google.protobuf.*` reference
 `google/protobuf/descriptor.proto` and `google/protobuf/compiler/plugin.proto` types (`FieldDescriptorProto`, `FileOptions`, `Edition`, `CodeGeneratorRequest`, etc.) live in `buffa-descriptor`, not `buffa-types` — the latter ships the official well-known types (JSON-mappable WKTs plus `Api`/`Type`/`SourceContext`). Protos that reference a `descriptor.proto` type as a field type — most commonly via [protovalidate](https://buf.build/bufbuild/protovalidate)'s `buf/validate/validate.proto`, which uses `google.protobuf.FieldDescriptorProto.Type` — are automatically routed to `buffa-descriptor`, the same way WKTs are routed to `buffa-types`. Add it as a dependency:
 
 ```sh
-cargo add reallyme-buffa-descriptor@=0.1.1 --rename buffa-descriptor
+cargo add reallyme-buffa-descriptor@=0.1.2 --rename buffa-descriptor
 ```
 
 If your protos import `descriptor.proto` only to declare custom options (`extend google.protobuf.MessageOptions { ... }`) and never reference a descriptor type as a *field type*, no `buffa-descriptor` dependency is required — extension declarations don't generate field-type references.
@@ -281,7 +281,7 @@ If your protos import `descriptor.proto` only to declare custom options (`extend
 
 ```sh
 # Codegen with .generate_views(true).generate_json(true)
-cargo add reallyme-buffa-descriptor@=0.1.1 --rename buffa-descriptor --features views,json
+cargo add reallyme-buffa-descriptor@=0.1.2 --rename buffa-descriptor --features views,json
 ```
 
 Descriptor **enum** types referenced as field types (the most common case — e.g. `google.protobuf.FieldDescriptorProto.Type` in protovalidate) work with the default feature set. The features are only needed for descriptor **message** types referenced as fields (e.g. `FileDescriptorSet`, `FileDescriptorProto`). If you hit a missing-impl error like `the trait bound FileDescriptorSet: serde::Deserialize is not satisfied`, add `buffa-descriptor` with the right features.
@@ -492,13 +492,13 @@ Adding a type to a scope can therefore move a module: adding `enum mode` beside 
 Install the two registry packages at the same version as the runtime:
 
 ```sh
-cargo install reallyme-protoc-gen-buffa --version '=0.1.1' --locked
-cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.1' --locked
+cargo install reallyme-protoc-gen-buffa --version '=0.1.2' --locked
+cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.2' --locked
 protoc-gen-reallyme-buffa --version
 protoc-gen-reallyme-buffa-packaging --version
 ```
 
-The binary names deliberately differ from the package names and from the upstream binaries. A generation guard should require the exact binary names and version `0.1.1`.
+The binary names deliberately differ from the package names and from the upstream binaries. A generation guard should require the exact binary names and version `0.1.2`.
 
 From a checked-out release, install with `cargo install --locked --path protoc-gen-buffa` and `cargo install --locked --path protoc-gen-buffa-packaging`. The source directories retain their original names. `cargo install` does not inherit the workspace release profile; set `CARGO_PROFILE_RELEASE_LTO=true` and `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` if those optimizations are desired.
 
@@ -540,7 +540,7 @@ pub mod example {
 mod gen;
 ```
 
-Pin both local plugin packages to `=0.1.1` and require the matching version output in the generation guard. Regenerate every schema when switching to this package family.
+Pin both local plugin packages to `=0.1.2` and require the matching version output in the generation guard. Regenerate every schema when switching to this package family.
 
 The `file_per_package` layout is independent of where the plugin runs; for this release, run the ReallyMe plugin locally.
 
@@ -1663,7 +1663,7 @@ to make hand-building map views ergonomic.
 Enable the `json` feature and `generate_json(true)` in your build config:
 
 ```sh
-cargo add reallyme-buffa@=0.1.1 --rename buffa --features json
+cargo add reallyme-buffa@=0.1.2 --rename buffa --features json
 cargo add serde --features derive
 cargo add serde_json
 ```
@@ -1871,7 +1871,7 @@ float formatting. Use binary or JSON for data on the wire.
 Enable the `text` feature and `generate_text(true)`:
 
 ```sh
-cargo add reallyme-buffa@=0.1.1 --rename buffa --features text
+cargo add reallyme-buffa@=0.1.2 --rename buffa --features text
 ```
 
 ```rust,ignore
@@ -2113,8 +2113,8 @@ let obj = Struct::from_fields([
 Buffa works without `std` (requires `alloc`):
 
 ```sh
-cargo add reallyme-buffa@=0.1.1 --rename buffa --no-default-features
-cargo add reallyme-buffa-types@=0.1.1 --rename buffa-types --no-default-features
+cargo add reallyme-buffa@=0.1.2 --rename buffa --no-default-features
+cargo add reallyme-buffa-types@=0.1.2 --rename buffa-types --no-default-features
 ```
 
 In `no_std` mode:
@@ -2344,7 +2344,7 @@ all, and a generated-code half (`generate_reflection` / `reflect_mode`) that
 lets generated types hand out the same reflective interface.
 
 ```sh
-cargo add reallyme-buffa-descriptor@=0.1.1 --rename buffa-descriptor --features reflect   # use --features reflect,json for JSON
+cargo add reallyme-buffa-descriptor@=0.1.2 --rename buffa-descriptor --features reflect   # use --features reflect,json for JSON
 ```
 
 ### Loading descriptors: `DescriptorPool`

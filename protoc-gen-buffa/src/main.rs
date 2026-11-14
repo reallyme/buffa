@@ -65,7 +65,7 @@ To skip a package pulled in by include_imports (e.g. an option-only
 import that is never referenced as a field), use exclude_package:
   --reallyme-buffa_opt=exclude_package=.buf.validate,exclude_package=.gnostic
 
-See <https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guide.md> for
+See <https://github.com/reallyme/buffa/blob/reallyme-v0.1.2/docs/guide.md> for
 the full option list.";
 
 fn main() {
@@ -513,7 +513,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             other => {
                 return Err(format!(
                     "unknown plugin option '{other}'; see \
-                     <https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guide.md#plugin-options> \
+                     <https://github.com/reallyme/buffa/blob/reallyme-v0.1.2/docs/guide.md#plugin-options> \
                      for the supported options"
                 ))
             }

@@ -194,7 +194,7 @@ tasks:
   changelog-batch:
     desc: >-
       Roll all .changes/reallyme/unreleased/ fragments into .changes/reallyme/<version>.md
-      and delete the fragments. Usage: task changelog-batch -- 0.1.1
+      and delete the fragments. Usage: task changelog-batch -- 0.1.2
       Release-time only — run from the cut-release flow, then edit the
       generated section to add any release-notes prose before changelog-merge.
     deps: [install-changie]

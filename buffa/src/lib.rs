@@ -61,7 +61,7 @@
 //! generated field an existing Rust type, see the guide's
 //! [custom-type support][custom-types].
 //!
-//! [custom-types]: https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guide.md#custom-type-implementations
+//! [custom-types]: https://github.com/reallyme/buffa/blob/reallyme-v0.1.2/docs/guide.md#custom-type-implementations
 //!
 //! # Zero-copy views
 //!
@@ -118,7 +118,7 @@
 //! # `no_std`
 //!
 //! ```sh
-//! cargo add reallyme-buffa@=0.1.1 --rename buffa --no-default-features
+//! cargo add reallyme-buffa@=0.1.2 --rename buffa --no-default-features
 //! ```
 //!
 //! Generated code uses `::buffa::alloc::string::String` etc. rather than
