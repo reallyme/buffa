@@ -41,8 +41,8 @@ pub fn roundtrip<M: Message + Default + core::fmt::Debug>(data: &[u8]) -> Roundt
     let buf1 = msg.encode_to_vec();
 
     // Step 3: verify compute_size matches actual encoded length.
-    let computed = msg.compute_size() as usize;
-    if computed != buf1.len() {
+    let computed = msg.compute_size(&mut buffa::SizeCache::new());
+    if usize::try_from(computed).ok() != Some(buf1.len()) {
         return RoundtripResult::Bug(format!(
             "compute_size ({}) != encode_to_vec len ({})",
             computed,

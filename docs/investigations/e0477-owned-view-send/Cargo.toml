@@ -9,7 +9,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-trait-variant = "0.1"
+trait-variant = "0.1.3"
 
 [features]
 # Each feature gates one test case. Expected outcomes in README.md.

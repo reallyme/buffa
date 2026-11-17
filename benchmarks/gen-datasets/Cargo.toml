@@ -6,8 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-buffa = { package = "reallyme-buffa", path = "../../buffa" }
-rand = "0.9"
+buffa = { package = "reallyme-buffa", path = "../../buffa", version = "=0.1.2" }
+rand = "0.10.4"
 
 [build-dependencies]
-buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build", version = "=0.1.2" }

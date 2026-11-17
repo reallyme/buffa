@@ -1,0 +1,3 @@
+kind: Security
+body: 'Preserve full guarded-list allocation cleanup after upgrading zeroize: erase vacated element storage after destructors run, including inactive enum payloads. Verify both explicit clearing and destruction with allocator observations.'
+time: 2026-11-17T11:59:17+01:00

@@ -29,6 +29,7 @@ fn main() {
 
     buffa_build::Config::new()
         .files(&[protos_dir.join("google/protobuf/test_messages_proto2.proto")])
+        .allow_message_set(true)
         .includes(&[&protos_dir])
         .generate_views(false)
         .generate_json(true)

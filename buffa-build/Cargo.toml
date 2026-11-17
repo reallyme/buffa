@@ -20,4 +20,4 @@ name = "buffa_build"
 [dependencies]
 buffa = { workspace = true, features = ["std", "fast-utf8"] }
 buffa-codegen = { workspace = true }
-tempfile = "3"
+tempfile = "3.27.0"

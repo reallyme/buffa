@@ -40,16 +40,9 @@ If all you want from a custom map is deterministic key order, the built-in `MapR
 
 Each custom type wraps a *foreign* storage type. The orphan rule forbids implementing `buffa::ProtoString` (or `ProtoBytes`, `ProtoList`, `ProtoBox`) on `flexstr::SharedStr` directly, because both the trait and the type are defined outside this crate — so a thin `#[repr(transparent)]` newtype in this crate is the bridge.
 
-For the common case the newtype's whole buffa-facing surface can be generated from one annotation: `FlexStr` uses the [`buffa-remote-derive`](../../buffa-remote-derive) crate's `ProtoString` derive.
+`FlexStr` implements the string boundary explicitly because flexstr 0.11's `From<&str>` borrows its input. `ProtoString::copy_from_str` and `from_wire` must produce an owned value, so the wrapper converts through `SharedStrRef::into_owned`, preserving inline short strings and shared long strings. `From<String>` optimizes owned storage for the same behavior. Types that accept any input lifetime without borrowing can use the [`buffa-remote-derive`](../../buffa-remote-derive) crate's `ProtoString` derive instead.
 
-```rust
-#[derive(Clone, PartialEq, Eq, Hash, Default, Debug, buffa_remote_derive::ProtoString)]
-#[buffa(remote = flexstr::SharedStr, serde)]
-#[repr(transparent)]
-pub struct FlexStr(pub flexstr::SharedStr);
-```
-
-The derive expands the `buffa::ProtoString` impl plus forwarding implementations of `Deref<Target = str>`, `AsRef<str>`, `From<String>`, and `From<&str>`. The `serde` key adds `serde::Serialize` and `serde::Deserialize` impls in the proto3 JSON string form. The generated `copy_from_str` calls the inner type's `From<&str>` directly, avoiding an intermediate `String`. The derive requires that conversion for any input lifetime; `ProtoString` itself does not, so a type whose conversion borrows can implement the trait by hand instead. The other newtypes in this crate also show hand-written implementations — `small_bytes.rs` and `small_vec.rs` deliberately so, because their impls carry allocation behavior the generic derive can't express (a `from_wire` with no intermediate `Vec`, a capacity-retaining `clear`). The `assert_transparent!` macro in [`src/types/mod.rs`](src/types/mod.rs) freezes the zero-cost guarantee — if a second field ever sneaks into the wrapper, the build fails.
+The other newtypes also show hand-written implementations. `SmallBytes::from_wire` builds straight from the wire slice without an intermediate `Vec`, and `SmallVec::clear` retains capacity. The `assert_transparent!` macro in [`src/types/mod.rs`](src/types/mod.rs) checks that each wrapper retains its foreign type's layout.
 
 ## What each newtype needs for JSON
 
@@ -57,13 +50,13 @@ Under `generate_json(true)`, the five traits have different serde requirements, 
 
 | Newtype | Needs its own `Serialize`/`Deserialize`? | Why |
 | --- | --- | --- |
-| `FlexStr` (`ProtoString`) | Yes — `#[buffa(serde)]` | A singular `string` with implicit presence, or a proto2 `required` one, uses buffa's with-module. A `repeated` element, a field with explicit presence (proto3 or proto2 `optional`, and the edition 2023 default), a oneof variant, and a map key or value serialize through the type's own serde. |
+| `FlexStr` (`ProtoString`) | Yes — `#[serde(transparent)]` | A singular `string` with implicit presence, or a proto2 `required` one, uses buffa's with-module. A `repeated` element, a field with explicit presence (proto3 or proto2 `optional`, and the edition 2023 default), a oneof variant, and a map key or value serialize through the type's own serde. |
 | `SmallBytes` (`ProtoBytes`) | No | Codegen routes all bytes positions through buffa's base64 with-module, which only needs `AsRef<[u8]>` / `From<Vec<u8>>`. |
 | `SmallVec<T>` (`ProtoList`) | Yes — `#[serde(transparent)]` | A repeated field whose element type is proto-JSON-compliant on its own (string, bool, or a message other than the `google.protobuf` wrapper types) is serialized through the collection's native serde. |
 | `IndexMap<K, V>` (`MapStorage`) | Yes — `#[serde(transparent)]` | An integer-keyed map routes through buffa's `string_key_map` with-module (which only needs `MapStorage`), but a string-keyed map of strings, bools, or messages other than the `google.protobuf` wrapper types serializes through the container's native serde. |
 | `SmallBox<T>` (`ProtoBox`) | No | Message-field JSON serialization and oneof message variants serialize the pointee, while every deserialize path constructs the pointer via `ProtoBox::new`. |
 
-`FlexStr` takes its impls from the remote derive's `serde` key, `#[buffa(remote = ..., serde)]`, so `flexstr` is built without its `serde` feature. The hand-written `SmallVec` and `IndexMap` newtypes get theirs from `#[derive(serde::Serialize, serde::Deserialize)]` with `#[serde(transparent)]`, which forwards to the remote type and so needs the `serde` feature of `smallvec` and `indexmap`. The key's JSON form for each derive, and the fields that call each impl, are in the [`buffa-remote-derive` crate documentation](../../buffa-remote-derive/src/lib.rs).
+`FlexStr`, `SmallVec` and `IndexMap` derive `serde::Serialize` and `serde::Deserialize` with `#[serde(transparent)]`, forwarding to their remote types. Their dependencies therefore enable the corresponding `serde` features.
 
 ## The compile-time guard
 

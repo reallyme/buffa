@@ -33,7 +33,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
     group.bench_function("decode", |b| {
         b.iter(|| {
             for payload in &dataset.payload {
-                criterion::black_box(M::decode_from_slice(payload).unwrap());
+                std::hint::black_box(M::decode_from_slice(payload).unwrap());
             }
         });
     });
@@ -44,7 +44,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
             for payload in &dataset.payload {
                 msg.clear();
                 msg.merge_from_slice(payload).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });
@@ -57,7 +57,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
             .collect();
         b.iter(|| {
             for msg in &messages {
-                criterion::black_box(msg.encode_to_vec());
+                std::hint::black_box(msg.encode_to_vec());
             }
         });
     });
@@ -73,7 +73,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
             for msg in &messages {
                 cache.clear();
                 let size = msg.compute_size(&mut cache);
-                criterion::black_box(size);
+                std::hint::black_box(size);
             }
         });
     });
@@ -109,7 +109,7 @@ fn benchmark_json<M: Message + Default + Serialize + DeserializeOwned>(
     group.bench_function("json_encode", |b| {
         b.iter(|| {
             for msg in &messages {
-                criterion::black_box(serde_json::to_string(msg).unwrap());
+                std::hint::black_box(serde_json::to_string(msg).unwrap());
             }
         });
     });
@@ -118,7 +118,7 @@ fn benchmark_json<M: Message + Default + Serialize + DeserializeOwned>(
         b.iter(|| {
             for json in &json_strings {
                 let msg: M = serde_json::from_str(json).unwrap();
-                criterion::black_box(msg);
+                std::hint::black_box(msg);
             }
         });
     });
@@ -137,7 +137,7 @@ fn bench_api_response_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = ApiResponseView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -155,7 +155,7 @@ fn bench_log_record_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = LogRecordView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -173,7 +173,7 @@ fn bench_analytics_event_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = AnalyticsEventView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -191,7 +191,7 @@ fn bench_google_message1_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = GoogleMessage1View::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -209,7 +209,7 @@ fn bench_media_frame_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = MediaFrameView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -227,7 +227,7 @@ fn bench_packed_tile_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = PackedTileView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -264,7 +264,7 @@ macro_rules! bench_view_encode {
             group.bench_function("encode_view", |b| {
                 b.iter(|| {
                     for v in &views {
-                        criterion::black_box(v.encode_to_vec());
+                        std::hint::black_box(v.encode_to_vec());
                     }
                 });
             });
@@ -338,7 +338,7 @@ macro_rules! bench_lazy_view {
                 b.iter(|| {
                     for payload in &dataset.payload {
                         let view = <$lazy>::decode_lazy(payload).unwrap();
-                        criterion::black_box(&view);
+                        std::hint::black_box(&view);
                     }
                 });
             });
@@ -350,7 +350,7 @@ macro_rules! bench_lazy_view {
             group.bench_function("encode_lazy", |b| {
                 b.iter(|| {
                     for v in &views {
-                        criterion::black_box(v.encode_to_vec());
+                        std::hint::black_box(v.encode_to_vec());
                     }
                 });
             });
@@ -420,10 +420,10 @@ macro_rules! bench_build_encode {
             let mut group = c.benchmark_group($group);
             group.throughput(Throughput::Bytes(probe.len() as u64));
             group.bench_function("build_encode", |b| {
-                b.iter(|| criterion::black_box(($owned).encode_to_vec()));
+                b.iter(|| std::hint::black_box(($owned).encode_to_vec()));
             });
             group.bench_function("build_encode_view", |b| {
-                b.iter(|| criterion::black_box(($view).encode_to_vec()));
+                b.iter(|| std::hint::black_box(($view).encode_to_vec()));
             });
             group.finish();
         }
@@ -679,7 +679,7 @@ fn bench_mesh_view(c: &mut Criterion) {
     group.bench_function("decode_view", |b| {
         b.iter(|| {
             for payload in &dataset.payload {
-                criterion::black_box(TriMeshView::decode_view(payload).unwrap());
+                std::hint::black_box(TriMeshView::decode_view(payload).unwrap());
             }
         });
     });
@@ -706,7 +706,7 @@ fn bench_packed_signed_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = PackedSignedView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });
@@ -736,7 +736,7 @@ fn bench_column_batch_view(c: &mut Criterion) {
         b.iter(|| {
             for payload in &dataset.payload {
                 let view = ColumnBatchView::decode_view(payload).unwrap();
-                criterion::black_box(&view);
+                std::hint::black_box(&view);
             }
         });
     });

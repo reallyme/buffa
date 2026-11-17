@@ -56,7 +56,7 @@ fn total_payload_bytes(dataset: &BenchmarkDataset) -> u64 {
 /// "extract one field" shape).
 fn read_one(m: &dyn ReflectMessage) {
     if let Some(fd) = m.message_descriptor().fields().first() {
-        criterion::black_box(m.get(fd));
+        std::hint::black_box(m.get(fd));
     }
 }
 
@@ -64,7 +64,7 @@ fn read_one(m: &dyn ReflectMessage) {
 /// message" shape — a generic redactor or a full transcode).
 fn read_all(m: &dyn ReflectMessage) {
     m.for_each_set(&mut |_fd, v| {
-        criterion::black_box(v);
+        std::hint::black_box(v);
     });
 }
 
@@ -72,7 +72,7 @@ fn read_all(m: &dyn ReflectMessage) {
 /// sub-message as its empty default rather than checking `has` first).
 fn get_every_field(m: &dyn ReflectMessage) {
     for fd in m.message_descriptor().fields() {
-        criterion::black_box(m.get(fd));
+        std::hint::black_box(m.get(fd));
     }
 }
 
@@ -82,7 +82,7 @@ fn vtable_decode_only<'a, V>(payload: &'a [u8])
 where
     V: MessageView<'a>,
 {
-    criterion::black_box(V::decode_view(payload).expect("decode_view"));
+    std::hint::black_box(V::decode_view(payload).expect("decode_view"));
 }
 
 /// Vtable path: `decode_view(bytes)` then read the first field.
@@ -147,7 +147,7 @@ fn bench_message<M>(
         b.iter(|| {
             for payload in &dataset.payload {
                 let m = M::decode_from_slice(payload).expect("decode");
-                criterion::black_box(&m);
+                std::hint::black_box(&m);
             }
         });
     });
@@ -157,7 +157,7 @@ fn bench_message<M>(
             for payload in &dataset.payload {
                 let m =
                     DynamicMessage::decode(Arc::clone(p), idx, payload).expect("reflect decode");
-                criterion::black_box(&m);
+                std::hint::black_box(&m);
             }
         });
     });
@@ -176,7 +176,7 @@ fn bench_message<M>(
     group.bench_function("encode/generated", |b| {
         b.iter(|| {
             for m in &typed {
-                criterion::black_box(m.encode_to_vec());
+                std::hint::black_box(m.encode_to_vec());
             }
         });
     });
@@ -184,7 +184,7 @@ fn bench_message<M>(
     group.bench_function("encode/reflect", |b| {
         b.iter(|| {
             for m in &reflective {
-                criterion::black_box(m.encode_to_vec());
+                std::hint::black_box(m.encode_to_vec());
             }
         });
     });
@@ -195,7 +195,7 @@ fn bench_message<M>(
     group.bench_function("reflect/bridge_round_trip", |b| {
         b.iter(|| {
             for m in &typed {
-                criterion::black_box(DynamicMessage::from_message(m, Arc::clone(p), idx));
+                std::hint::black_box(DynamicMessage::from_message(m, Arc::clone(p), idx));
             }
         });
     });
@@ -295,7 +295,7 @@ fn bench_message<M>(
         group.bench_function("reflect/dynamic_get_unset_message", |b| {
             b.iter(|| {
                 for fd in &message_fields {
-                    criterion::black_box(empty.get(fd));
+                    std::hint::black_box(empty.get(fd));
                 }
             });
         });

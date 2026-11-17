@@ -107,14 +107,6 @@ jobs:
       - name: Check bsr-quickstart example
         run: cargo check --locked --manifest-path examples/bsr-quickstart/Cargo.toml
 
-      # Consumers may require zeroize 1.9 while the checked-in lockfile keeps
-      # 1.8.2 for the minimum compiler. An upper bound would prevent those
-      # applications from sharing the cleanup traits with generated messages.
-      - name: Check cleanup with zeroize 1.9
-        run: |
-          cargo update -p zeroize --precise 1.9.1
-          cargo check -p reallyme-buffa -p reallyme-buffa-types --all-features
-
   # ── Markdown lint ────────────────────────────────────────────────────────
   # Same pinned markdownlint-cli version as `task lint-md`. Node is
   # preinstalled on ubuntu-latest so no setup-node step is needed.

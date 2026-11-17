@@ -13,7 +13,7 @@
 # `performance` governor). Requires the pinned toolchains on PATH:
 #   - rustc/cargo via rustup, toolchain 1.100.0 (set RUSTUP_TOOLCHAIN below)
 #   - go 1.23.x  (for the Go implementation)
-#   - protoc 33.1 (Google's protobuf v4 crate version-checks protoc exactly;
+#   - protoc 36.2 (Google's protobuf v4 crate version-checks protoc exactly;
 #                  the other impls only need >= 3.15 for proto3 optional)
 #   - protoc-gen-go v1.36.6 on PATH (for the Go codegen)
 #

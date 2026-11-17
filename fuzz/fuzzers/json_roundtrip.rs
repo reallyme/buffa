@@ -12,7 +12,7 @@ pub mod protobuf_test_messages {
         pub use super::google;
         include!(concat!(
             env!("OUT_DIR"),
-            "/google.protobuf.test_messages_proto3.rs"
+            "/protobuf_test_messages.proto3.mod.rs"
         ));
     }
 }
@@ -38,10 +38,10 @@ fuzz_target!(|data: &[u8]| {
     // and a second encode→decode cycle also succeeds (stability check).
     let encoded = msg.encode_to_vec();
 
-    let computed = msg.compute_size() as usize;
+    let computed = msg.compute_size(&mut buffa::SizeCache::new());
     assert_eq!(
-        computed,
-        encoded.len(),
+        usize::try_from(computed).ok(),
+        Some(encoded.len()),
         "compute_size ({computed}) != encode_to_vec len ({})",
         encoded.len()
     );

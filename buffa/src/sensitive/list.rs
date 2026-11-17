@@ -67,6 +67,12 @@ impl<T: Zeroize> List<T> {
     /// Erase all elements and spare capacity, leaving the list empty.
     pub fn clear(&mut self) {
         self.0.zeroize();
+        // zeroize 1.9 drops initialized elements after invoking their cleanup,
+        // but no longer overwrites their vacated representation. An enum can
+        // retain inactive payload bytes, so wipe those slots after every
+        // destructor has finished. At length zero the entire allocation is
+        // MaybeUninit storage, including padding and the original spare space.
+        self.0.spare_capacity_mut().zeroize();
     }
 }
 impl<T: Zeroize> Default for List<T> {
@@ -271,5 +277,107 @@ mod tests {
         assert_eq!(&*values, &[1, 2, 3]);
         assert_eq!(serde_json::to_string(&values).unwrap(), "[1,2,3]");
         assert!(serde_json::from_str::<List<u64>>("[1,2,[]]").is_err());
+    }
+
+    #[test]
+    fn empty_list_erases_the_allocation_it_still_owns() {
+        let mut allocation = Vec::with_capacity(32);
+        let capacity = allocation.capacity();
+        allocation.resize(capacity, 0xA5_u8);
+        allocation.clear();
+        let mut values = List::from(allocation);
+
+        values.clear();
+
+        assert!(values.is_empty());
+        assert_eq!(values.capacity(), capacity);
+        // SAFETY: every byte was initialized before Vec::clear, which keeps
+        // the allocation. List::clear also retains it; u8 has no padding or
+        // invalid representations. The fresh pointer borrows that live owner.
+        let bytes = unsafe { core::slice::from_raw_parts(values.0.as_ptr(), capacity) };
+        assert!(bytes.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn clearing_preserves_valid_elements_until_their_destructors_finish() {
+        use core::num::NonZeroU64;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        #[repr(transparent)]
+        struct Element(NonZeroU64);
+        impl Zeroize for Element {
+            fn zeroize(&mut self) {
+                self.0 = NonZeroU64::MIN;
+            }
+        }
+        impl Drop for Element {
+            fn drop(&mut self) {
+                // The backing allocation may be zeroed only after this valid
+                // typed value has finished its lifetime.
+                assert_eq!(self.0, NonZeroU64::MIN);
+                DROPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let mut expected_drops = 0_usize;
+        for explicit_clear in [false, true] {
+            let mut allocation = Vec::with_capacity(4);
+            let capacity = allocation.capacity();
+            allocation.resize_with(capacity, || Element(NonZeroU64::MAX));
+            let mut values = List::from(allocation);
+            if explicit_clear {
+                values.clear();
+                assert!(values.is_empty());
+                assert_eq!(values.capacity(), capacity);
+                let byte_len = capacity
+                    .checked_mul(core::mem::size_of::<Element>())
+                    .unwrap();
+                // SAFETY: repr(transparent) over NonZeroU64 has no padding;
+                // all capacity slots were initialized. Cleanup and Drop leave
+                // initialized bytes, even before the final wipe. At length zero
+                // we inspect only bytes in the still-owned allocation, never an
+                // invalid all-zero Element or released memory.
+                let bytes = unsafe {
+                    core::slice::from_raw_parts(values.0.as_ptr().cast::<u8>(), byte_len)
+                };
+                assert!(bytes.iter().all(|byte| *byte == 0));
+            }
+            drop(values);
+            expected_drops = expected_drops.checked_add(capacity).unwrap();
+            assert_eq!(DROPS.load(Ordering::SeqCst), expected_drops);
+        }
+    }
+
+    #[test]
+    fn zero_sized_elements_are_cleaned_and_dropped_once() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        static CLEANUPS: AtomicUsize = AtomicUsize::new(0);
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        struct Element;
+        impl Zeroize for Element {
+            fn zeroize(&mut self) {
+                CLEANUPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        impl Drop for Element {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let mut values = List::default();
+        for _ in 0..3 {
+            values.push(Element);
+        }
+        assert_eq!(values.capacity(), usize::MAX);
+        values.clear();
+        assert!(values.is_empty());
+        assert_eq!(CLEANUPS.load(Ordering::SeqCst), 3);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 3);
+        drop(values);
+        assert_eq!(CLEANUPS.load(Ordering::SeqCst), 3);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 3);
     }
 }

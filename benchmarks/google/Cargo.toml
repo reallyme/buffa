@@ -5,13 +5,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
-protobuf = "=4.33.1-release"
+protobuf = "=4.36.2-release"
 
 [build-dependencies]
-protobuf-codegen = "=4.33.1-release"
+protobuf-codegen = "=4.36.2-release"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8.2"
 
 [[bench]]
 name = "protobuf"

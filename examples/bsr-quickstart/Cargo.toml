@@ -16,7 +16,7 @@ plugin with `file_per_package=true` and a hand-written `mod.rs`. See
 # equal to that pin. In your own project, `version = "0.9"` is enough.
 buffa = { version = "=0.9.2", features = ["json"] }
 buffa-types = { version = "=0.9.2", features = ["json"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 
 [workspace]

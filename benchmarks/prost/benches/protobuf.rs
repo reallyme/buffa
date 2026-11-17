@@ -23,7 +23,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
         b.iter(|| {
             for payload in &dataset.payload {
                 let msg = M::decode(payload.as_slice()).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });
@@ -34,7 +34,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
             for payload in &dataset.payload {
                 msg.clear();
                 msg.merge(payload.as_slice()).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });
@@ -48,7 +48,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
         b.iter(|| {
             for msg in &messages {
                 let encoded = msg.encode_to_vec();
-                criterion::black_box(&encoded);
+                std::hint::black_box(&encoded);
             }
         });
     });
@@ -62,7 +62,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
         b.iter(|| {
             for msg in &messages {
                 let size = msg.encoded_len();
-                criterion::black_box(size);
+                std::hint::black_box(size);
             }
         });
     });
@@ -99,7 +99,7 @@ fn benchmark_json<M: Message + Default + Serialize + DeserializeOwned>(
         b.iter(|| {
             for msg in &messages {
                 let json = serde_json::to_string(msg).unwrap();
-                criterion::black_box(&json);
+                std::hint::black_box(&json);
             }
         });
     });
@@ -108,7 +108,7 @@ fn benchmark_json<M: Message + Default + Serialize + DeserializeOwned>(
         b.iter(|| {
             for json in &json_strings {
                 let msg: M = serde_json::from_str(json).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });

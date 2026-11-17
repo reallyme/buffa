@@ -1,0 +1,3 @@
+kind: Breaking changes
+body: Upgrade dependencies, including the public foldhash, hashbrown and jiff integrations, to their current stable releases; downstream code naming those external types must use the matching major versions.
+time: 2026-11-17T12:00:00+01:00

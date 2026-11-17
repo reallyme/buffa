@@ -7,20 +7,19 @@ publish = false
 
 [dependencies]
 buffa = { package = "reallyme-buffa", path = "../../buffa", features = ["std", "json"] }
-buffa-remote-derive = { package = "reallyme-buffa-remote-derive", path = "../../buffa-remote-derive" }
 # `generate_json(true)` emits `#[derive(serde::Serialize, ...)]`, which expands
 # to `extern crate serde as _serde;` — so `serde` must be a *direct* dependency
 # of this crate. buffa re-exports `bytes`/`alloc`/`serde_json` for generated
 # code, but `serde` is the deliberate exception.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 # Backing storage for the crate-local newtypes. These are the "foreign"
 # types an integrator would bring; the newtypes in src/types/ wrap them
 # to satisfy buffa's owned-type traits without an orphan-rule conflict.
-flexstr = "0.9"
-smallvec = { version = "1", features = ["serde", "const_generics"] }
-smallbox = "0.8"
-indexmap = { version = "2", features = ["serde"] }
+flexstr = { version = "0.11.7", features = ["serde"] }
+smallvec = { version = "1.16.5", features = ["serde", "const_generics"] }
+smallbox = "0.8.9"
+indexmap = { version = "2.14.2", features = ["serde"] }
 
 [build-dependencies]
 buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }

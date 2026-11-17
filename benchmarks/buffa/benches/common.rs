@@ -23,7 +23,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, data: &
     group.bench_function("decode", |b| {
         b.iter(|| {
             for p in &dataset.payload {
-                criterion::black_box(M::decode_from_slice(p).unwrap());
+                std::hint::black_box(M::decode_from_slice(p).unwrap());
             }
         })
     });
@@ -33,7 +33,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, data: &
             for p in &dataset.payload {
                 msg.clear();
                 msg.merge_from_slice(p).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         })
     });
@@ -45,7 +45,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, data: &
             .collect();
         b.iter(|| {
             for m in &msgs {
-                criterion::black_box(m.encode_to_vec());
+                std::hint::black_box(m.encode_to_vec());
             }
         })
     });
@@ -59,7 +59,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, data: &
         b.iter(|| {
             for m in &msgs {
                 cache.clear();
-                criterion::black_box(m.compute_size(&mut cache));
+                std::hint::black_box(m.compute_size(&mut cache));
             }
         })
     });
@@ -87,7 +87,7 @@ fn benchmark_json<M: Message + Default + Serialize + DeserializeOwned>(
     group.bench_function("json_encode", |b| {
         b.iter(|| {
             for m in &messages {
-                criterion::black_box(serde_json::to_string(m).unwrap());
+                std::hint::black_box(serde_json::to_string(m).unwrap());
             }
         })
     });
@@ -95,7 +95,7 @@ fn benchmark_json<M: Message + Default + Serialize + DeserializeOwned>(
         b.iter(|| {
             for j in &json_strings {
                 let m: M = serde_json::from_str(j).unwrap();
-                criterion::black_box(m);
+                std::hint::black_box(m);
             }
         })
     });

@@ -25,7 +25,7 @@ fn benchmark_decode<M: Parse + Serialize + Default>(
         b.iter(|| {
             for payload in dataset.payload() {
                 let msg = M::parse(payload).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });
@@ -39,7 +39,7 @@ fn benchmark_decode<M: Parse + Serialize + Default>(
         b.iter(|| {
             for msg in &messages {
                 let encoded = msg.serialize().unwrap();
-                criterion::black_box(&encoded);
+                std::hint::black_box(&encoded);
             }
         });
     });

@@ -12,7 +12,7 @@ pub mod protobuf_test_messages {
         pub use super::google;
         include!(concat!(
             env!("OUT_DIR"),
-            "/google.protobuf.test_messages_proto3.rs"
+            "/protobuf_test_messages.proto3.mod.rs"
         ));
     }
 }
@@ -33,17 +33,17 @@ fuzz_target!(|msg: proto3::TestAllTypesProto3| {
     // 2GB rss limit after ~1.6M iterations (Mar 2026, oom-f1a736fc).
     //
     // 64KB encoded → ~3-5MB Value tree × 2 = sustainable for 14hr runs.
-    let size = msg.compute_size();
+    let size = msg.compute_size(&mut buffa::SizeCache::new());
     if size > 65_536 {
         return;
     }
     let encoded = msg.encode_to_vec();
 
     // Step 2: verify compute_size matches actual length.
-    let computed = msg.compute_size() as usize;
+    let computed = msg.compute_size(&mut buffa::SizeCache::new());
     assert_eq!(
-        computed,
-        encoded.len(),
+        usize::try_from(computed).ok(),
+        Some(encoded.len()),
         "compute_size ({computed}) != encode_to_vec len ({})",
         encoded.len()
     );

@@ -11,7 +11,7 @@ pub mod protobuf_test_messages {
         pub use super::google;
         include!(concat!(
             env!("OUT_DIR"),
-            "/google.protobuf.test_messages_proto3.rs"
+            "/protobuf_test_messages.proto3.mod.rs"
         ));
     }
 }
