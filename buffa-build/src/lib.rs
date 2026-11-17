@@ -34,6 +34,8 @@ use std::process::Command;
 
 use buffa_codegen::generated::descriptor::FileDescriptorSet;
 
+/// Typed configuration for opt-in native adapters.
+pub use buffa_codegen::adapters;
 #[doc(inline)]
 pub use buffa_codegen::CodeGenConfig;
 #[doc(inline)]
@@ -73,6 +75,26 @@ pub struct Config {
 }
 
 impl Config {
+    /// Enable typed `(buffa.ext.file).adapters` options (default: false).
+    ///
+    /// Native files are written beside the portable output and included
+    /// explicitly in their API modules. No native adapter enters the portable
+    /// module tree. Missing or incomplete mappings fail before output is written.
+    #[must_use]
+    pub fn generate_adapters(mut self, enabled: bool) -> Self {
+        self.codegen_config.generate_adapters = enabled;
+        self
+    }
+
+    /// Add descriptor-checked native adapters from a typed Rust configuration.
+    /// Replaces the previous explicit configuration; schema options, if enabled,
+    /// are combined with it and checked for collisions.
+    #[must_use]
+    pub fn adapters(mut self, config: adapters::AdapterConfig) -> Self {
+        self.codegen_config.adapters = Some(config);
+        self
+    }
+
     /// Create a new configuration with defaults.
     pub fn new() -> Self {
         Self {
@@ -2555,6 +2577,19 @@ impl Config {
             &self.codegen_config,
         )?;
 
+        // An include tree is written after content files. Reject a native
+        // filename collision first so it cannot overwrite an adapter.
+        if let Some(include) = &self.include_file {
+            if generated.iter().any(|file| {
+                file.kind == buffa_codegen::GeneratedFileKind::Adapter
+                    && file.name.eq_ignore_ascii_case(include)
+            }) {
+                return Err(
+                    adapters::AdapterError::from(adapters::ErrorReason::DuplicateOutput).into(),
+                );
+            }
+        }
+
         // Surface non-fatal codegen diagnostics as Cargo build warnings. This
         // runs inside the consumer's `build.rs`, so `cargo:warning=` is shown in
         // their normal `cargo build` output.
@@ -3025,6 +3060,83 @@ fn generate_include_file(entries: &[(String, String)], relative: bool) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn native_adapter_input() -> (Vec<u8>, adapters::AdapterConfig) {
+        use buffa_codegen::generated::descriptor::{
+            EnumDescriptorProto, EnumValueDescriptorProto, FileDescriptorProto,
+        };
+        let file = FileDescriptorProto {
+            name: Some("mode.proto".into()),
+            package: Some("p".into()),
+            syntax: Some("proto3".into()),
+            enum_type: vec![EnumDescriptorProto {
+                name: Some("Mode".into()),
+                value: vec![
+                    EnumValueDescriptorProto {
+                        name: Some("MODE_UNSPECIFIED".into()),
+                        number: Some(0),
+                        ..Default::default()
+                    },
+                    EnumValueDescriptorProto {
+                        name: Some("MODE_MESSAGE".into()),
+                        number: Some(1),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let config = adapters::AdapterConfig::from_json(br#"{"version":1,"selectors":[{
+            "file":"native.rs","name":"NativeMode","wire":{"source":".p.Mode","rust_type":"crate::wire::Mode"},
+            "error":{"rust_type":"crate::ContractError","value":"crate::ContractError::Invalid"},
+            "variants":[{"source":"MODE_MESSAGE","name":"Message"}]
+        }]}"#).unwrap();
+        (buffa_codegen::encode_descriptor_set(&[file], &[]), config)
+    }
+
+    #[test]
+    fn native_adapters_are_written_outside_the_portable_include_tree() {
+        let (bytes, adapters) = native_adapter_input();
+        let directory = tempfile::tempdir().unwrap();
+        Config::new()
+            .descriptor_set_bytes(bytes)
+            .files(&["mode.proto"])
+            .adapters(adapters)
+            .out_dir(directory.path())
+            .include_file("tree.rs")
+            .compile()
+            .unwrap();
+        assert!(directory.path().join("native.rs").is_file());
+        let tree = std::fs::read_to_string(directory.path().join("tree.rs")).unwrap();
+        assert!(!tree.contains("native.rs"));
+        assert!(tree.contains("p.mod.rs"));
+    }
+
+    #[test]
+    fn native_include_collisions_fail_before_writing_any_output() {
+        let (bytes, adapters) = native_adapter_input();
+        let directory = tempfile::tempdir().unwrap();
+        let preserved = directory.path().join("sentinel");
+        std::fs::write(&preserved, b"preserved").unwrap();
+        let error = Config::new()
+            .descriptor_set_bytes(bytes)
+            .files(&["mode.proto"])
+            .adapters(adapters)
+            .out_dir(directory.path())
+            .include_file("NATIVE.rs")
+            .compile()
+            .unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<adapters::AdapterError>()
+                .unwrap()
+                .reason,
+            adapters::ErrorReason::DuplicateOutput
+        );
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert_eq!(std::fs::read(preserved).unwrap(), b"preserved");
+    }
 
     #[test]
     fn feature_name_setters_reach_codegen_config() {
