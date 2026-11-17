@@ -372,6 +372,29 @@ fn guarded_allocations_are_wiped_before_release_on_every_lifecycle_path() {
     );
     assert_wiped();
 
+    // Exercise both standalone enum visitors. Fill the allocation before
+    // truncation so the observer can check the bytes beyond the known name.
+    use buffa_test::guarded::Mode;
+    fn check_owned_enum<T: serde::de::DeserializeOwned + PartialEq + core::fmt::Debug>(value: T) {
+        let name = "MODE_ACTIVE";
+        let mut known = "X".repeat(SECRET_LENGTH);
+        known.replace_range(..name.len(), name);
+        known.truncate(name.len());
+        watch(known.as_ptr(), SECRET_LENGTH);
+        let token = serde::de::value::StringDeserializer::<serde::de::value::Error>::new(known);
+        assert_eq!(T::deserialize(token).unwrap(), value);
+        assert_wiped();
+
+        let unknown = "X".repeat(SECRET_LENGTH);
+        watch(unknown.as_ptr(), SECRET_LENGTH);
+        let token = serde::de::value::StringDeserializer::<serde::de::value::Error>::new(unknown);
+        let error = T::deserialize(token).unwrap_err();
+        assert_eq!(error.to_string(), "unknown enum name");
+        assert_wiped();
+    }
+    check_owned_enum(Mode::MODE_ACTIVE);
+    check_owned_enum(buffa::EnumValue::Known(Mode::MODE_ACTIVE));
+
     // Decimal object keys must go directly into numeric key slots, for both
     // primitive and message-valued maps, including a later value failure.
     for source in [
