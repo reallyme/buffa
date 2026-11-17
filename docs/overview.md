@@ -62,7 +62,7 @@ These are gaps we intend to address in future releases:
 
 ## Semver and API stability
 
-Buffa is pre-1.0. We follow the [Rust community convention](https://doc.rust-lang.org/cargo/reference/semver.html) for 0.x crates: breaking changes increment the **minor** version (0.1.x → 0.2.0), additive changes increment the **patch** version (0.1.0 → 0.1.1). Use the exact package aliases in [FORK.md](../FORK.md) to keep the runtime and generator on the same reviewed release.
+Buffa is pre-1.0. We follow the [Rust community convention](https://doc.rust-lang.org/cargo/reference/semver.html) for 0.x crates: breaking changes increment the **minor** version (0.1.x → 0.2.0), additive changes increment the **patch** version (0.1.0 → 0.1.0). Use the exact package aliases in [FORK.md](../FORK.md) to keep the runtime and generator on the same reviewed release.
 
 The generated code API (struct shapes, `Message` trait, `MessageView` trait, `EnumValue`, `MessageField`) is considered the primary stability surface. Internal helper modules marked `#[doc(hidden)]` (`__private`, `__buffa_*` fields) may change at any time.
 

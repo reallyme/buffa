@@ -6,6 +6,8 @@ The first release is **0.1.0**. Its upstream base is `104716922c66e21cf26895a2a5
 
 The fork has an independent version line. Compatible fixes can be released as 0.1.x without waiting for an upstream release; breaking changes use a new minor version. Every release records its upstream base, and all nine packages ship at the same version. Fork release tags use `reallyme-v0.1.0` rather than the upstream tag namespace.
 
+**0.1.0** retains the same upstream base and adds fixes for enum JSON value diagnostics and view formatting under `skip_debug`. Regenerate existing bindings to get both fixes.
+
 ## Packages and Rust names
 
 | Registry package | Dependency alias / Rust library |
