@@ -3,6 +3,7 @@
 """Release boundaries are tested without credentials, uploads, or network calls."""
 
 import io
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ import tarfile
 import tempfile
 import unittest
 import urllib.error
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import publish_crates as publisher
 import release_support as release
@@ -330,6 +331,95 @@ class PublicationTests(unittest.TestCase):
                 with self.assertRaises(release.ReleaseError):
                     publisher.publish_one(RELEASE, NAME, CHECKSUM)
                 upload.assert_not_called()
+
+
+class RetryPolicyTests(unittest.TestCase):
+    NOW = datetime(2026, 11, 13, 22, 0, tzinfo=timezone.utc)
+
+    def test_honors_ten_minute_new_crate_cooldown_with_margin(self):
+        output = "429 Too Many Requests: try again after Fri, 13 Nov 2026 22:10:00 GMT."
+        self.assertEqual(publisher.retry_after_seconds(output, self.NOW), 610)
+
+    def test_future_date_not_a_short_fixed_retry(self):
+        for seconds in [1, 60, 599, 600]:
+            date = (self.NOW + timedelta(seconds=seconds)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+            with self.subTest(seconds=seconds):
+                self.assertEqual(publisher.retry_after_seconds("Try again after " + date, self.NOW), seconds + 10)
+
+    def test_past_date_keeps_minimum_delay(self):
+        output = "try again after Fri, 13 Nov 2026 21:00:00 GMT"
+        self.assertEqual(publisher.retry_after_seconds(output, self.NOW), 10)
+
+    def test_accepts_maximum_wait_including_margin(self):
+        output = "try again after Fri, 13 Nov 2026 22:14:50 GMT"
+        self.assertEqual(publisher.retry_after_seconds(output, self.NOW), 900)
+
+    def test_fallback_retries_survive_a_full_ten_minute_cooldown(self):
+        elapsed = 0
+        uploaded = False
+
+        def attempt(*_args, **_kwargs):
+            nonlocal uploaded
+            if elapsed < 600:
+                return subprocess.CompletedProcess([], 1, "", "429 Too Many Requests")
+            uploaded = True
+            return subprocess.CompletedProcess([], 0, "", "")
+
+        def sleep(seconds):
+            nonlocal elapsed
+            elapsed += seconds
+
+        with patch.object(publisher, "command"), patch.object(publisher, "digest", return_value=CHECKSUM), \
+                patch.object(publisher, "source", return_value=RELEASE), \
+                patch.object(publisher, "registry_checksum", side_effect=lambda *_: CHECKSUM if uploaded else None), \
+                patch.object(publisher.subprocess, "run", side_effect=attempt) as upload, \
+                patch.object(publisher.time, "sleep", side_effect=sleep):
+            publisher.publish_one(RELEASE, NAME, CHECKSUM)
+        self.assertTrue(uploaded)
+        self.assertEqual(elapsed, 600)
+        self.assertEqual(upload.call_count, 11)
+
+    def test_missing_or_malformed_date_uses_minute_fallback(self):
+        for output in ["429 Too Many Requests", "try again after nonsense GMT", "try again after"]:
+            with self.subTest(output=output):
+                self.assertEqual(publisher.retry_after_seconds(output, self.NOW), 60)
+
+    def test_unreasonable_remote_date_fails_without_echoing_it(self):
+        for minute in [15, 16, 59]:
+            output = "try again after Fri, 13 Nov 2026 22:" + str(minute) + ":00 GMT"
+            with self.subTest(minute=minute), self.assertRaises(release.ReleaseError) as error:
+                publisher.retry_after_seconds(output, self.NOW)
+            self.assertEqual(error.exception.reason, release.Reason.RATE_LIMIT)
+            self.assertEqual(str(error.exception), "release-rate-limit-wait-exhausted")
+
+    def test_upload_waits_until_registry_date_before_retrying(self):
+        limited = subprocess.CompletedProcess([], 1, "", "429 Too Many Requests")
+        success = subprocess.CompletedProcess([], 0, "", "")
+        with patch.object(publisher, "command"), patch.object(publisher, "digest", return_value=CHECKSUM), \
+                patch.object(publisher, "source", return_value=RELEASE), \
+                patch.object(publisher, "registry_checksum", side_effect=[None, None, None, CHECKSUM]), \
+                patch.object(publisher.subprocess, "run", side_effect=[limited, success]), \
+                patch.object(publisher, "retry_after_seconds", return_value=610), \
+                patch.object(publisher.time, "sleep") as sleep:
+            publisher.publish_one(RELEASE, NAME, CHECKSUM)
+        sleep.assert_called_once_with(610)
+
+    def test_retry_exhaustion_preserves_reason_and_does_not_sleep_after_final_attempt(self):
+        for output, reason, delay in [
+                ("429 Too Many Requests", release.Reason.RATE_LIMIT, 60),
+                ("no matching package named", release.Reason.PUBLISH, 30)]:
+            failure = subprocess.CompletedProcess([], 1, "", output)
+            with self.subTest(reason=reason), patch.object(publisher, "command"), \
+                    patch.object(publisher, "digest", return_value=CHECKSUM), \
+                    patch.object(publisher, "source", return_value=RELEASE), \
+                    patch.object(publisher, "registry_checksum", return_value=None), \
+                    patch.object(publisher.subprocess, "run", return_value=failure) as upload, \
+                    patch.object(publisher.time, "sleep") as sleep:
+                with self.assertRaises(release.ReleaseError) as error:
+                    publisher.publish_one(RELEASE, NAME, CHECKSUM)
+                self.assertEqual(error.exception.reason, reason)
+                self.assertEqual(upload.call_count, publisher.ATTEMPTS)
+                self.assertEqual(sleep.call_args_list, [call(delay)] * (publisher.ATTEMPTS - 1))
 
 
 if __name__ == "__main__":
