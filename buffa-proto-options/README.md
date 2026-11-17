@@ -12,9 +12,9 @@ The fork adds opt-in mechanisms for guarded field storage, zeroization, controll
 
 **Upstream direction:** our preference is to use upstream Buffa. If upstream provides equivalent secret-handling capabilities and guarantees, and our applications can migrate safely, we intend to migrate back upstream and retire active development of this fork. Published ReallyMe versions would remain available for reproducible builds.
 
-This is the **0.1.0** ReallyMe release, distributed under Apache-2.0. Upstream license and attribution notices are retained; upstream endorsement is not implied.
+This is the **0.1.1** ReallyMe release, distributed under Apache-2.0. Upstream license and attribution notices are retained; upstream endorsement is not implied.
 
-[Configuration and limits](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guarded-fields.md) · [Migration and provenance](https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/FORK.md)
+[Configuration and limits](https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/docs/guarded-fields.md) · [Migration and provenance](https://github.com/reallyme/buffa/blob/reallyme-v0.1.1/FORK.md)
 
 **Package role:** Custom protobuf option types used by the ReallyMe Buffa generation pipeline.
 
