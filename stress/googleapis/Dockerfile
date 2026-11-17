@@ -16,7 +16,7 @@
 #   docker run --rm -v ./stress/googleapis/out:/out buffa-stress-googleapis
 
 # ── Stage 1: build protoc-gen-buffa (static musl binary) ────────────────
-FROM rust:1.95.0-slim AS builder
+FROM rust:1.100.0-slim AS builder
 
 RUN apt-get update && apt-get install -y pkg-config musl-tools \
     && rm -rf /var/lib/apt/lists/*
@@ -65,7 +65,7 @@ RUN set -eu; \
     cat /generate.log
 
 # ── Stage 3: compile the generated code ─────────────────────────────────
-FROM rust:1.95.0-slim AS compiler
+FROM rust:1.100.0-slim AS compiler
 
 WORKDIR /compile
 

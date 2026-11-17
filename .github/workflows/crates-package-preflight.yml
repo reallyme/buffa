@@ -42,7 +42,7 @@ jobs:
           path: reallyme/buffa
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+        uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0
 
       - name: Match workflow head, current main, and crate versions
         id: verify-source
@@ -85,7 +85,7 @@ jobs:
         run: node scripts/verify_release_attestation.mjs
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+        uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0
 
       - name: Inspect and verify the Buffa package set
         env:

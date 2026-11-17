@@ -417,31 +417,52 @@ macro_rules! extend_packed_varint_fn {
 
 extend_packed_varint_fn!(
     /// Decode an entire packed `int32` payload into `out` in one pass.
-    extend_packed_int32, i32, decode_int32, |v| v as i32
+    extend_packed_int32,
+    i32,
+    decode_int32,
+    |v| v as i32
 );
 extend_packed_varint_fn!(
     /// Decode an entire packed `int64` payload into `out` in one pass.
-    extend_packed_int64, i64, decode_int64, |v| v as i64
+    extend_packed_int64,
+    i64,
+    decode_int64,
+    |v| v as i64
 );
 extend_packed_varint_fn!(
     /// Decode an entire packed `uint32` payload into `out` in one pass.
-    extend_packed_uint32, u32, decode_uint32, |v| v as u32
+    extend_packed_uint32,
+    u32,
+    decode_uint32,
+    |v| v as u32
 );
 extend_packed_varint_fn!(
     /// Decode an entire packed `uint64` payload into `out` in one pass.
-    extend_packed_uint64, u64, decode_uint64, |v| v
+    extend_packed_uint64,
+    u64,
+    decode_uint64,
+    |v| v
 );
 extend_packed_varint_fn!(
     /// Decode an entire packed `sint32` payload into `out` in one pass.
-    extend_packed_sint32, i32, decode_sint32, |v| zigzag_decode_i32(v as u32)
+    extend_packed_sint32,
+    i32,
+    decode_sint32,
+    |v| zigzag_decode_i32(v as u32)
 );
 extend_packed_varint_fn!(
     /// Decode an entire packed `sint64` payload into `out` in one pass.
-    extend_packed_sint64, i64, decode_sint64, zigzag_decode_i64
+    extend_packed_sint64,
+    i64,
+    decode_sint64,
+    zigzag_decode_i64
 );
 extend_packed_varint_fn!(
     /// Decode an entire packed `bool` payload into `out` in one pass.
-    extend_packed_bool, bool, decode_bool, |v| v != 0
+    extend_packed_bool,
+    bool,
+    decode_bool,
+    |v| v != 0
 );
 
 // ---------------------------------------------------------------------------
@@ -629,27 +650,39 @@ macro_rules! extend_packed_fixed_fn {
 
 extend_packed_fixed_fn!(
     /// Decode an entire packed `float` payload into `out` in one pass.
-    extend_packed_float, f32, 4
+    extend_packed_float,
+    f32,
+    4
 );
 extend_packed_fixed_fn!(
     /// Decode an entire packed `fixed32` payload into `out` in one pass.
-    extend_packed_fixed32, u32, 4
+    extend_packed_fixed32,
+    u32,
+    4
 );
 extend_packed_fixed_fn!(
     /// Decode an entire packed `sfixed32` payload into `out` in one pass.
-    extend_packed_sfixed32, i32, 4
+    extend_packed_sfixed32,
+    i32,
+    4
 );
 extend_packed_fixed_fn!(
     /// Decode an entire packed `double` payload into `out` in one pass.
-    extend_packed_double, f64, 8
+    extend_packed_double,
+    f64,
+    8
 );
 extend_packed_fixed_fn!(
     /// Decode an entire packed `fixed64` payload into `out` in one pass.
-    extend_packed_fixed64, u64, 8
+    extend_packed_fixed64,
+    u64,
+    8
 );
 extend_packed_fixed_fn!(
     /// Decode an entire packed `sfixed64` payload into `out` in one pass.
-    extend_packed_sfixed64, i64, 8
+    extend_packed_sfixed64,
+    i64,
+    8
 );
 
 // ---------------------------------------------------------------------------
@@ -707,63 +740,108 @@ macro_rules! put_field_fn {
 
 put_field_fn!(
     /// Write a tagged `int32` field (tag + varint payload).
-    put_int32_field, i32, WireType::Varint, encode_int32
+    put_int32_field,
+    i32,
+    WireType::Varint,
+    encode_int32
 );
 put_field_fn!(
     /// Write a tagged `int64` field (tag + varint payload).
-    put_int64_field, i64, WireType::Varint, encode_int64
+    put_int64_field,
+    i64,
+    WireType::Varint,
+    encode_int64
 );
 put_field_fn!(
     /// Write a tagged `uint32` field (tag + varint payload).
-    put_uint32_field, u32, WireType::Varint, encode_uint32
+    put_uint32_field,
+    u32,
+    WireType::Varint,
+    encode_uint32
 );
 put_field_fn!(
     /// Write a tagged `uint64` field (tag + varint payload).
-    put_uint64_field, u64, WireType::Varint, encode_uint64
+    put_uint64_field,
+    u64,
+    WireType::Varint,
+    encode_uint64
 );
 put_field_fn!(
     /// Write a tagged `sint32` field (tag + zigzag varint payload).
-    put_sint32_field, i32, WireType::Varint, encode_sint32
+    put_sint32_field,
+    i32,
+    WireType::Varint,
+    encode_sint32
 );
 put_field_fn!(
     /// Write a tagged `sint64` field (tag + zigzag varint payload).
-    put_sint64_field, i64, WireType::Varint, encode_sint64
+    put_sint64_field,
+    i64,
+    WireType::Varint,
+    encode_sint64
 );
 put_field_fn!(
     /// Write a tagged `bool` field (tag + one-byte payload).
-    put_bool_field, bool, WireType::Varint, encode_bool
+    put_bool_field,
+    bool,
+    WireType::Varint,
+    encode_bool
 );
 put_field_fn!(
     /// Write a tagged `fixed32` field (tag + 4-byte payload).
-    put_fixed32_field, u32, WireType::Fixed32, encode_fixed32
+    put_fixed32_field,
+    u32,
+    WireType::Fixed32,
+    encode_fixed32
 );
 put_field_fn!(
     /// Write a tagged `fixed64` field (tag + 8-byte payload).
-    put_fixed64_field, u64, WireType::Fixed64, encode_fixed64
+    put_fixed64_field,
+    u64,
+    WireType::Fixed64,
+    encode_fixed64
 );
 put_field_fn!(
     /// Write a tagged `sfixed32` field (tag + 4-byte payload).
-    put_sfixed32_field, i32, WireType::Fixed32, encode_sfixed32
+    put_sfixed32_field,
+    i32,
+    WireType::Fixed32,
+    encode_sfixed32
 );
 put_field_fn!(
     /// Write a tagged `sfixed64` field (tag + 8-byte payload).
-    put_sfixed64_field, i64, WireType::Fixed64, encode_sfixed64
+    put_sfixed64_field,
+    i64,
+    WireType::Fixed64,
+    encode_sfixed64
 );
 put_field_fn!(
     /// Write a tagged `float` field (tag + 4-byte payload).
-    put_float_field, f32, WireType::Fixed32, encode_float
+    put_float_field,
+    f32,
+    WireType::Fixed32,
+    encode_float
 );
 put_field_fn!(
     /// Write a tagged `double` field (tag + 8-byte payload).
-    put_double_field, f64, WireType::Fixed64, encode_double
+    put_double_field,
+    f64,
+    WireType::Fixed64,
+    encode_double
 );
 put_field_fn!(
     /// Write a tagged `string` field (tag + length-prefixed UTF-8 payload).
-    put_string_field, &str, WireType::LengthDelimited, encode_string
+    put_string_field,
+    &str,
+    WireType::LengthDelimited,
+    encode_string
 );
 put_field_fn!(
     /// Write a tagged `bytes` field (tag + length-prefixed payload).
-    put_bytes_field, &[u8], WireType::LengthDelimited, encode_bytes
+    put_bytes_field,
+    &[u8],
+    WireType::LengthDelimited,
+    encode_bytes
 );
 
 /// A value a `bytes` field can encode from: every [`ProtoBytes`]
@@ -1598,7 +1676,7 @@ pub fn decode_bytes_to_bytes(buf: &mut impl Buf) -> Result<Bytes, DecodeError> {
 /// field.
 ///
 /// buffa implements it for the default [`Vec<u8>`] and for
-/// [`bytes::Bytes`](crate::bytes::Bytes) (which decodes zero-copy from a
+/// [`bytes::Bytes`] (which decodes zero-copy from a
 /// `Bytes`-backed buffer). Select another representation with `buffa_build`'s
 /// `bytes_type` / `bytes_type_custom`. There is intentionally **no blanket
 /// impl**, and a foreign type cannot implement this trait (orphan rule) — wrap

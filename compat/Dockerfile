@@ -48,7 +48,7 @@ RUN set -e; \
 
 # ── Stage 2: Build protoc-gen-buffa ────────────────────────────────────────
 
-FROM rust:1.95.0-slim AS builder
+FROM rust:1.100.0-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \

@@ -71,7 +71,7 @@ Our preference is to use upstream Buffa. If upstream provides equivalent secret-
 
 ## Validation and releases
 
-CI covers formatting, Clippy, default and all-feature tests, strict documentation, code generation freshness, Rust 1.75/1.77, `no_std`, 32-bit compilation and protobuf conformance. Runtime MSRV is Rust 1.75; the opt-in table codec requires Rust 1.77.
+CI covers formatting, Clippy, default and all-feature tests, strict documentation, code generation freshness, Rust 1.100, `no_std`, 32-bit compilation and protobuf conformance. The MSRV is Rust 1.100 for all features, including the table codec.
 
 Crates.io publication is manually triggered. A release verifies successful full CI and a separate package preflight for the same source commit before the protected publication job can use a registry credential. Reviewed archives and checksums are retained for inspection. Ordinary pushes do not upload packages. After all nine crates are published and verified, CI creates the release tag and GitHub release.
 

@@ -374,8 +374,8 @@ fn main() {
     // Each schema in `tests::table_codec` is compiled once with the unrolled
     // codec and once with the table codec, under renamed packages, so a test can
     // compare them.
-    // Generated table code needs `core::mem::offset_of!`, stable in Rust 1.77,
-    // and the workspace MSRV is 1.75, where it is a compile error by design.
+    // Generated table code needs `core::mem::offset_of!`. Keep this compiler
+    // probe aligned with the generator's table-code capability check.
     println!("cargo:rustc-check-cfg=cfg(has_table_codec)");
     let table_codec = rustc_minor() >= 77;
     if table_codec {

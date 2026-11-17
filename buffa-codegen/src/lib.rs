@@ -133,7 +133,7 @@ pub fn decode_failure(subject: &str, err: &buffa::DecodeError, limit: usize) -> 
 /// raw byte count), and truncating it to "0 MiB" would make the hint absurd.
 fn describe_byte_budget(bytes: usize) -> String {
     const MIB: usize = 1024 * 1024;
-    if bytes >= MIB && bytes % MIB == 0 {
+    if bytes >= MIB && bytes.is_multiple_of(MIB) {
         format!("{} MiB", bytes / MIB)
     } else {
         format!("{bytes}-byte")

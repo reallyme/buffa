@@ -179,7 +179,7 @@ class ArchiveTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
 
-    def write_archive(self, *, sha=SHA, dirty=False, name=NAME, lock=3,
+    def write_archive(self, *, sha=SHA, dirty=False, name=NAME, lock=4,
                       license_bytes=None, duplicate=False, missing=None):
         contents = {
             ".cargo_vcs_info.json": json.dumps({"git": {"sha1": sha, "dirty": dirty}}).encode(),
@@ -211,7 +211,7 @@ class ArchiveTests(unittest.TestCase):
 
     def test_rejects_dirty_wrong_source_identity_license_or_lock(self):
         for kwargs in [{"sha": "c" * 40}, {"dirty": True}, {"dirty": 0}, {"name": "buffa"},
-                       {"license_bytes": b"wrong"}, {"lock": 4}, {"duplicate": True},
+                       {"license_bytes": b"wrong"}, {"lock": 3}, {"duplicate": True},
                        {"missing": "LICENSE"}, {"missing": "README.md"}]:
             with self.subTest(kwargs=kwargs):
                 self.write_archive(**kwargs)

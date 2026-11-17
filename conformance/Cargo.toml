@@ -4,7 +4,7 @@ name = "conformance"
 description = "Protobuf conformance test runner for buffa"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.100"
 license = "Apache-2.0"
 publish = false
 
@@ -33,8 +33,8 @@ default = ["buffa-std"]
 buffa-std = ["buffa/std", "buffa-types/std", "reflect"]
 reflect = ["buffa-types/reflect"]
 # Generates the test messages with `CodecStrategy::Table`, for the via-table
-# run. Needs Rust 1.77 (`offset_of!`); buffa-build refuses older compilers, so
-# the default build stays at the 1.75 MSRV.
+# run. The workspace MSRV also covers this codec.
+
 table = []
 
 [dependencies]

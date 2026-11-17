@@ -11,7 +11,7 @@
 #
 # Run from the repository root on a quiesced bare-metal host (turbo disabled,
 # `performance` governor). Requires the pinned toolchains on PATH:
-#   - rustc/cargo via rustup, toolchain 1.96.0 (set RUSTUP_TOOLCHAIN below)
+#   - rustc/cargo via rustup, toolchain 1.100.0 (set RUSTUP_TOOLCHAIN below)
 #   - go 1.23.x  (for the Go implementation)
 #   - protoc 33.1 (Google's protobuf v4 crate version-checks protoc exactly;
 #                  the other impls only need >= 3.15 for proto3 optional)
@@ -24,7 +24,7 @@
 # Cloud provisioning/teardown of the metal host is intentionally NOT in the repo.
 set -uo pipefail
 
-export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.96.0}"
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-1.100.0}"
 # Release profile (the bench crates also pin this in [profile.bench]) + the
 # 64-byte block alignment that removes the build-time code-layout lottery.
 export CARGO_PROFILE_BENCH_LTO=true

@@ -234,7 +234,7 @@ def inspect_archives(release: Release, directory: Path) -> dict:
                 if (vcs["git"]["sha1"] != release.commit or vcs["git"].get("dirty", False) is not False
                         or package["name"] != name or package["version"] != release.version
                         or package["repository"] != "https://github.com/reallyme/buffa"
-                        or package["license"] != "Apache-2.0" or lock["version"] != 3
+                        or package["license"] != "Apache-2.0" or lock["version"] != 4
                         or archive_metadata(archive, prefix + "LICENSE") != (ROOT / "LICENSE").read_bytes()
                         or not archive_metadata(archive, prefix + "README.md")):
                     raise ReleaseError(Reason.ARCHIVE)

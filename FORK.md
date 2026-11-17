@@ -108,10 +108,8 @@ Technologies Limited. Preparing local code or commits does not authorize pushing
 tagging, dispatching a release workflow, uploading packages or changing owners.
 
 All nine packages use one exact version. Package coverage and dependency order
-are checked against `.github/publish-order.txt`. Release tooling uses Cargo
-1.95.0 with registry access; offline multi-package verification fails with an
-internal checksum error in that version. Packaged lockfiles retain format 3 for
-Cargo 1.75 compatibility.
+are checked against `.github/publish-order.txt`. Release tooling uses the pinned
+Rust/Cargo 1.100.0. Packaged crates require Rust 1.100 and use lockfile format 4.
 
 Fork release notes are in [FORK_CHANGELOG.md](FORK_CHANGELOG.md). Historical
 upstream notes and fragments remain unchanged in `CHANGELOG.md` and `.changes/`;
