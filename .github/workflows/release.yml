@@ -113,7 +113,7 @@ jobs:
       # fails with E0463 (this bit the v0.7.1 darwin-x86_64 job). Keep in
       # sync with rust-toolchain.toml and ci.yml; bump together.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
+        uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
         with:
           targets: ${{ matrix.target }}
 

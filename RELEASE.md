@@ -13,7 +13,7 @@ Repository configuration and credential setup are separate from these local file
 
 ## Prepare and publish
 
-Use the pinned Rust/Cargo 1.95.0 release tooling. Keep workspace and packaged lockfiles readable by Cargo 1.75; the generated table codec's minimum compiler is 1.77.
+Use the pinned Rust/Cargo 1.100.0 release tooling. The workspace and packaged crates require Rust 1.100, including the table codec.
 
 1. Update the workspace version, exact internal dependencies, package/install examples and fork release notes. Regenerate schemas and checked-in code. Review the complete release commit and run the applicable [contribution checks](CONTRIBUTING.md).
 2. After approval, merge the release changes onto `main` in `reallyme/buffa`. Push only the approved source; the workflow creates the release tag after all nine crates are published.

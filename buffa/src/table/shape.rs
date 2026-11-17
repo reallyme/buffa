@@ -460,48 +460,87 @@ macro_rules! enum_shape {
 
 enum_shape!(
     /// An open enum with implicit presence: `EnumValue<E>`.
-    ImplicitOpen, IMPLICIT, EnumValue<E>,
-    |s: &mut EnumValue<E>, raw| { *s = EnumValue::from(raw); true },
+    ImplicitOpen,
+    IMPLICIT,
+    EnumValue<E>,
+    |s: &mut EnumValue<E>, raw| {
+        *s = EnumValue::from(raw);
+        true
+    },
     |s: &EnumValue<E>, _| Some(s.to_i32()),
     |_: &EnumValue<E>| 0,
     |_: i32| true
 );
 enum_shape!(
     /// A closed enum with implicit presence: `E`.
-    ImplicitClosed, IMPLICIT, E,
-    |s: &mut E, raw| match E::from_i32(raw) { Some(v) => { *s = v; true } None => false },
+    ImplicitClosed,
+    IMPLICIT,
+    E,
+    |s: &mut E, raw| match E::from_i32(raw) {
+        Some(v) => {
+            *s = v;
+            true
+        }
+        None => false,
+    },
     |s: &E, _| Some(s.to_i32()),
     |_: &E| 0,
     |raw| E::from_i32(raw).is_some()
 );
 enum_shape!(
     /// An open enum with explicit presence: `Option<EnumValue<E>>`.
-    OptionalOpen, OPTIONAL, Option<EnumValue<E>>,
-    |s: &mut Option<EnumValue<E>>, raw| { *s = Some(EnumValue::from(raw)); true },
+    OptionalOpen,
+    OPTIONAL,
+    Option<EnumValue<E>>,
+    |s: &mut Option<EnumValue<E>>, raw| {
+        *s = Some(EnumValue::from(raw));
+        true
+    },
     |s: &Option<EnumValue<E>>, _| s.as_ref().map(EnumValue::to_i32),
     |_: &Option<EnumValue<E>>| 0,
     |_: i32| true
 );
 enum_shape!(
     /// A closed enum with explicit presence: `Option<E>`.
-    OptionalClosed, OPTIONAL, Option<E>,
-    |s: &mut Option<E>, raw| match E::from_i32(raw) { Some(v) => { *s = Some(v); true } None => false },
+    OptionalClosed,
+    OPTIONAL,
+    Option<E>,
+    |s: &mut Option<E>, raw| match E::from_i32(raw) {
+        Some(v) => {
+            *s = Some(v);
+            true
+        }
+        None => false,
+    },
     |s: &Option<E>, _| s.as_ref().map(Enumeration::to_i32),
     |_: &Option<E>| 0,
     |raw| E::from_i32(raw).is_some()
 );
 enum_shape!(
     /// A repeated open enum: `Vec<EnumValue<E>>`.
-    RepeatedOpen, REPEATED, Vec<EnumValue<E>>,
-    |s: &mut Vec<EnumValue<E>>, raw| { s.push(EnumValue::from(raw)); true },
+    RepeatedOpen,
+    REPEATED,
+    Vec<EnumValue<E>>,
+    |s: &mut Vec<EnumValue<E>>, raw| {
+        s.push(EnumValue::from(raw));
+        true
+    },
     |s: &Vec<EnumValue<E>>, i| s.get(i).map(EnumValue::to_i32),
     |s: &Vec<EnumValue<E>>| s.len(),
     |_: i32| true
 );
 enum_shape!(
     /// A repeated closed enum: `Vec<E>`.
-    RepeatedClosed, REPEATED, Vec<E>,
-    |s: &mut Vec<E>, raw| match E::from_i32(raw) { Some(v) => { s.push(v); true } None => false },
+    RepeatedClosed,
+    REPEATED,
+    Vec<E>,
+    |s: &mut Vec<E>, raw| match E::from_i32(raw) {
+        Some(v) => {
+            s.push(v);
+            true
+        }
+        None => false,
+    },
     |s: &Vec<E>, i| s.get(i).map(Enumeration::to_i32),
     |s: &Vec<E>| s.len(),
     |raw| E::from_i32(raw).is_some()

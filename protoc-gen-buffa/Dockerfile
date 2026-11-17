@@ -13,7 +13,7 @@
 # Test locally:
 #   echo '<CodeGeneratorRequest bytes>' | docker run -i reallyme-protoc-gen-buffa
 
-FROM rust:1.95.0-slim AS builder
+FROM rust:1.100.0-slim AS builder
 
 RUN apt-get update && apt-get install -y pkg-config \
     && rm -rf /var/lib/apt/lists/*

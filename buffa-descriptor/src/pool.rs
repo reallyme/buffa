@@ -1510,8 +1510,7 @@ impl DescriptorPool {
             let is_new = file
                 .name
                 .as_deref()
-                // MSRV: `Option::is_none_or` requires 1.82.
-                .map_or(true, |n| !self.file_by_name.contains_key(n));
+                .is_none_or(|n| !self.file_by_name.contains_key(n));
             if is_new {
                 has_new_files = true;
                 if let Some(n) = file.name.as_deref() {
@@ -1564,8 +1563,7 @@ impl DescriptorPool {
             .filter(|f| {
                 f.name
                     .as_deref()
-                    // MSRV: `Option::is_none_or` requires 1.82.
-                    .map_or(true, |n| !self.file_by_name.contains_key(n))
+                    .is_none_or(|n| !self.file_by_name.contains_key(n))
             })
             .collect();
         if new_files.is_empty() {
@@ -2463,7 +2461,7 @@ impl DescriptorPool {
                     });
                 }
             }
-            if reach.map_or(true, |(_, prev_end, _)| end > prev_end) {
+            if reach.is_none_or(|(_, prev_end, _)| end > prev_end) {
                 reach = Some((start, end, i));
             }
         }

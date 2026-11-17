@@ -41,7 +41,7 @@ jobs:
       # overrides — so the file is what actually selects the toolchain for
       # cargo. The pin here must NAME THE SAME VERSION as the file so the
       # components installed by this step belong to the toolchain cargo uses.
-      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
         with:
           components: clippy, rustfmt
 
@@ -170,10 +170,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (sha-pinned)
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
       - name: Check publish coverage
         env:
-          RUSTUP_TOOLCHAIN: stable
+          RUSTUP_TOOLCHAIN: 1.100.0
         run: ./scripts/check-publish-coverage.sh
       # The checker also runs in the release workflow, so its own behaviour
       # (what it accepts and what it rejects) is tested here on every change.
@@ -189,7 +189,7 @@ jobs:
         run: node --test scripts/verify_release_attestation.test.mjs
       - name: Test the publish list checker
         env:
-          RUSTUP_TOOLCHAIN: stable
+          RUSTUP_TOOLCHAIN: 1.100.0
         run: ./scripts/test-publish-order.sh
 
   # ── Changelog check ──────────────────────────────────────────────────────
@@ -228,34 +228,11 @@ jobs:
   # ── MSRV check ───────────────────────────────────────────────────────────
   msrv-check:
     runs-on: ubuntu-latest
-    # Two toolchains, and a test build on the second.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (sha-pinned)
-
-      # The checked-in Cargo.lock is written by the pinned dev toolchain and
-      # may resolve transitive deps (e.g. getrandom, clap_lex) to versions
-      # whose manifests cargo 1.75 cannot parse (edition2024). Regenerate with
-      # stable cargo's MSRV-aware resolver so transitive deps satisfy
-      # rust-version = 1.75; cargo writes a v3 lockfile because the workspace
-      # rust-version is below 1.78.
-      - name: Regenerate MSRV-compatible lockfile
-        env:
-          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
-        run: rm -f Cargo.lock && cargo generate-lockfile
-
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (sha-pinned)
-        with:
-          toolchain: '1.75'
-
-      # The table codec needs `offset_of!`, stable in 1.77; the workspace
-      # check above compiles it out at 1.75. This is the oldest compiler that
-      # builds the table interpreters and the generated table code.
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (sha-pinned)
-        with:
-          toolchain: '1.77'
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
 
       - name: Install protoc
         run: |
@@ -268,14 +245,14 @@ jobs:
 
       # rust-toolchain.toml pins the dev toolchain and overrides `rustup
       # default`, so RUSTUP_TOOLCHAIN is set explicitly to outrank the file.
-      - name: Check (MSRV 1.75)
+      - name: Check (MSRV 1.100)
         env:
-          RUSTUP_TOOLCHAIN: '1.75'
-        run: cargo check --workspace --all-targets --locked
+          RUSTUP_TOOLCHAIN: '1.100.0'
+        run: cargo check --workspace --all-targets --all-features --locked
 
-      - name: Test the table codec (Rust 1.77)
+      - name: Test the table codec (MSRV 1.100)
         env:
-          RUSTUP_TOOLCHAIN: '1.77'
+          RUSTUP_TOOLCHAIN: '1.100.0'
         run: |
           cargo test -p reallyme-buffa --lib table:: --locked
           cargo test -p buffa-test --lib table_codec --locked
@@ -300,7 +277,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      MIRI_TOOLCHAIN: nightly-2026-02-27
+      MIRI_TOOLCHAIN: nightly-2026-11-10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
 
@@ -378,7 +355,7 @@ jobs:
       # toolchain cargo uses) so the cross-targets installed here belong to
       # that toolchain. With @stable, the targets land on a toolchain the
       # file then bypasses, and the bare-metal check fails with E0463.
-      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
         with:
           targets: i686-unknown-linux-gnu, thumbv7em-none-eabihf
 
@@ -437,7 +414,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (sha-pinned)
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
 
       - name: Install protoc
         run: |
@@ -500,7 +477,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
 
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable (sha-pinned)
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 (sha-pinned)
         with:

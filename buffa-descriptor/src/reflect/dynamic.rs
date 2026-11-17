@@ -1318,7 +1318,6 @@ impl DynamicMessage {
     ///     count
     /// }
     /// ```
-    #[must_use]
     pub fn iter_set_fields(
         &self,
     ) -> impl Clone + DoubleEndedIterator<Item = (&FieldDescriptor, &Value)> + FusedIterator + '_

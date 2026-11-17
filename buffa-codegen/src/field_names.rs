@@ -259,9 +259,7 @@ pub(crate) fn plan_keyword_escapes(
     generated_files: Option<&HashSet<String>>,
 ) -> KeywordEscapePlan {
     let generated = files.iter().filter(|file| {
-        generated_files.map_or(true, |names| {
-            names.contains(file.name.as_deref().unwrap_or_default())
-        })
+        generated_files.is_none_or(|names| names.contains(file.name.as_deref().unwrap_or_default()))
     });
     let mut scopes: Vec<EscapeScope> = Vec::new();
     for_each_message(generated, |fqn, msg| {

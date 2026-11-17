@@ -444,13 +444,11 @@ let request: Request = buffa::DecodeOptions::new()
 
 JSON input needs its own size and recursion limits.
 
-## Build on older Rust toolchains
+## Compiler support
 
-The workspace permits compatible `zeroize` releases so consumers can share
-its traits with newer dependencies. MSRV CI regenerates a compatible lockfile
-with modern Cargo's MSRV-aware resolver. Older Cargo can otherwise select a
-`zeroize` release requiring newer Rust; before building on Rust 1.75, use
-`cargo update -p zeroize --precise 1.8.2` and retain that lockfile.
+Guarded fields require the workspace MSRV, Rust 1.100.
+Consumers can share the cleanup traits with other dependencies on the same
+compatible `zeroize` release.
 
 ## Clearing an existing destination after a failed merge
 
