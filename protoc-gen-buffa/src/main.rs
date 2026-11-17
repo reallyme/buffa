@@ -292,7 +292,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             // Same path grammar as `unknown_fields_in`. The option takes a
             // path where its unsuffixed siblings take a boolean, so a boolean
             // is rejected instead of becoming the rule `.true`.
-            key @ ("deny_view_json" | "skip_debug" | "zeroize_in") => {
+            key @ ("borrowed_views_only_in" | "deny_view_json" | "skip_debug" | "zeroize_in") => {
                 let path = value.trim();
                 if matches!(path, "true" | "false") {
                     return Err(format!(
@@ -302,6 +302,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
                 }
                 let path = normalize_proto_path(path, key)?;
                 match key {
+                    "borrowed_views_only_in" => codegen.borrowed_views_only_in.push(path),
                     "deny_view_json" => codegen.deny_view_json.push(path),
                     "zeroize_in" => codegen.zeroize_messages.push(path),
                     _ => codegen.skip_debug.push(path),
@@ -881,6 +882,17 @@ mod tests {
         assert!(parse_config("skip_debug=").is_err());
         let err = parse_err("skip_debug=true");
         assert!(err.contains("takes a proto path"), "{err}");
+    }
+
+    #[test]
+    fn borrowed_only_view_rules_normalize_and_accumulate() {
+        let config =
+            parse_config("borrowed_views_only_in=demo.Private,borrowed_views_only_in=.").unwrap();
+        assert_eq!(
+            config.codegen.borrowed_views_only_in,
+            [".demo.Private", "."]
+        );
+        assert!(parse_config("borrowed_views_only_in=").is_err());
     }
 
     #[test]

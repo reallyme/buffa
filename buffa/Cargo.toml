@@ -53,7 +53,8 @@ name = "buffa"
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
-bytes = { workspace = true }
+# GuardedOwnedView uses Bytes::from_owner, added in bytes 1.9.
+bytes = { version = "1.9", default-features = false }
 foldhash = { workspace = true }
 hashbrown = { workspace = true }
 once_cell = { workspace = true, features = ["alloc"] }

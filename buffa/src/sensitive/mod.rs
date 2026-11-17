@@ -10,10 +10,12 @@
 pub mod arbitrary;
 mod list;
 mod map;
+mod owned_view;
 #[cfg(feature = "arbitrary")]
 pub use arbitrary::GuardedArbitrary;
 pub use list::{IterMut, List};
 pub use map::{Map, MapKey};
+pub use owned_view::{GuardedOwnedView, GuardedViewError};
 pub use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// Fixed diagnostics used by generated guarded JSON visitors.
