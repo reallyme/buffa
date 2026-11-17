@@ -28,7 +28,7 @@ buffa-smolstr = { workspace = true, features = ["serde"] }
 # Derives the `ProtoString` impl, and with its `serde` key the JSON impls, of
 # the crate-local string newtypes in the `vtable_string_repr` and `string_map`
 # fixtures.
-buffa-remote-derive = { package = "reallyme-buffa-remote-derive", path = "../buffa-remote-derive" }
+buffa-remote-derive = { package = "reallyme-buffa-remote-derive", path = "../buffa-remote-derive", version = "=0.1.3" }
 bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

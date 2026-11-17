@@ -6,8 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-buffa = { package = "reallyme-buffa", path = "../../buffa", features = ["text"] }
-buffa-types = { package = "reallyme-buffa-types", path = "../../buffa-types" }
+buffa = { package = "reallyme-buffa", path = "../../buffa", version = "=0.1.3", features = ["text"] }
+buffa-types = { package = "reallyme-buffa-types", path = "../../buffa-types", version = "=0.1.3" }
 
 [build-dependencies]
-buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build", version = "=0.1.3" }

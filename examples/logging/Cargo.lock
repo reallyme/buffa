@@ -126,7 +126,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bytes",
  "foldhash",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-types"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bytes",
  "jiff",

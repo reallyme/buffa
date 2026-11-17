@@ -37,11 +37,11 @@ reflect = ["buffa-types/reflect"]
 table = []
 
 [dependencies]
-buffa = { package = "reallyme-buffa", path = "../buffa", version = "=0.1.2", default-features = false, features = ["json", "text"] }
-buffa-types = { package = "reallyme-buffa-types", path = "../buffa-types", version = "=0.1.2", default-features = false, features = ["json"] }
-buffa-descriptor = { package = "reallyme-buffa-descriptor", path = "../buffa-descriptor", version = "=0.1.2", default-features = false, features = ["reflect", "json", "std"] }
+buffa = { package = "reallyme-buffa", path = "../buffa", version = "=0.1.3", default-features = false, features = ["json", "text"] }
+buffa-types = { package = "reallyme-buffa-types", path = "../buffa-types", version = "=0.1.3", default-features = false, features = ["json"] }
+buffa-descriptor = { package = "reallyme-buffa-descriptor", path = "../buffa-descriptor", version = "=0.1.3", default-features = false, features = ["reflect", "json", "std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["std", "float_roundtrip"] }
 
 [build-dependencies]
-buffa-build = { package = "reallyme-buffa-build", path = "../buffa-build", version = "=0.1.2" }
+buffa-build = { package = "reallyme-buffa-build", path = "../buffa-build", version = "=0.1.3" }

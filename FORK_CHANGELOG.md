@@ -5,6 +5,26 @@ Upstream release history remains in [CHANGELOG.md](CHANGELOG.md).
 
 Versioning is independent of upstream. Compatible updates increment the patch version; breaking changes increment the minor version while the major version is zero.
 
+Release 0.1.3 is an explicit exception to patch compatibility: it raises the MSRV to Rust 1.100 and changes external integration lines. Its Breaking changes section records the required migration.
+
+## [0.1.3] - 2026-11-17
+
+### Breaking changes
+
+- Upgrade dependencies, including the public foldhash 0.2, hashbrown 0.17 and jiff 1 integrations. Downstream code naming those external types must use the corresponding compatibility lines.
+
+- Require Rust 1.100 for every feature, pin development and release tooling to Rust 1.100.0, and verify Cargo lockfile format 4 during package validation.
+
+### Added
+
+- Add opt-in, descriptor-checked native adapter generation through typed protobuf options, Rust configuration and bounded manifests. Closed selectors reject unspecified and unknown values, preserve explicit normalization and external registrations, and provide checked conversions. Payload selectors and borrowed byte/capability adapters preserve native signatures without changing portable generation.
+
+### Security
+
+- Preserve full guarded-list allocation cleanup after upgrading zeroize: erase vacated element storage after destructors run, including inactive enum payloads. Verify both explicit clearing and destruction with allocator observations.
+
+[0.1.3]: https://github.com/reallyme/buffa/releases/tag/reallyme-v0.1.3
+
 ## [0.1.2] - 2026-11-14
 
 ### Changed

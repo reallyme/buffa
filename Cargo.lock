@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "buffa-smolstr"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "serde",
@@ -81,7 +81,7 @@ dependencies = [
 
 [[package]]
 name = "buffa-test"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arbitrary",
  "base64",
@@ -105,7 +105,7 @@ dependencies = [
 
 [[package]]
 name = "buffa-yaml"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "buffa-test",
  "reallyme-buffa",
@@ -655,7 +655,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arbitrary",
  "base64",
@@ -673,7 +673,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-build"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "reallyme-buffa-codegen",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-codegen"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-descriptor"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arbitrary",
  "reallyme-buffa",
@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-proto-options"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arbitrary",
  "reallyme-buffa",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-remote-derive"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arbitrary",
  "ecow",
@@ -738,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-types"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "arbitrary",
  "bytes",
@@ -757,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-protoc-gen-buffa"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "reallyme-buffa-codegen",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-protoc-gen-buffa-packaging"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "reallyme-buffa-codegen",

@@ -175,7 +175,7 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "reallyme-buffa"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "bytes",
  "foldhash",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-build"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "reallyme-buffa-codegen",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-codegen"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -215,7 +215,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-descriptor"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "rustversion",
@@ -226,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-proto-options"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "reallyme-buffa",
  "serde",

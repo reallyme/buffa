@@ -10,7 +10,7 @@ The fork has an independent version line. Compatible fixes can be released as 0.
 
 **0.1.2** updates the ProtoJSON base64 dependency to 0.23.1.
 
-The next release adds opt-in, descriptor-checked native adapters.
+**0.1.3** adds opt-in, descriptor-checked native adapters. It also raises the MSRV to Rust 1.100 and updates the external integration lines listed in [the breaking changes](FORK_CHANGELOG.md). This release is an explicit exception to the patch compatibility policy.
 
 ## Packages and Rust names
 
@@ -26,7 +26,7 @@ The next release adds opt-in, descriptor-checked native adapters.
 | `reallyme-protoc-gen-buffa` | binary `protoc-gen-reallyme-buffa` |
 | `reallyme-protoc-gen-buffa-packaging` | binary `protoc-gen-reallyme-buffa-packaging` |
 
-The source directories and protobuf package names are unchanged. Generated Rust still refers to `::buffa`, `::buffa_types` and `::buffa_descriptor`. All published internal dependencies select the ReallyMe packages at exactly 0.1.2. The test, YAML and reference example crates remain unpublished.
+The source directories and protobuf package names are unchanged. Generated Rust still refers to `::buffa`, `::buffa_types` and `::buffa_descriptor`. All published internal dependencies select the ReallyMe packages at exactly 0.1.3. The test, YAML and reference example crates remain unpublished.
 
 ## Consumer migration
 
@@ -34,12 +34,12 @@ Change the workspace dependencies and regenerate every schema with this generato
 
 ```toml
 [workspace.dependencies]
-buffa = { package = "reallyme-buffa", version = "=0.1.2" }
-buffa-types = { package = "reallyme-buffa-types", version = "=0.1.2" }
-buffa-descriptor = { package = "reallyme-buffa-descriptor", version = "=0.1.2" }
-buffa-proto-options = { package = "reallyme-buffa-proto-options", version = "=0.1.2" }
-buffa-build = { package = "reallyme-buffa-build", version = "=0.1.2" }
-buffa-remote-derive = { package = "reallyme-buffa-remote-derive", version = "=0.1.2" }
+buffa = { package = "reallyme-buffa", version = "=0.1.3" }
+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.3" }
+buffa-descriptor = { package = "reallyme-buffa-descriptor", version = "=0.1.3" }
+buffa-proto-options = { package = "reallyme-buffa-proto-options", version = "=0.1.3" }
+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.3" }
+buffa-remote-derive = { package = "reallyme-buffa-remote-derive", version = "=0.1.3" }
 ```
 
 Add only the crates and features that the application uses. For guarded fields, enable `buffa/zeroize`; the guarded WKT family needs `buffa-types/sensitive`. JSON and reflection features remain explicit. Preserve any `default-features = false` needed for `no_std`.
@@ -49,13 +49,13 @@ Use the ReallyMe package family consistently across generated proto crates and t
 Install both tools from the same release:
 
 ```sh
-cargo install reallyme-protoc-gen-buffa --version '=0.1.2' --locked
-cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.2' --locked
+cargo install reallyme-protoc-gen-buffa --version '=0.1.3' --locked
+cargo install reallyme-protoc-gen-buffa-packaging --version '=0.1.3' --locked
 protoc-gen-reallyme-buffa --version
 protoc-gen-reallyme-buffa-packaging --version
 ```
 
-The expected outputs are `protoc-gen-reallyme-buffa 0.1.2` and `protoc-gen-reallyme-buffa-packaging 0.1.2`. A generation guard should require these exact names and versions. The binaries can coexist with the upstream binaries.
+The expected outputs are `protoc-gen-reallyme-buffa 0.1.3` and `protoc-gen-reallyme-buffa-packaging 0.1.3`. A generation guard should require these exact names and versions. The binaries can coexist with the upstream binaries.
 
 ```yaml
 version: v2
