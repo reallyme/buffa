@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Zero-copy borrowed message views.
 //!
 //! Buffa generates two representations for each protobuf message:
@@ -609,8 +610,8 @@ macro_rules! impl_view_reborrow {
     since(1.78),
     diagnostic::on_unimplemented(
         message = "`{Self}` does not implement `ViewLifetimeParametric` — required by every `OwnedView` constructor",
-        note = "for a generated view type, this impl is emitted by codegen since buffa 0.10: \
-                regenerate the crate that defines `{Self}` with buffa 0.10.0 or newer",
+        note = "for a generated view type, this impl is emitted by the matching ReallyMe codegen release: \
+                regenerate the crate that defines `{Self}` with the matching ReallyMe generator release",
         note = "in code generic over `M: HasMessageView`, add the bound `M::View<'static>: ViewLifetimeParametric` \
                 at the use site — it cannot live on the trait itself",
         note = "for a hand-written view type, audit it against the trait's `# Safety` section, then add \
@@ -701,9 +702,9 @@ macro_rules! unsafe_impl_view_lifetime_parametric {
     diagnostic::on_unimplemented(
         message = "`{Self}` does not implement `HasMessageView` — its message-view family was not generated or is not enabled",
         note = "the `HasMessageView` impl is emitted next to each message's view types: \
-                regenerate the crate that defines `{Self}` with buffa 0.7.0 or newer and \
+                regenerate the crate that defines `{Self}` with the matching ReallyMe generator release and \
                 views enabled — `generate_views(true)` (on by default) in a buffa-build / \
-                buffa-codegen config, or `views=true` for protoc-gen-buffa",
+                buffa-codegen config, or `views=true` for protoc-gen-reallyme-buffa",
         note = "if the defining crate feature-gates its generated impls, enabling its views \
                 feature is enough — no regeneration needed"
     )

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! The core [`Message`] trait and [`DecodeOptions`] builder.
 //!
 //! Every generated message type implements [`Message`], which provides

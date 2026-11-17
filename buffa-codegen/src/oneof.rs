@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Oneof enum code generation.
 
 use crate::generated::descriptor::field_descriptor_proto::Type;

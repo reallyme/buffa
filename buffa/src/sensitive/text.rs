@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 use super::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// A bounded temporary text buffer whose entire storage is wiped on drop.

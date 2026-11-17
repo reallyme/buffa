@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Code generation context and descriptor-to-Rust mapping state.
 
 use std::borrow::Cow;

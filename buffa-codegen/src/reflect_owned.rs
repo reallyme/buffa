@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Code generation for vtable-mode reflection on owned message types.
 //!
 //! Parallel to [`reflect_view`](crate::reflect_view), but for the owned struct

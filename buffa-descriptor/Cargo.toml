@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa-descriptor"
-description = "Protobuf descriptor types (FileDescriptorProto, DescriptorProto, ...) for buffa"
+name = "reallyme-buffa-descriptor"
+readme = "README.md"
+description = "ReallyMe fork: Protobuf descriptor types (FileDescriptorProto, DescriptorProto, ...) for buffa"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +10,9 @@ license.workspace = true
 repository.workspace = true
 keywords = ["protobuf", "protocol-buffers", "descriptor", "reflection"]
 categories = ["encoding", "no-std"]
+
+[lib]
+name = "buffa_descriptor"
 
 [dependencies]
 buffa = { workspace = true }
@@ -24,7 +29,7 @@ thiserror = { workspace = true, optional = true }
 # always available.
 #
 # The codegen toolchain (`buffa-codegen` / `buffa-build` /
-# `protoc-gen-buffa`) depends on this crate with `default-features = false`
+# `protoc-gen-reallyme-buffa`) depends on this crate with `default-features = false`
 # and only `std` — it parses descriptors, it doesn't serialise them to
 # JSON / text or borrow them as views. Downstream consumers whose protos
 # reference `descriptor.proto` types as fields (most commonly anything

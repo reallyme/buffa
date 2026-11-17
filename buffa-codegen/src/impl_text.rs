@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Code generation for `impl TextFormat`.
 //!
 //! Emits `encode_text` and `merge_text` implementations that call into the

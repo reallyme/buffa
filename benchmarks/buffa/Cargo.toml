@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "bench-buffa"
 version = "0.1.0"
@@ -11,8 +12,8 @@ autobenches = false  # all bench targets are listed explicitly; keep benches/com
 bench = false
 
 [dependencies]
-buffa = { path = "../../buffa", features = ["json"] }
-buffa-descriptor = { path = "../../buffa-descriptor", features = ["reflect", "json", "std"] }
+buffa = { package = "reallyme-buffa", path = "../../buffa", features = ["json"] }
+buffa-descriptor = { package = "reallyme-buffa-descriptor", path = "../../buffa-descriptor", features = ["reflect", "json", "std"] }
 buffa-smolstr = { path = "../../examples/buffa-smolstr", features = ["serde"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -20,7 +21,7 @@ bytes = "1"
 smallvec = { version = "1", features = ["serde"], optional = true }
 
 [build-dependencies]
-buffa-build = { path = "../../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../../buffa-build" }
 
 [dev-dependencies]
 criterion = "0.5"

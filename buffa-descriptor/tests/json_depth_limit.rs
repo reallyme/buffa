@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Reflective JSON serialization must bound nesting across
 //! `google.protobuf.Any` boundaries.
 //!
@@ -9,7 +10,7 @@
 //! serde error instead, and that the budget is shared with the inner decode.
 //!
 //! Run standalone with (the file compiles to nothing without the features):
-//! `cargo test -p buffa-descriptor --features reflect,json --test json_depth_limit`
+//! `cargo test -p reallyme-buffa-descriptor --features reflect,json --test json_depth_limit`
 
 #![cfg(all(feature = "reflect", feature = "json"))]
 

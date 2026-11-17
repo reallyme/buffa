@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa-remote-derive"
-description = "Derive macros that implement buffa's pluggable owned-type traits (ProtoString, ProtoBytes, ProtoList, ProtoBox, MapStorage) for a newtype wrapping a foreign remote type"
+name = "reallyme-buffa-remote-derive"
+readme = "README.md"
+description = "ReallyMe fork: Derive macros that implement buffa's pluggable owned-type traits (ProtoString, ProtoBytes, ProtoList, ProtoBox, MapStorage) for a newtype wrapping a foreign remote type"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +12,7 @@ keywords = ["protobuf", "protocol-buffers", "derive"]
 categories = ["encoding"]
 
 [lib]
+name = "buffa_remote_derive"
 proc-macro = true
 
 [dependencies]

@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "protoc-gen-buffa"
-description = "protoc plugin for generating Rust code with buffa"
+name = "reallyme-protoc-gen-buffa"
+readme = "README.md"
+description = "ReallyMe fork: protoc plugin for generating Rust code with buffa"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +10,10 @@ license.workspace = true
 repository.workspace = true
 keywords = ["protobuf", "protocol-buffers", "protoc", "plugin", "codegen"]
 categories = ["development-tools::build-utils", "command-line-utilities"]
+
+[[bin]]
+name = "protoc-gen-reallyme-buffa"
+path = "src/main.rs"
 
 [dependencies]
 buffa = { workspace = true, features = ["std", "fast-utf8"] }

@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 # Stress test: generate Rust code for the entire Google Cloud APIs proto set
 # and compile it to validate correctness.
 #
@@ -15,7 +16,7 @@
 #   docker run --rm -v ./stress/googleapis/out:/out buffa-stress-googleapis
 
 # ── Stage 1: build protoc-gen-buffa (static musl binary) ────────────────
-FROM rust:1.85-slim AS builder
+FROM rust:1.95.0-slim AS builder
 
 RUN apt-get update && apt-get install -y pkg-config musl-tools \
     && rm -rf /var/lib/apt/lists/*
@@ -24,6 +25,10 @@ RUN rustup target add x86_64-unknown-linux-musl
 WORKDIR /build
 
 COPY Cargo.toml Cargo.lock ./
+COPY buffa-proto-options/ buffa-proto-options/
+COPY buffa-remote-derive/ buffa-remote-derive/
+COPY buffa-yaml/ buffa-yaml/
+COPY examples/buffa-smolstr/ examples/buffa-smolstr/
 COPY buffa/             buffa/
 COPY buffa-build/       buffa-build/
 COPY buffa-codegen/     buffa-codegen/
@@ -33,12 +38,12 @@ COPY buffa-types/       buffa-types/
 COPY protoc-gen-buffa/  protoc-gen-buffa/
 COPY protoc-gen-buffa-packaging/ protoc-gen-buffa-packaging/
 
-RUN cargo build --release --bin protoc-gen-buffa --target x86_64-unknown-linux-musl
+RUN cargo build --release --bin protoc-gen-reallyme-buffa --target x86_64-unknown-linux-musl
 
 # ── Stage 2: generate code with buf ─────────────────────────────────────
 FROM bufbuild/buf:1.50.0 AS generator
 
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/protoc-gen-buffa /usr/local/bin/protoc-gen-buffa
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/protoc-gen-reallyme-buffa /usr/local/bin/protoc-gen-reallyme-buffa
 
 WORKDIR /workspace
 COPY stress/googleapis/buf.gen.yaml .
@@ -60,12 +65,16 @@ RUN set -eu; \
     cat /generate.log
 
 # ── Stage 3: compile the generated code ─────────────────────────────────
-FROM rust:1.85-slim AS compiler
+FROM rust:1.95.0-slim AS compiler
 
 WORKDIR /compile
 
 # Copy buffa workspace source (needed as dependencies).
 COPY Cargo.toml Cargo.lock ./
+COPY buffa-proto-options/ buffa-proto-options/
+COPY buffa-remote-derive/ buffa-remote-derive/
+COPY buffa-yaml/ buffa-yaml/
+COPY examples/buffa-smolstr/ examples/buffa-smolstr/
 COPY buffa/             buffa/
 COPY buffa-build/       buffa-build/
 COPY buffa-codegen/     buffa-codegen/
@@ -83,7 +92,7 @@ COPY stress/googleapis/exclude_from_compile.txt exclude_from_compile.txt
 COPY stress/googleapis/Cargo.stress.toml Cargo.stress.toml
 
 # Install tools needed for the compilation step.
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/protoc-gen-buffa /usr/local/bin/protoc-gen-buffa
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/protoc-gen-reallyme-buffa /usr/local/bin/protoc-gen-reallyme-buffa
 RUN apt-get update && apt-get install -y python3 protobuf-compiler && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p src stress-crate && python3 gen_lib_rs.py gen/ "../gen/" > src/lib.rs
 # Add the stress crate as a workspace member and compile.

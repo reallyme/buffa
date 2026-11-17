@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Optional message field wrapper that provides ergonomic access.
 //!
 //! `MessageField<T>` replaces `Option<Box<T>>` for optional/singular message
@@ -97,7 +98,7 @@ macro_rules! impl_default_instance {
 /// (orphan rule); wrap it in a crate-local newtype, like the `ProtoString`
 /// newtype pattern.
 ///
-/// [bti]: https://docs.rs/buffa-build/latest/buffa_build/struct.Config.html#method.box_type_in
+/// [bti]: https://docs.rs/reallyme-buffa-build/latest/buffa_build/struct.Config.html#method.box_type_in
 ///
 /// # Why `DerefMut` (and why `Rc` / `Arc` are excluded)
 ///
@@ -199,7 +200,7 @@ impl<T> ProtoBox<T> for Box<T> {
 /// recursion-aware: a field that would form an infinite-size cycle is silently
 /// kept on `Box`. Opt out per-field with `box_type_in(PointerRepr::Box, …)`.
 ///
-/// [pri]: https://docs.rs/buffa-codegen/latest/buffa_codegen/enum.PointerRepr.html#variant.Inline
+/// [pri]: https://docs.rs/reallyme-buffa-codegen/latest/buffa_codegen/enum.PointerRepr.html#variant.Inline
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[repr(transparent)]
 pub struct Inline<T>(pub T);

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Unknown field preservation for round-trip fidelity.
 
 use crate::encode_sink::EncodeSink;
@@ -20,7 +21,7 @@ impl UnknownFields {
     /// [`ReflectMessage::unknown_fields`] return value for implementations
     /// that don't preserve unknown fields).
     ///
-    /// [`ReflectMessage::unknown_fields`]: https://docs.rs/buffa-descriptor/latest/buffa_descriptor/reflect/trait.ReflectMessage.html#method.unknown_fields
+    /// [`ReflectMessage::unknown_fields`]: https://docs.rs/reallyme-buffa-descriptor/latest/buffa_descriptor/reflect/trait.ReflectMessage.html#method.unknown_fields
     pub const fn new() -> Self {
         Self { fields: Vec::new() }
     }

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Error types for buffa encoding and decoding operations.
 
 /// An error that occurred while decoding a protobuf message.

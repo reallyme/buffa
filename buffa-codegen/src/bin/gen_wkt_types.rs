@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! One-shot tool to generate the well-known-type Rust structs for buffa-types.
 //!
 //! buffa-types ships with this output **checked in** (`buffa-types/src/generated/`)
@@ -51,7 +52,7 @@ fn main() {
         eprintln!("Usage: gen_wkt_types <descriptor_set.pb> <output_dir>");
         eprintln!();
         eprintln!("Typical invocation from workspace root:");
-        eprintln!("  cargo run -p buffa-codegen --bin gen_wkt_types -- \\");
+        eprintln!("  cargo run -p reallyme-buffa-codegen --bin gen_wkt_types -- \\");
         eprintln!("      /tmp/wkt.pb buffa-types/src/generated");
         std::process::exit(1);
     }

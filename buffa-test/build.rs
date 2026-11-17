@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 /// Compile a schema twice, with its `package <base>` renamed to `<base>u` and
 /// generated with the default unrolled codec, and to `<base>t` and generated
 /// with `codec_strategy = Table`, except for the messages in `unrolled` (paths

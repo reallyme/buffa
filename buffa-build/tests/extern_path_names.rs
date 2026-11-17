@@ -1,5 +1,6 @@
+// Modified by ReallyMe Technologies Limited.
 //! `Config::extern_path` proto names: `compile` normalizes a valid name and
-//! rejects a malformed one, with the rules `protoc-gen-buffa` applies.
+//! rejects a malformed one, with the rules `protoc-gen-reallyme-buffa` applies.
 
 use buffa_build::Config;
 use buffa_codegen::generated::descriptor::field_descriptor_proto::{Label, Type};

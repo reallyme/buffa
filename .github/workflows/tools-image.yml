@@ -1,12 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 name: Build Tools Image
 
-# Triggers:
-#   1. Manual dispatch — choose a specific protobuf version to build.
-#   2. Push to main that modifies Dockerfile.tools — keeps the cached image
-#      current when the build recipe itself is updated.
-#
-# In both cases the resulting image is pushed to GHCR and tagged with the
-# protobuf version (e.g. ghcr.io/<owner>/buffa/tools:v33.5).
+# Manual dispatch builds and publishes the selected protobuf tools image.
+# The image is tagged with its protobuf version under this fork repository.
 
 on:
   workflow_dispatch:
@@ -16,9 +12,6 @@ on:
         required: true
         default: 'v33.5'
 
-  push:
-    branches: [main]
-    paths: ['conformance/Dockerfile.tools']
 
 permissions:
   contents: read
@@ -34,6 +27,7 @@ env:
 
 jobs:
   build:
+    if: github.repository == 'reallyme/buffa'
     runs-on: ubuntu-latest
 
     steps:
@@ -61,8 +55,6 @@ jobs:
 
       # Determine the protobuf version to build.
       # - workflow_dispatch:  use the explicit input
-      # - push (Dockerfile change): extract the default from ARG PROTOBUF_TAG=
-      #   in Dockerfile.tools so the version stays in sync with the file.
       #
       # The input is passed via an environment variable rather than being
       # interpolated directly into the shell script to prevent command injection.
@@ -100,8 +92,7 @@ jobs:
           sbom: true
 
           # GHA cache backend — layers are stored in the GitHub Actions cache
-          # and reused across runs.  A shared scope ensures both trigger paths
-          # (dispatch and path-push) draw from the same cache pool.
+          # and reused across manual runs.
           #
           # mode=max: cache every intermediate layer, not just the final stage.
           # This is important here because the expensive work (cloning abseil,

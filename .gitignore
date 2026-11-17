@@ -1,4 +1,6 @@
 /target
+# Release helper bytecode is local interpreter state, not release source.
+/scripts/__pycache__/
 # Conformance proto files are fetched from the tools image.
 conformance/protos/
 conformance/target-nostd/
@@ -30,3 +32,7 @@ fuzz/corpus/
 # directory, because it needs paths relative to the working directory. An
 # interrupted run leaves the directory behind.
 /buffa-build/.tmp*/
+
+# Reviewed release evidence produced and consumed by release workflows.
+/release-attestation/
+/reviewed-crates/

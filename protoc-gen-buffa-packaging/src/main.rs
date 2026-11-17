@@ -1,4 +1,5 @@
-//! protoc-gen-buffa-packaging — emits a `mod.rs` module tree for buffa's
+// Modified by ReallyMe Technologies Limited.
+//! protoc-gen-reallyme-buffa-packaging — emits a `mod.rs` module tree for buffa's
 //! per-package `<pkg>.mod.rs` stitcher output.
 //!
 //! This plugin reads the proto package structure (not message/service
@@ -13,9 +14,9 @@
 //!
 //! ```yaml
 //! plugins:
-//!   - local: protoc-gen-buffa
+//!   - local: protoc-gen-reallyme-buffa
 //!     out: src/generated
-//!   - local: protoc-gen-buffa-packaging
+//!   - local: protoc-gen-reallyme-buffa-packaging
 //!     out: src/generated
 //!     strategy: all
 //! ```
@@ -32,18 +33,18 @@
 //!   service-stub generator that skips files without services.
 //! - `exclude_package=<pkg>` — drop a proto package (and its subpackages)
 //!   from the module tree. Repeatable; the leading dot is optional. Must
-//!   match the `exclude_package` passed to `protoc-gen-buffa` so the
+//!   match the `exclude_package` passed to `protoc-gen-reallyme-buffa` so the
 //!   `mod.rs` never `include!`s a stitcher the codegen plugin skipped.
 //! - `shared_descriptor_pool=true` — emit the shared `__buffa_fds` descriptor
 //!   module at the root of `mod.rs` (dedup mode). Same option name as on
-//!   `protoc-gen-buffa`, and the two **must match**: the codegen plugin emits
+//!   `protoc-gen-reallyme-buffa`, and the two **must match**: the codegen plugin emits
 //!   the per-package delegations, this plugin emits the root module they point
 //!   at. The descriptor set is embedded inline (a byte-string literal):
 //!   protoc's plugin protocol carries only UTF-8 text, so a binary
 //!   `include_bytes!` sidecar isn't possible here — inline still collapses the
 //!   per-package duplication to one copy. (`buffa-build`, which writes files
 //!   directly, uses a sidecar instead.) Feature gating (`gate_impls=true` on
-//!   `protoc-gen-buffa`) is not supported on this path; `protoc-gen-buffa`
+//!   `protoc-gen-reallyme-buffa`) is not supported on this path; `protoc-gen-reallyme-buffa`
 //!   rejects the combination.
 //!
 //! Invoke the plugin once per output tree — use multiple entries in
@@ -58,7 +59,7 @@
 //! or the `mod.rs` will reference nonexistent stitchers (or miss real
 //! ones).
 //!
-//! `protoc-gen-buffa` emits a stitcher for every package unconditionally,
+//! `protoc-gen-reallyme-buffa` emits a stitcher for every package unconditionally,
 //! so no filter is needed. A service-stub generator that skips packages
 //! without a `service` declaration needs `filter=services`. If a codegen
 //! plugin's skip condition is not expressible as a predicate on
@@ -96,7 +97,7 @@ impl Filter {
 /// only when the filter includes at least one of its files *and* the package
 /// is not excluded. Exclusions route through
 /// [`buffa_codegen::package_is_excluded`] — the same predicate
-/// `protoc-gen-buffa` uses to drop files from generation — so both plugins
+/// `protoc-gen-reallyme-buffa` uses to drop files from generation — so both plugins
 /// skip exactly the same packages.
 #[derive(Debug, Default)]
 struct Selection {
@@ -116,18 +117,18 @@ impl Selection {
 }
 
 const HELP: &str = "\
-protoc-gen-buffa-packaging — emits a mod.rs module tree for buffa output.
+protoc-gen-reallyme-buffa-packaging — emits a mod.rs module tree for buffa output.
 
 This binary speaks the protoc plugin protocol: it reads a serialized
 CodeGeneratorRequest from stdin and writes a CodeGeneratorResponse to
 stdout. It is not intended to be invoked directly. Use it via buf or
-protoc alongside protoc-gen-buffa:
+protoc alongside protoc-gen-reallyme-buffa:
 
   # buf.gen.yaml
   plugins:
-    - local: protoc-gen-buffa
+    - local: protoc-gen-reallyme-buffa
       out: src/gen
-    - local: protoc-gen-buffa-packaging
+    - local: protoc-gen-reallyme-buffa-packaging
       out: src/gen
       strategy: all
 
@@ -135,17 +136,17 @@ Options (default: include every package in file_to_generate):
   filter=services       only include packages declaring at least one service
   exclude_package=<pkg> drop a package (and its subpackages) from the tree;
                         repeatable, leading dot optional. Must match the
-                        exclude_package passed to protoc-gen-buffa.
+                        exclude_package passed to protoc-gen-reallyme-buffa.
   shared_descriptor_pool=true
                         emit the shared __buffa_fds descriptor module at the
                         tree root. Must match the shared_descriptor_pool=true
-                        passed to protoc-gen-buffa.";
+                        passed to protoc-gen-reallyme-buffa.";
 
 fn main() {
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "--version" | "-V" => {
-                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+                println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
                 return;
             }
             "--help" | "-h" => {
@@ -172,7 +173,7 @@ fn main() {
             };
             write_response(&response).unwrap_or_else(|io_err| {
                 eprintln!(
-                    "protoc-gen-buffa-packaging: failed to write error response: {}",
+                    "protoc-gen-reallyme-buffa-packaging: failed to write error response: {}",
                     io_err
                 );
                 std::process::exit(1);
@@ -226,12 +227,12 @@ fn generate(request: &CodeGeneratorRequest) -> Result<CodeGeneratorResponse, Str
     // embedding would have carried, so cross-package reflection resolves.
     if selection.shared_pool {
         // No feature overrides here: this plugin never receives them (they are
-        // protoc-gen-buffa options), so it can't reproduce them. protoc-gen-buffa
+        // protoc-gen-reallyme-buffa options), so it can't reproduce them. protoc-gen-reallyme-buffa
         // rejects `shared_descriptor_pool` + overrides, so a build that reaches
         // this point has none — the empty slice matches the codegen side.
         let fds_bytes = buffa_codegen::encode_descriptor_set(&request.proto_file, &[]);
         // Gate is `None` for the same reason: this plugin never sees
-        // protoc-gen-buffa's gate config, and that plugin rejects the
+        // protoc-gen-reallyme-buffa's gate config, and that plugin rejects the
         // combination, so the root module is emitted unconditionally.
         let root = buffa_codegen::shared_descriptor_root_module(
             &fds_bytes,
@@ -288,7 +289,7 @@ fn parse_options(params: &str) -> Result<Selection, String> {
                 }
             }
             "exclude_package" => {
-                // Shares protoc-gen-buffa's normalization (one helper in
+                // Shares protoc-gen-reallyme-buffa's normalization (one helper in
                 // buffa-codegen), so both plugins drop the same packages and the
                 // mod.rs never references a skipped stitcher. The option key
                 // itself must also stay spelled `exclude_package` in both

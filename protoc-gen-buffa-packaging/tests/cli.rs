@@ -1,6 +1,7 @@
+// Modified by ReallyMe Technologies Limited.
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_protoc-gen-buffa-packaging");
+const BIN: &str = env!("CARGO_BIN_EXE_protoc-gen-reallyme-buffa-packaging");
 
 #[test]
 fn version_prints_name_and_version() {
@@ -9,7 +10,10 @@ fn version_prints_name_and_version() {
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert_eq!(
         stdout.trim(),
-        format!("protoc-gen-buffa-packaging {}", env!("CARGO_PKG_VERSION"))
+        format!(
+            "protoc-gen-reallyme-buffa-packaging {}",
+            env!("CARGO_PKG_VERSION")
+        )
     );
 }
 
@@ -19,7 +23,7 @@ fn short_version_flag() {
     assert!(out.status.success());
     assert!(String::from_utf8(out.stdout)
         .unwrap()
-        .starts_with("protoc-gen-buffa-packaging "));
+        .starts_with("protoc-gen-reallyme-buffa-packaging "));
 }
 
 #[test]

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! protoc plugin for generating Rust code with buffa.
 //!
 //! This binary follows the protoc plugin protocol:
@@ -6,12 +7,12 @@
 //! 3. Write a serialized `CodeGeneratorResponse` to stdout.
 //!
 //! Usage:
-//!   protoc --buffa_out=. my_service.proto
+//!   protoc --reallyme-buffa_out=. my_service.proto
 //!
 //! Or with buf:
 //!   # buf.gen.yaml
 //!   plugins:
-//!     - local: protoc-gen-buffa
+//!     - local: protoc-gen-reallyme-buffa
 //!       out: src/gen
 
 use std::io::{self, Read, Write};
@@ -24,54 +25,54 @@ use buffa_codegen::generated::descriptor::Edition;
 use buffa_codegen::{CodeGenConfig, CodecStrategy, EnumTypeOverride, FeatureOverride};
 
 const HELP: &str = "\
-protoc-gen-buffa — protoc plugin for generating Rust code with buffa.
+protoc-gen-reallyme-buffa — protoc plugin for generating Rust code with buffa.
 
 This binary speaks the protoc plugin protocol: it reads a serialized
 CodeGeneratorRequest from stdin and writes a CodeGeneratorResponse to
 stdout. It is not intended to be invoked directly. Use it via protoc
 or buf (with this binary on PATH):
 
-  protoc --buffa_out=. my_service.proto
+  protoc --reallyme-buffa_out=. my_service.proto
 
   # buf.gen.yaml
   plugins:
-    - local: protoc-gen-buffa
+    - local: protoc-gen-reallyme-buffa
       out: src/gen
 
 To point protoc at a binary not on PATH, use
-  --plugin=protoc-gen-buffa=/abs/path/to/protoc-gen-buffa
+  --plugin=protoc-gen-reallyme-buffa=/abs/path/to/protoc-gen-reallyme-buffa
 
 For a generated mod.rs module tree, also configure
-protoc-gen-buffa-packaging.
+protoc-gen-reallyme-buffa-packaging.
 
 Options are passed as a comma-separated parameter string, e.g.
-  --buffa_opt=views=true,json=true,extern_path=.my.pkg=::my_crate
+  --reallyme-buffa_opt=views=true,json=true,extern_path=.my.pkg=::my_crate
 The proto side of extern_path is a dotted protobuf package or type name
 (leading dot optional); a name with an empty or non-identifier segment
 is an error.
 
 To reject JSON serialization of a message's views and containing views while
 keeping owned-message JSON, use deny_view_json (repeatable; '.' selects all):
-  --buffa_opt=json=true,deny_view_json=.my.pkg.Private
+  --reallyme-buffa_opt=json=true,deny_view_json=.my.pkg.Private
 
 For recursive owned/view cleanup, use zeroize=true or zeroize_in (repeatable;
 '.' selects all). Guarded fields and buffa's zeroize feature are required:
-  --buffa_opt=unknown_fields=false,zeroize_in=.my.pkg.Private
+  --reallyme-buffa_opt=unknown_fields=false,zeroize_in=.my.pkg.Private
 Unmatched cleanup/export selectors are errors unless scoped generation
 explicitly enables allow_unmatched_message_rules=true.
 
 To skip a package pulled in by include_imports (e.g. an option-only
 import that is never referenced as a field), use exclude_package:
-  --buffa_opt=exclude_package=.buf.validate,exclude_package=.gnostic
+  --reallyme-buffa_opt=exclude_package=.buf.validate,exclude_package=.gnostic
 
-See <https://github.com/anthropics/buffa/blob/main/docs/guide.md> for
+See <https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guide.md> for
 the full option list.";
 
 fn main() {
     if let Some(arg) = std::env::args().nth(1) {
         match arg.as_str() {
             "--version" | "-V" => {
-                println!("{} {}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+                println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
                 return;
             }
             "--help" | "-h" => {
@@ -98,7 +99,7 @@ fn main() {
             };
             write_response(&response).unwrap_or_else(|io_err| {
                 eprintln!(
-                    "protoc-gen-buffa: failed to write error response: {}",
+                    "protoc-gen-reallyme-buffa: failed to write error response: {}",
                     io_err
                 );
                 std::process::exit(1);
@@ -130,7 +131,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         &config.codegen,
     )?;
     for warning in &warnings {
-        eprintln!("protoc-gen-buffa: warning: {warning}");
+        eprintln!("protoc-gen-reallyme-buffa: warning: {warning}");
     }
 
     // Build the response. `generated` is consumed here so the names and
@@ -193,14 +194,14 @@ struct PluginConfig {
 /// Parse the plugin parameter string into a PluginConfig.
 ///
 /// Parameters are comma-separated key=value pairs:
-///   --buffa_opt=views=true,unknown_fields=false,json=true
+///   --reallyme-buffa_opt=views=true,unknown_fields=false,json=true
 ///
 /// Extern paths use the format `extern_path=<proto>=<rust>`, where `<proto>`
 /// is either a package or a single type FQN (a dotted protobuf name; the
 /// leading dot is optional and one trailing dot is ignored), or `.` for
 /// every type:
-///   --buffa_opt=extern_path=.my.common=::common_protos
-///   --buffa_opt=extern_path=.my.common.Shared=::shared_types::Shared
+///   --reallyme-buffa_opt=extern_path=.my.common=::common_protos
+///   --reallyme-buffa_opt=extern_path=.my.common.Shared=::shared_types::Shared
 fn parse_config(params: &str) -> Result<PluginConfig, String> {
     let mut codegen = CodeGenConfig::default();
     let mut unbox_oneof = false;
@@ -380,7 +381,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             // `shared_descriptor_pool=true` deduplicates the embedded
             // reflection descriptor set: per-package `__buffa::reflect` modules
             // delegate to one shared `__buffa_fds` root module (emitted by
-            // protoc-gen-buffa-packaging), instead of each embedding its own
+            // protoc-gen-reallyme-buffa-packaging), instead of each embedding its own
             // copy. Requires `reflection`/`reflect_mode` on, and the packaging
             // plugin must be run with a matching `shared_descriptor_pool=true`
             // so the root module actually gets emitted.
@@ -469,7 +470,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             // option-only imports that `include_imports` pulls into
             // file_to_generate but that are never referenced as message
             // fields (e.g. buf.validate, gnostic). The leading dot is
-            // optional (normalized like extern_path). protoc-gen-buffa-packaging
+            // optional (normalized like extern_path). protoc-gen-reallyme-buffa-packaging
             // accepts the same option so the generated mod.rs stays in sync.
             "exclude_package" => {
                 codegen
@@ -501,7 +502,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             }
             "mod_file" => {
                 return Err("the mod_file option was removed in 0.2; use \
-                         protoc-gen-buffa-packaging instead. See CHANGELOG \
+                         protoc-gen-reallyme-buffa-packaging instead. See CHANGELOG \
                          for migration."
                     .to_string());
             }
@@ -511,7 +512,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             other => {
                 return Err(format!(
                     "unknown plugin option '{other}'; see \
-                     <https://github.com/anthropics/buffa/blob/main/docs/guide.md#plugin-options> \
+                     <https://github.com/reallyme/buffa/blob/reallyme-v0.1.0/docs/guide.md#plugin-options> \
                      for the supported options"
                 ))
             }
@@ -540,13 +541,13 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
     if codegen.shared_descriptor_pool && codegen.file_per_package {
         return Err("shared_descriptor_pool is not supported together with \
                     file_per_package (the shared __buffa_fds root module is emitted by \
-                    protoc-gen-buffa-packaging's mod.rs, which the file_per_package \
+                    protoc-gen-reallyme-buffa-packaging's mod.rs, which the file_per_package \
                     workflow does not use); drop one of the two options, or use \
                     buffa-build for a shared pool without the packaging plugin"
             .to_string());
     }
 
-    // The shared root module lives in protoc-gen-buffa-packaging's output,
+    // The shared root module lives in protoc-gen-reallyme-buffa-packaging's output,
     // which has no access to this plugin's feature-gate config — so it can't
     // wrap the root in the same `#[cfg(feature = "…")]` the per-package
     // delegations would carry. That would leave the descriptor bytes compiling
@@ -565,7 +566,7 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
 
     // Feature overrides (`open_enums_in` / `override_feature_in`) mutate the
     // descriptors before the embedded reflection set is built. The shared root
-    // module is emitted by protoc-gen-buffa-packaging, a separate process that
+    // module is emitted by protoc-gen-reallyme-buffa-packaging, a separate process that
     // never receives these options, so it would embed the un-overridden set and
     // disagree with the generated code. Reject rather than emit a mismatched
     // pool. (`buffa-build` supports overrides + shared: one process, it applies
@@ -1398,7 +1399,7 @@ mod tests {
     #[test]
     fn mod_file_errors_with_migration_hint() {
         let err = parse_config("mod_file=mod.rs").err().unwrap();
-        assert!(err.contains("protoc-gen-buffa-packaging"));
+        assert!(err.contains("protoc-gen-reallyme-buffa-packaging"));
     }
 
     #[test]

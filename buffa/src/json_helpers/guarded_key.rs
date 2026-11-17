@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Parse borrowed protobuf map-key text without staging an ordinary String.
 use core::{fmt, marker::PhantomData, str::FromStr};
 use serde::{de::DeserializeSeed, Deserializer};

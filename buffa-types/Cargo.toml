@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa-types"
-description = "Protobuf well-known types for buffa"
+name = "reallyme-buffa-types"
+readme = "README.md"
+description = "ReallyMe fork: Protobuf well-known types for buffa"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -34,6 +36,9 @@ jiff = ["dep:jiff"]
 zeroize = ["dep:zeroize", "buffa/zeroize"]
 # Separate wipe-owning WKT family for secret-bearing messages.
 sensitive = ["zeroize", "dep:secrecy", "dep:subtle", "buffa-descriptor?/zeroize"]
+
+[lib]
+name = "buffa_types"
 
 [dependencies]
 zeroize = { workspace = true, optional = true }

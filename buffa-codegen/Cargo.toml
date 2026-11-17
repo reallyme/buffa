@@ -1,6 +1,8 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
-name = "buffa-codegen"
-description = "Shared code generation logic for buffa (descriptor → Rust source)"
+name = "reallyme-buffa-codegen"
+readme = "README.md"
+description = "ReallyMe fork: Shared code generation logic for buffa (descriptor → Rust source)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +10,9 @@ license.workspace = true
 repository.workspace = true
 keywords = ["protobuf", "protocol-buffers", "codegen"]
 categories = ["development-tools::build-utils"]
+
+[lib]
+name = "buffa_codegen"
 
 [dependencies]
 buffa = { workspace = true, features = ["std", "fast-utf8"] }

@@ -1,10 +1,11 @@
+# Modified by ReallyMe Technologies Limited.
 # Build and run buffa protobuf benchmarks.
 #
 # Usage:
 #   docker build -t buffa-bench-buffa -f benchmarks/Dockerfile.bench-buffa .
 #   docker run --rm buffa-bench-buffa
 
-FROM rust:1.87-slim AS builder
+FROM rust:1.95.0-slim AS builder
 
 RUN apt-get update && apt-get install -y \
     protobuf-compiler pkg-config \
@@ -14,6 +15,9 @@ WORKDIR /workspace
 
 # Copy the buffa workspace source (needed as path dependency).
 COPY Cargo.toml Cargo.lock ./
+COPY buffa-proto-options/ buffa-proto-options/
+COPY buffa-remote-derive/ buffa-remote-derive/
+COPY buffa-yaml/ buffa-yaml/
 COPY buffa/             buffa/
 COPY buffa-build/       buffa-build/
 COPY buffa-codegen/     buffa-codegen/

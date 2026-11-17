@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 # Test protoc-gen-buffa against multiple protoc versions.
 #
 # Downloads pre-built protoc binaries from the protobuf GitHub releases,
@@ -47,7 +48,7 @@ RUN set -e; \
 
 # ── Stage 2: Build protoc-gen-buffa ────────────────────────────────────────
 
-FROM rust:1.85-slim AS builder
+FROM rust:1.95.0-slim AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \
@@ -56,7 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 
-RUN cargo build --release --bin protoc-gen-buffa
+RUN cargo build --release --bin protoc-gen-reallyme-buffa
 
 # ── Stage 3: Run compatibility tests ──────────────────────────────────────
 
@@ -69,7 +70,7 @@ ENV PROTOC_VERSIONS="$PROTOC_VERSIONS"
 COPY --from=fetcher /protoc /protoc
 
 # Copy the built plugin.
-COPY --from=builder /src/target/release/protoc-gen-buffa /usr/local/bin/protoc-gen-buffa
+COPY --from=builder /src/target/release/protoc-gen-reallyme-buffa /usr/local/bin/protoc-gen-reallyme-buffa
 
 # Copy test proto files.
 COPY buffa-test/protos/ /test/protos/

@@ -1,0 +1,283 @@
+# Modified by ReallyMe Technologies Limited.
+# SPDX-FileCopyrightText: Copyright © 2026 ReallyMe Technologies Limited. All rights reserved
+
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+name: Crates.io Release
+
+run-name: Crates.io release @ ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: crates-release-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify-preflight:
+    name: Verify reviewed package preflight
+    if: github.repository == 'reallyme/buffa' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    outputs:
+      preflight_run_id: ${{ steps.resolve-attestation.outputs.preflight_run_id }}
+      rust_ci_run_id: ${{ steps.resolve-attestation.outputs.rust_ci_run_id }}
+      release_sha: ${{ steps.verify-source.outputs.commit }}
+      release_version: ${{ steps.verify-source.outputs.version }}
+    steps:
+      - name: Checkout current main release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: reallyme/buffa
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26'
+
+      - name: Resolve current release SHA and version
+        id: verify-source
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_SOURCE_DERIVE_VERSION: '1'
+          RELEASE_SOURCE_WRITE_GITHUB_OUTPUT: '1'
+        working-directory: reallyme/buffa
+        run: python3 scripts/release_support.py source --publishing
+
+      - name: Resolve latest reviewed package preflight
+        id: resolve-attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.verify-source.outputs.commit }}
+          RELEASE_VERSION: ${{ steps.verify-source.outputs.version }}
+          RELEASE_ATTESTATION_RESOLVE_ONLY: '1'
+          RELEASE_ATTESTATION_WRITE_GITHUB_OUTPUT: '1'
+          RELEASE_ATTESTATION_WAIT_SECONDS: '3600'
+          RELEASE_ATTESTATION_POLL_SECONDS: '20'
+        working-directory: reallyme/buffa
+        run: node scripts/verify_release_attestation.mjs
+
+      - name: Download latest reviewed package attestation
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reallyme-buffa-crates-preflight-${{ steps.verify-source.outputs.version }}-${{ steps.verify-source.outputs.commit }}
+          path: reallyme/buffa/release-attestation
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-attestation.outputs.preflight_run_id }}
+
+      - name: Download reviewed crate archives for verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reallyme-buffa-crate-archives-${{ steps.verify-source.outputs.version }}-${{ steps.verify-source.outputs.commit }}
+          path: reallyme/buffa/reviewed-crates
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-attestation.outputs.preflight_run_id }}
+
+      - name: Verify preflight conclusion, commit, version, and artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFLIGHT_RUN_ID: ${{ steps.resolve-attestation.outputs.preflight_run_id }}
+          RELEASE_SHA: ${{ steps.verify-source.outputs.commit }}
+          RELEASE_VERSION: ${{ steps.verify-source.outputs.version }}
+          RELEASE_ATTESTATION_WAIT_SECONDS: '60'
+          RELEASE_ATTESTATION_POLL_SECONDS: '10'
+        working-directory: reallyme/buffa
+        run: |
+          gh attestation verify release-attestation/crates-preflight.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/crates-package-preflight.yml" \
+            --source-digest "$RELEASE_SHA" \
+            --source-ref refs/heads/main \
+            --deny-self-hosted-runners
+          archive_count=0
+          for archive in reviewed-crates/*.crate; do
+            if [ ! -f "$archive" ]; then
+              continue
+            fi
+            gh attestation verify "$archive" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/crates-package-preflight.yml" \
+              --source-digest "$RELEASE_SHA" \
+              --source-ref refs/heads/main \
+              --deny-self-hosted-runners
+            archive_count=$((archive_count + 1))
+          done
+          test "$archive_count" -eq 9
+          node scripts/verify_release_attestation.mjs
+
+      - name: Summarize release authorization
+        env:
+          PREFLIGHT_RUN_ID: ${{ steps.resolve-attestation.outputs.preflight_run_id }}
+          RUST_CI_RUN_ID: ${{ steps.resolve-attestation.outputs.rust_ci_run_id }}
+          RELEASE_SHA: ${{ steps.verify-source.outputs.commit }}
+          RELEASE_VERSION: ${{ steps.verify-source.outputs.version }}
+        run: |
+          {
+            echo '## Reviewed preflight and full Rust CI accepted'
+            echo
+            echo "- Version: \`${RELEASE_VERSION}\`"
+            echo "- Commit: \`${RELEASE_SHA}\`"
+            echo "- Preflight run ID: \`${PREFLIGHT_RUN_ID}\`"
+            echo "- Rust CI run ID: \`${RUST_CI_RUN_ID}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+  publish:
+    name: Publish ReallyMe Buffa crates
+    needs: verify-preflight
+    runs-on: ubuntu-24.04
+    environment: crates-io
+    concurrency:
+      group: crates-release-${{ needs.verify-preflight.outputs.release_version }}-${{ needs.verify-preflight.outputs.release_sha }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      attestations: read
+      id-token: write
+    env:
+      RELEASE_SHA: ${{ needs.verify-preflight.outputs.release_sha }}
+      RELEASE_VERSION: ${{ needs.verify-preflight.outputs.release_version }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/release-upload
+      HAS_BOOTSTRAP_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
+    steps:
+      - name: Checkout certified release commit without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.verify-preflight.outputs.release_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: reallyme/buffa
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0
+
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26'
+
+      - name: Revalidate current main immediately before publication
+        working-directory: reallyme/buffa
+        run: python3 scripts/release_support.py source --publishing
+
+      - name: Download attested crate archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reallyme-buffa-crate-archives-${{ needs.verify-preflight.outputs.release_version }}-${{ needs.verify-preflight.outputs.release_sha }}
+          path: reallyme/buffa/reviewed-crates
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.verify-preflight.outputs.preflight_run_id }}
+
+      - name: Download the reviewed package attestation again before upload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reallyme-buffa-crates-preflight-${{ needs.verify-preflight.outputs.release_version }}-${{ needs.verify-preflight.outputs.release_sha }}
+          path: reallyme/buffa/release-attestation
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.verify-preflight.outputs.preflight_run_id }}
+
+      - name: Reverify successful preflight for the exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFLIGHT_RUN_ID: ${{ needs.verify-preflight.outputs.preflight_run_id }}
+          RELEASE_ATTESTATION_WAIT_SECONDS: '60'
+          RELEASE_ATTESTATION_POLL_SECONDS: '10'
+        working-directory: reallyme/buffa
+        run: node scripts/verify_release_attestation.mjs
+
+      - name: Authenticate with Trusted Publishing
+        id: auth
+        if: env.HAS_BOOTSTRAP_TOKEN != 'true'
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+
+      - name: Publish the reviewed Buffa crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN || steps.auth.outputs.token }}
+        working-directory: reallyme/buffa
+        run: python3 scripts/publish_crates.py --directory reviewed-crates
+
+  finalize:
+    name: Tag and create GitHub release
+    needs: [verify-preflight, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      RELEASE_SHA: ${{ needs.verify-preflight.outputs.release_sha }}
+      RELEASE_VERSION: ${{ needs.verify-preflight.outputs.release_version }}
+    steps:
+      - name: Checkout the published release commit without credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.verify-preflight.outputs.release_sha }}
+          persist-credentials: false
+      - name: Download reviewed publication evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: reallyme-buffa-crate-archives-${{ needs.verify-preflight.outputs.release_version }}-${{ needs.verify-preflight.outputs.release_sha }}
+          path: ${{ runner.temp }}/reviewed-crates
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.verify-preflight.outputs.preflight_run_id }}
+      # Keep the same finalization order as the other ReallyMe Rust repos:
+      # successful crates.io publication first, then the immutable tag/release.
+      - name: Create release tag through the GitHub API
+        id: release-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="reallyme-v${RELEASE_VERSION}"
+          # Query only tags: the commits API can also resolve a same-named branch.
+          remote_tag=$(git ls-remote --tags origin "refs/tags/$tag" "refs/tags/$tag^{}")
+          existing_commit=$(printf '%s\n' "$remote_tag" | awk -v ref="refs/tags/$tag" '
+            $2 == ref { direct = $1 }
+            $2 == ref "^{}" { peeled = $1 }
+            END { print (peeled != "" ? peeled : direct) }
+          ')
+          if [[ -n "$existing_commit" && "$existing_commit" != "$RELEASE_SHA" ]]; then
+            echo '::error::Release tag already identifies a different commit.'
+            exit 1
+          fi
+          if [[ -z "$existing_commit" ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              --field ref="refs/tags/$tag" \
+              --field sha="$RELEASE_SHA" > /dev/null
+          fi
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub release after publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "Release $RELEASE_VERSION" \
+              --notes-file ".changes/reallyme/$RELEASE_VERSION.md"
+          fi
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.assets[].name' | grep -Fxq release.json; then
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              "$RUNNER_TEMP/reviewed-crates/release.json"
+          fi

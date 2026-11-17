@@ -1,3 +1,4 @@
+# Modified by ReallyMe Technologies Limited.
 [package]
 name = "googleapis-stress"
 version = "0.1.0"
@@ -8,5 +9,5 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
-buffa = { path = "buffa" }
-buffa-types = { path = "buffa-types" }
+buffa = { package = "reallyme-buffa", path = "buffa" }
+buffa-types = { package = "reallyme-buffa-types", path = "buffa-types" }

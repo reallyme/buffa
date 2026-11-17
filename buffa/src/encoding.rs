@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Wire format encoding and decoding primitives.
 //!
 //! Implements the protobuf binary wire format: varints, fixed-width integers,

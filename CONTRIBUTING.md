@@ -1,21 +1,24 @@
 # Contributing to buffa
 
-See [DESIGN.md](DESIGN.md) for the architectural overview and [README.md](README.md) for the workspace layout.
+<!-- Modified by ReallyMe Technologies Limited. -->
+
+See [DESIGN.md](DESIGN.md) for the architectural overview and [the overview](docs/overview.md) for the workspace layout.
 
 ## Prerequisites
 
 - **Rust toolchain** — pinned by `rust-toolchain.toml`; rustup installs it automatically on the first `cargo` invocation. This keeps local `cargo fmt`/`cargo clippy` output identical to the CI lint job (rustfmt formatting drifts across releases, so an unpinned toolchain can disagree with CI). Bump the pin together with the `lint-and-test` toolchain in `.github/workflows/ci.yml`.
+- **Python 3.11+** — release helper tests and package/source verification use the standard library only.
 - **protoc v27+** — the test suite includes editions-syntax protos (`edition = "2023"`). The `editions_2024.proto` test requires protoc v32+ (the first release that accepts edition 2024 without `--experimental_editions`) — it's skipped with a cargo warning on older versions. Ubuntu's apt `protobuf-compiler` (v21.12) is too old. Run `task install-protoc` to download the CI-matched version into `.local/` (requires `gh` authenticated), then use `task test-local`.
 
 ## Changelog Entries
 
-`CHANGELOG.md` is a generated file — **do not edit it directly**. Each user-visible change adds a fragment file under `.changes/unreleased/` instead, so concurrent PRs never conflict on the changelog. Create one with:
+`FORK_CHANGELOG.md` is a generated file — **do not edit it directly**. Each user-visible change adds a fragment file under `.changes/reallyme/unreleased/` instead, so concurrent PRs never conflict on the changelog. Create one with:
 
 ```sh
 task changelog-new
 ```
 
-This prompts for a kind (`Breaking changes`, `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`) and a multi-line body, then writes `.changes/unreleased/<kind>-<timestamp>.yaml`. Commit that file with your change. The body is the full Keep a Changelog bullet text (the bullet marker and two-space hanging indent are added at batch time, so write the body flush-left). **Write it as flowing prose — one line per paragraph, no hard line-wraps.** Hard-wrapped text has to be re-flowed by hand on every later edit and produces noisy diffs; the renderer wraps it for you, and `MD013` is off so there is no line-length limit to satisfy.
+This prompts for a kind (`Breaking changes`, `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`) and a multi-line body, then writes `.changes/reallyme/unreleased/<kind>-<timestamp>.yaml`. Commit that file with your change. The body is the full Keep a Changelog bullet text (the bullet marker and two-space hanging indent are added at batch time, so write the body flush-left). **Write it as flowing prose — one line per paragraph, no hard line-wraps.** Hard-wrapped text has to be re-flowed by hand on every later edit and produces noisy diffs; the renderer wraps it for you, and `MD013` is off so there is no line-length limit to satisfy.
 
 Non-interactive (the prompt requires a TTY, so use this form from scripts and agent sessions; `-b` accepts a multi-line body):
 
@@ -24,7 +27,7 @@ task changelog-new -- -k Fixed -b '**Short description of the fix** (#NNN).
 Further detail goes on its own line, however long — the bullet and its hanging indent are added at batch time.'
 ```
 
-At release time, `task changelog-batch -- <version>` rolls the fragments into `.changes/<version>.md` and `task changelog-merge` regenerates `CHANGELOG.md`. CI verifies that `CHANGELOG.md` matches `changie merge` output, so a direct edit will fail the `check-changelog` job.
+At release time, `task changelog-batch -- <version>` rolls the fragments into `.changes/reallyme/<version>.md` and `task changelog-merge` regenerates `FORK_CHANGELOG.md`. CI verifies that `FORK_CHANGELOG.md` matches `changie merge` output, so a direct edit will fail the `check-changelog` job.
 
 ## Adding a Publishable Crate
 
@@ -155,9 +158,19 @@ For the 32-bit tasks, run `task install-targets` first to install the additional
 
 ## Continuous Integration
 
+The manual crates.io workflow verifies successful full CI and a separate package preflight before publication.
+See [RELEASE.md](RELEASE.md) for the approved-main/source, package artifact and credential
+boundaries. Workflow and release-helper changes must pass `actionlint`,
+`scripts/check-action-pins.sh`, and the release-helper unit tests:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_release.py
+node --test scripts/verify_release_attestation.test.mjs
+```
+
 GitHub Actions CI (`.github/workflows/ci.yml`) runs on every push to `main` and on all pull requests. Jobs:
 
-- **lint-and-test** — clippy, `cargo test --workspace`, clippy and tests for `buffa-test` with its `arbitrary` feature (`task test-arbitrary` locally), and strict rustdoc (`task doc` locally), on the pinned toolchain
+- **lint-and-test** — strict Clippy and tests for the default and all-feature workspace, plus strict rustdoc (`task doc` locally), on the pinned toolchain
 - **lint-markdown** — markdownlint over all `*.md` (config: `.markdownlint.json`)
 - **msrv-check** — `cargo check --workspace` on Rust 1.75 (the declared `rust-version`), then the table codec's tests on Rust 1.77, the oldest compiler that builds it
 - **check-nostd** — no_std (host + bare-metal ARM) and 32-bit compilation checks
@@ -174,11 +187,12 @@ Isolation needs one proto file per message, so each shape is also defined under 
 
 ### Reproducible benchmark roots per release
 
-The history is reproducible because every release has a committed branch carrying the exact harness used to measure it. **When you tag a release `vX.Y.Z`, create and push `historical-benchmark/vX.Y.Z` from that tag:**
+The history is reproducible because each benchmark archive keeps the exact harness used to measure its release. The existing `historical-benchmark/v*` branches refer to upstream releases and remain unchanged.
+
+The fork's publication workflow creates `reallyme-vX.Y.Z` only after crates.io publication succeeds. If a benchmark archive is needed for that fork release, prepare it from the existing tag after publication; pushing the additional branch requires its own approval:
 
 ```sh
-git branch historical-benchmark/vX.Y.Z vX.Y.Z
-git push origin historical-benchmark/vX.Y.Z
+git branch historical-benchmark/reallyme-vX.Y.Z reallyme-vX.Y.Z
 ```
 
 Releases cut from `main` already carry the isolated harness, so this branch is just a stable pointer to measure from. The pre-isolation back-catalogue (v0.1.0–v0.7.1) has the harness retrofitted onto each of these branches instead. Either way, `historical-benchmark/*` is the source of truth for rebuilding any cell of the per-shape history — see `benchmarks/history/DESIGN.md`.

@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Enum type code generation.
 
 use std::collections::HashMap;

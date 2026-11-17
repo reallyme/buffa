@@ -1,11 +1,12 @@
+# Modified by ReallyMe Technologies Limited.
 version: v2
 inputs:
   - directory: proto
 plugins:
-  - local: protoc-gen-buffa
+  - local: protoc-gen-reallyme-buffa
     out: src/gen
     opt:
       - views=false
-  - local: protoc-gen-buffa-packaging
+  - local: protoc-gen-reallyme-buffa-packaging
     out: src/gen
     strategy: all

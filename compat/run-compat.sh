@@ -1,8 +1,9 @@
 #!/bin/bash
-# Run protoc-gen-buffa compatibility tests against multiple protoc versions.
+# Modified by ReallyMe Technologies Limited.
+# Run protoc-gen-reallyme-buffa compatibility tests against multiple protoc versions.
 #
 # For each protoc version:
-#   1. Run protoc with --buffa_out on proto2 and proto3 test files
+#   1. Run protoc with --reallyme-buffa_out on proto2 and proto3 test files
 #   2. Verify generated files exist, are non-empty, and contain Rust code
 #   3. For editions-capable versions (v27+), also test an editions proto
 #
@@ -10,7 +11,7 @@
 
 set -euo pipefail
 
-PLUGIN=/usr/local/bin/protoc-gen-buffa
+PLUGIN=/usr/local/bin/protoc-gen-reallyme-buffa
 PROTOS_DIR=/test/protos
 PASS=0
 FAIL=0
@@ -75,8 +76,8 @@ run_test() {
   # Run protoc with our plugin.
   local result
   if result=$("$protoc" \
-    --plugin=protoc-gen-buffa="$PLUGIN" \
-    --buffa_out="$outdir" \
+    --plugin=protoc-gen-reallyme-buffa="$PLUGIN" \
+    --reallyme-buffa_out="$outdir" \
     --proto_path="$PROTOS_DIR" \
     --proto_path="${EDITIONS_DIR}" \
     "$@" 2>&1); then
@@ -107,7 +108,7 @@ run_test() {
   rm -rf "$outdir"
 }
 
-echo "protoc-gen-buffa version compatibility tests"
+echo "protoc-gen-reallyme-buffa version compatibility tests"
 echo "============================================="
 echo ""
 

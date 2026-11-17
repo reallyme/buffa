@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Compile-checks gated codegen output across the feature matrix.
 //!
 //! This is the verification the codegen-level string assertions in
@@ -15,7 +16,7 @@
 //! in bridge and vtable mode.
 //!
 //! Marked `#[ignore]` so the default `cargo test --workspace` run stays
-//! fast; CI runs it via `cargo test -p buffa-codegen --test
+//! fast; CI runs it via `cargo test -p reallyme-buffa-codegen --test
 //! feature_gating_compile -- --ignored`. Locally: `task test` does not
 //! include it; run it directly when touching the gating mechanism.
 //!
@@ -160,8 +161,8 @@ views = []
 text = ["buffa/text"]
 
 [dependencies]
-buffa = {{ path = "{root}/buffa" }}
-buffa-types = {{ path = "{root}/buffa-types" }}
+buffa = {{ package = "reallyme-buffa", path = "{root}/buffa" }}
+buffa-types = {{ package = "reallyme-buffa-types", path = "{root}/buffa-types" }}
 serde = {{ version = "1", features = ["derive"], optional = true }}
 serde_json = {{ version = "1", optional = true }}
 
@@ -180,7 +181,7 @@ serde_json = {{ version = "1", optional = true }}
 
 /// Write `gen/mod.rs` — nested `pub mod` blocks `include!`-ing each
 /// per-package stitcher, with the same `#![allow]` block
-/// `protoc-gen-buffa-packaging` would emit — and a `lib.rs` declaring it.
+/// `protoc-gen-reallyme-buffa-packaging` would emit — and a `lib.rs` declaring it.
 fn write_gen_mod(src: &Path, gen: &Path, packages: &std::collections::BTreeSet<String>) {
     let mut mod_rs = String::from(
         "#![allow(\n    non_camel_case_types, dead_code, unused_imports, unused_qualifications,\n    \
@@ -344,9 +345,9 @@ text = ["buffa/text"]
 reflect = ["dep:buffa-descriptor", "buffa-descriptor/reflect"]
 
 [dependencies]
-buffa = {{ path = "{root}/buffa" }}
-buffa-types = {{ path = "{root}/buffa-types" }}
-buffa-descriptor = {{ path = "{root}/buffa-descriptor", optional = true }}
+buffa = {{ package = "reallyme-buffa", path = "{root}/buffa" }}
+buffa-types = {{ package = "reallyme-buffa-types", path = "{root}/buffa-types" }}
+buffa-descriptor = {{ package = "reallyme-buffa-descriptor", path = "{root}/buffa-descriptor", optional = true }}
 serde = {{ version = "1", features = ["derive"], optional = true }}
 serde_json = {{ version = "1", optional = true }}
 
