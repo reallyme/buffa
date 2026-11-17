@@ -6,7 +6,8 @@
 //! than a payload memcpy (linear in `value.len()`).
 
 use buffa_types::google::protobuf::Any;
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use std::hint::black_box;
 
 fn make_any(payload_len: usize) -> Any {
     Any {

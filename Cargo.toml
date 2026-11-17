@@ -69,48 +69,36 @@ buffa-build = { package = "reallyme-buffa-build", path = "buffa-build", version 
 buffa-smolstr = { path = "examples/buffa-smolstr", version = "0.1.2" }
 buffa-test = { path = "buffa-test", version = "0.1.2" }
 base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
-bytes = { version = "1", default-features = false }
-# Minimum 0.4.34: the `chrono::TimeDelta` name (used throughout
-# duration_chrono.rs) was introduced in 0.4.34 as the rename of
-# `chrono::Duration`; `TimeDelta::try_seconds` arrived in 0.4.32 and
-# `DateTime::<Utc>::from_timestamp` in 0.4.31. Verified mechanically:
-# 0.4.31 fails to compile this crate's `chrono` feature, 0.4.34 succeeds.
-chrono = { version = "0.4.34", default-features = false }
-foldhash = { version = "0.1", default-features = false }
-hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
+bytes = { version = "1.12.1", default-features = false }
+chrono = { version = "0.4.45", default-features = false }
+foldhash = { version = "0.2.0", default-features = false }
+hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
 # `jiff` interop for `Timestamp` / `Duration` (the `buffa-types` `jiff`
 # feature). Pulled with `default-features = false` + `alloc` so the conversions
-# stay `no_std`; `buffa-types`' `std` feature layers `jiff/std` on top. MSRV
-# 1.70 as of 0.2 — within buffa's pin.
-jiff = { version = "0.2", default-features = false, features = ["alloc"] }
-once_cell = { version = "1", default-features = false }
-rustversion = { version = "1" }
+# stay `no_std`; `buffa-types`' `std` feature layers `jiff/std` on top.
+jiff = { version = "1.0.0", default-features = false, features = ["alloc"] }
+once_cell = { version = "1.21.4", default-features = false }
+rustversion = { version = "1.0.23" }
 # Guarded-field fixtures and the opt-in guarded WKT string owner.
-secrecy = { version = "0.10", default-features = false }
-serde = { version = "1", default-features = false }
-serde_json = { version = "1", default-features = false, features = ["alloc"] }
-serde_norway = { version = "0.9" }
-arbitrary = { version = "1", default-features = false, features = ["derive"] }
+secrecy = { version = "0.10.3", default-features = false }
+serde = { version = "1.0.229", default-features = false }
+serde_json = { version = "1.0.154", default-features = false, features = ["alloc"] }
+serde_norway = { version = "0.9.42" }
+arbitrary = { version = "1.5.0", default-features = false, features = ["derive"] }
 smoothutf8 = { version = "0.2.3", default-features = false }
-subtle = { version = "2.6", default-features = false }
-thiserror = { version = "2", default-features = false }
-# Allow newer compatible releases for consumers sharing cleanup traits.
-# MSRV CI regenerates a compatible lockfile using modern Cargo's resolver;
-# older Cargo users can pin with `cargo update -p zeroize --precise 1.8.2`.
-zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
+subtle = { version = "2.6.1", default-features = false }
+thiserror = { version = "2.0.21", default-features = false }
+zeroize = { version = "1.9.1", default-features = false, features = ["alloc"] }
 # Optional `string` field representations that will be selectable via
 # `buffa_build`'s forthcoming `string_type` knob. Declared
 # `default-features = false` so they stay `no_std`; the relevant
 # `serde`/`arbitrary`/`std` sub-features are turned on by the matching `buffa`
 # feature (see buffa/Cargo.toml).
 #
-# `smol_str` is capped below 0.3.4: that release raised its MSRV to 1.89, above
-# buffa's 1.87. 0.3.2 (no declared MSRV) keeps the `serde`/`arbitrary` features
-# we need. Relax the cap when buffa's MSRV reaches 1.89.
-smol_str = { version = ">=0.3, <0.3.4", default-features = false }
-ecow = { version = "0.2", default-features = false }
-compact_str = { version = "0.9", default-features = false }
-prettyplease = "0.2"
-proc-macro2 = "1"
-quote = "1"
-syn = { version = "2", features = ["full"] }
+smol_str = { version = "0.3.7", default-features = false }
+ecow = { version = "0.3.1", default-features = false }
+compact_str = { version = "0.10.0", default-features = false }
+prettyplease = "0.3.0"
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "3.0.10", features = ["full"] }

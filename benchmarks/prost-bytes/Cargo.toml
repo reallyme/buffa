@@ -9,14 +9,14 @@ publish = false
 bench = false
 
 [dependencies]
-prost = "0.13"
-bytes = "1"
+prost = "0.14.6"
+bytes = "1.12.1"
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14.6"
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8.2"
 
 [[bench]]
 name = "protobuf"

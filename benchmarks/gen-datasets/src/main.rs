@@ -4,7 +4,7 @@
 //! prediction and cache behavior during benchmarking.
 
 use buffa::Message;
-use rand::{Rng, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 use std::fs;
 use std::path::Path;
 
@@ -205,7 +205,7 @@ fn gen_packed_tile(rng: &mut impl Rng) -> PackedTile {
 }
 
 fn gen_mesh(rng: &mut impl Rng) -> TriMesh {
-    let vert = |rng: &mut dyn rand::RngCore| tri_mesh::Vertex {
+    let vert = |rng: &mut dyn rand::Rng| tri_mesh::Vertex {
         px: rng.random_range(-1.0..1.0),
         py: rng.random_range(-1.0..1.0),
         pz: rng.random_range(-1.0..1.0),
@@ -253,9 +253,7 @@ fn gen_column_batch(rng: &mut impl Rng) -> ColumnBatch {
     const BASE_NANOS: i64 = 1_767_225_600_000_000_000;
 
     ColumnBatch {
-        symbol_dict: (0..DICT_LEN)
-            .map(|_| random_string(rng, 4, 12))
-            .collect(),
+        symbol_dict: (0..DICT_LEN).map(|_| random_string(rng, 4, 12)).collect(),
         symbol_ids: (0..ROWS)
             .map(|_| rng.random_range(0..DICT_LEN as u32))
             .collect(),

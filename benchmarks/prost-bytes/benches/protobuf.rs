@@ -45,7 +45,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
         b.iter(|| {
             for payload in &payloads {
                 let msg = M::decode(payload.clone()).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });
@@ -56,7 +56,7 @@ fn benchmark_decode<M: Message + Default>(c: &mut Criterion, name: &str, dataset
             for payload in &payloads {
                 msg.clear();
                 msg.merge(payload.clone()).unwrap();
-                criterion::black_box(&msg);
+                std::hint::black_box(&msg);
             }
         });
     });

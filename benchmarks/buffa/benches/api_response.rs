@@ -29,7 +29,7 @@ fn run(c: &mut Criterion) {
     g.bench_function("decode_view", |b| {
         b.iter(|| {
             for p in &ds.payload {
-                criterion::black_box(ApiResponseView::decode_view(p).unwrap());
+                std::hint::black_box(ApiResponseView::decode_view(p).unwrap());
             }
         })
     });

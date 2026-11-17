@@ -68,7 +68,7 @@ thiserror = { workspace = true }
 # The `Any` JSON tests need `serde_json::Value` to parse the string under
 # its private `RawValue` key: see `buffa/src/json_helpers/buffered.rs`.
 serde_json = { workspace = true, features = ["raw_value"] }
-criterion = "0.5"
+criterion = "0.8.2"
 
 [[bench]]
 name = "any_clone"

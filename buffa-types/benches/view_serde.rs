@@ -1,6 +1,7 @@
 use buffa::{Message, MessageView};
 use buffa_types::google::protobuf::{__buffa::view::StructView, Struct, Value};
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 fn nested_value(depth: usize, width: usize) -> Value {
     if depth == 0 {

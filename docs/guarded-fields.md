@@ -446,7 +446,7 @@ JSON input needs its own size and recursion limits.
 
 ## Compiler support
 
-Guarded fields require the workspace MSRV, Rust 1.100.
+Guarded fields use `zeroize` 1.9 and require the workspace MSRV, Rust 1.100.
 Consumers can share the cleanup traits with other dependencies on the same
 compatible `zeroize` release.
 

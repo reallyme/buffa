@@ -21,7 +21,8 @@
 // results in separate directories.
 use buffa::{Message, MessageView, ViewEncode};
 use bytes::{BufMut, BytesMut};
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use std::hint::black_box;
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
 use bench_buffa::bench::__buffa::view::LogRecordView;
 use bench_buffa::bench::{ApiResponse, LogRecord, MediaFrame};

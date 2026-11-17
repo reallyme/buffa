@@ -1,7 +1,7 @@
 # Build and run Google protobuf-v4 benchmarks.
 #
 # The protobuf v4 Rust crate wraps the upb C library and requires:
-#   - protoc matching the crate version (33.1 for protobuf = 4.33.1-release)
+#   - protoc matching the crate version (36.2 for protobuf = 4.36.2-release)
 #   - cmake + g++ for the upb native build
 #
 # Usage:
@@ -15,11 +15,16 @@ RUN apt-get update && apt-get install -y \
     cmake g++ pkg-config curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install protoc 33.1 (must match protobuf crate version 4.33.1-release).
+# Install protoc 36.2 (must match protobuf crate version 4.36.2-release).
 ARG TARGETARCH
-RUN ARCH=$(case "$TARGETARCH" in arm64) echo aarch_64;; *) echo x86_64;; esac) \
-    && curl -sL "https://github.com/protocolbuffers/protobuf/releases/download/v33.1/protoc-33.1-linux-${ARCH}.zip" \
+RUN case "$TARGETARCH" in \
+      arm64) ARCH=aarch_64; SHA256=8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a;; \
+      amd64) ARCH=x86_64; SHA256=121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278;; \
+      *) echo "unsupported architecture" >&2; exit 1;; \
+    esac \
+    && curl -fsSL "https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-linux-${ARCH}.zip" \
        -o /tmp/protoc.zip \
+    && echo "${SHA256}  /tmp/protoc.zip" | sha256sum -c - \
     && unzip -o /tmp/protoc.zip -d /usr/local bin/protoc \
     && rm /tmp/protoc.zip \
     && protoc --version

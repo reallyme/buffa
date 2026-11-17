@@ -33,16 +33,15 @@ default = ["buffa-std"]
 buffa-std = ["buffa/std", "buffa-types/std", "reflect"]
 reflect = ["buffa-types/reflect"]
 # Generates the test messages with `CodecStrategy::Table`, for the via-table
-# run. The workspace MSRV also covers this codec.
-
+# run. The workspace MSRV includes `offset_of!`, which the table codec uses.
 table = []
 
 [dependencies]
-buffa = { package = "reallyme-buffa", path = "../buffa", default-features = false, features = ["json", "text"] }
-buffa-types = { package = "reallyme-buffa-types", path = "../buffa-types", default-features = false, features = ["json"] }
-buffa-descriptor = { package = "reallyme-buffa-descriptor", path = "../buffa-descriptor", default-features = false, features = ["reflect", "json", "std"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["std", "float_roundtrip"] }
+buffa = { package = "reallyme-buffa", path = "../buffa", version = "=0.1.2", default-features = false, features = ["json", "text"] }
+buffa-types = { package = "reallyme-buffa-types", path = "../buffa-types", version = "=0.1.2", default-features = false, features = ["json"] }
+buffa-descriptor = { package = "reallyme-buffa-descriptor", path = "../buffa-descriptor", version = "=0.1.2", default-features = false, features = ["reflect", "json", "std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["std", "float_roundtrip"] }
 
 [build-dependencies]
-buffa-build = { package = "reallyme-buffa-build", path = "../buffa-build" }
+buffa-build = { package = "reallyme-buffa-build", path = "../buffa-build", version = "=0.1.2" }

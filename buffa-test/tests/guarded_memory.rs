@@ -753,42 +753,48 @@ fn guarded_allocations_are_wiped_before_release_on_every_lifecycle_path() {
     assert_wiped();
     drop(lazy);
 
-    // Observe only the initialized f64 payloads of a dynamic Value list.
-    // Value's enum and pointer padding must never be read by this allocator.
-    use buffa_types::sensitive::{__buffa::oneof::value::Kind, Value};
-    let mut values = buffa::sensitive::List::<Value>::default();
-    for _ in 0..8 {
-        values.push(Value::number(1.25));
+    for explicitly_clear in [false, true] {
+        // Observe only the initialized f64 payloads of a dynamic Value list.
+        // Value's enum and pointer padding must never be read by this allocator.
+        use buffa_types::sensitive::{__buffa::oneof::value::Kind, Value};
+        let mut values = buffa::sensitive::List::<Value>::default();
+        for _ in 0..8 {
+            values.push(Value::number(1.25));
+        }
+        let old_capacity = values.capacity();
+        while values.len() < old_capacity {
+            values.push(Value::number(1.25));
+        }
+        let base = values.as_ptr().cast::<u8>();
+        let Some(Kind::NumberValue(number)) = &values[0].kind else {
+            panic!("numeric fixture")
+        };
+        // SAFETY: both pointers refer to the same initialized Vec allocation.
+        let offset =
+            usize::try_from(unsafe { (number as *const f64).cast::<u8>().offset_from(base) })
+                .unwrap();
+        watch(base, core::mem::size_of::<f64>());
+        WATCHED[0].offset.store(offset, Ordering::SeqCst);
+        WATCHED[0]
+            .stride
+            .store(core::mem::size_of::<Value>(), Ordering::SeqCst);
+        WATCHED[0].count.store(values.len(), Ordering::SeqCst);
+        values.push(Value::number(2.5));
+        assert!(values.capacity() > old_capacity);
+        assert_wiped();
+        let base = values.as_ptr().cast::<u8>();
+        watch(base, core::mem::size_of::<f64>());
+        WATCHED[0].offset.store(offset, Ordering::SeqCst);
+        WATCHED[0]
+            .stride
+            .store(core::mem::size_of::<Value>(), Ordering::SeqCst);
+        WATCHED[0].count.store(values.len(), Ordering::SeqCst);
+        if explicitly_clear {
+            values.clear();
+        }
+        drop(values);
+        assert_wiped();
     }
-    let old_capacity = values.capacity();
-    while values.len() < old_capacity {
-        values.push(Value::number(1.25));
-    }
-    let base = values.as_ptr().cast::<u8>();
-    let Some(Kind::NumberValue(number)) = &values[0].kind else {
-        panic!("numeric fixture")
-    };
-    // SAFETY: both pointers refer to the same initialized Vec allocation.
-    let offset =
-        usize::try_from(unsafe { (number as *const f64).cast::<u8>().offset_from(base) }).unwrap();
-    watch(base, core::mem::size_of::<f64>());
-    WATCHED[0].offset.store(offset, Ordering::SeqCst);
-    WATCHED[0]
-        .stride
-        .store(core::mem::size_of::<Value>(), Ordering::SeqCst);
-    WATCHED[0].count.store(values.len(), Ordering::SeqCst);
-    values.push(Value::number(2.5));
-    assert!(values.capacity() > old_capacity);
-    assert_wiped();
-    let base = values.as_ptr().cast::<u8>();
-    watch(base, core::mem::size_of::<f64>());
-    WATCHED[0].offset.store(offset, Ordering::SeqCst);
-    WATCHED[0]
-        .stride
-        .store(core::mem::size_of::<Value>(), Ordering::SeqCst);
-    WATCHED[0].count.store(values.len(), Ordering::SeqCst);
-    drop(values);
-    assert_wiped();
 
     // Consuming an iterator transfers its yielded value, while wiping every
     // consumed and abandoned slot before the shared backing buffer is freed.
