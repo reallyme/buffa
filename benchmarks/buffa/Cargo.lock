@@ -74,7 +74,7 @@ dependencies = [
 
 [[package]]
 name = "buffa-smolstr"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "reallyme-buffa",
  "serde",
@@ -505,7 +505,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64",
  "bytes",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-build"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "reallyme-buffa",
  "reallyme-buffa-codegen",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-codegen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "reallyme-buffa-descriptor"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "reallyme-buffa",
  "rustversion",

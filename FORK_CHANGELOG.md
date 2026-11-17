@@ -5,6 +5,14 @@ Upstream release history remains in [CHANGELOG.md](CHANGELOG.md).
 
 Versioning is independent of upstream. Compatible updates increment the patch version; breaking changes increment the minor version while the major version is zero.
 
+## [0.1.2] - 2026-11-14
+
+### Changed
+
+- Update the ProtoJSON base64 dependency to 0.23.1 with the same scalar engine and allocation-only features.
+
+[0.1.2]: https://github.com/reallyme/buffa/releases/tag/reallyme-v0.1.2
+
 ## [0.1.1] - 2026-11-14
 
 ### Security

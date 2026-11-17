@@ -540,8 +540,8 @@ impl Config {
     ///
     /// ```toml
     /// [dependencies]
-    /// buffa = { package = "reallyme-buffa", version = "=0.1.1", features = ["std"] }
-    /// buffa-descriptor = { package = "reallyme-buffa-descriptor", version = "=0.1.1", features = ["reflect", "std"] }
+    /// buffa = { package = "reallyme-buffa", version = "=0.1.2", features = ["std"] }
+    /// buffa-descriptor = { package = "reallyme-buffa-descriptor", version = "=0.1.2", features = ["reflect", "std"] }
     /// ```
     ///
     /// When [`gate_impls_on_crate_features`](Self::gate_impls_on_crate_features)
