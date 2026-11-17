@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing published ReallyMe tag to build (e.g. reallyme-v0.1.0)"
+        description: "Existing published ReallyMe tag to build (e.g. reallyme-v0.1.1)"
         required: true
         type: string
 

@@ -14,13 +14,13 @@ This guide covers migration from both versions of the `protobuf` crate:
 ```diff
  [dependencies]
 -protobuf = "3"
-+buffa = { package = "reallyme-buffa", version = "=0.1.0" }
-+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
++buffa = { package = "reallyme-buffa", version = "=0.1.1" }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1" }
 
  [build-dependencies]
 -protobuf-codegen = "3"
 -protoc-bin-vendored = "3"    # if using vendored protoc
-+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
++buffa-build = { package = "reallyme-buffa-build", version = "=0.1.1" }
 ```
 
 ### From Google v4
@@ -28,12 +28,12 @@ This guide covers migration from both versions of the `protobuf` crate:
 ```diff
  [dependencies]
 -protobuf = "=4.33.1-release"
-+buffa = { package = "reallyme-buffa", version = "=0.1.0" }
-+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.0" }
++buffa = { package = "reallyme-buffa", version = "=0.1.1" }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1" }
 
  [build-dependencies]
 -protobuf-codegen = "=4.33.1-release"
-+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.0" }
++buffa-build = { package = "reallyme-buffa-build", version = "=0.1.1" }
 ```
 
 ## 2. Rewrite `build.rs`
