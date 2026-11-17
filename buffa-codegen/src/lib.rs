@@ -21,6 +21,7 @@
 //!
 //! All of that is handled upstream (by protoc, buf, or a future parser).
 
+pub mod adapters;
 pub(crate) mod comments;
 pub mod context;
 pub(crate) mod defaults;
@@ -309,6 +310,8 @@ pub fn allow_lints_attr() -> TokenStream {
 /// per-proto content kinds are reached transitively via `include!` from
 /// the stitcher. Write all files to disk; build a module tree from only
 /// the `PackageMod` ones.
+/// [`GeneratedFileKind::Adapter`] files are separate native declarations;
+/// their API owner includes them explicitly outside the portable module tree.
 ///
 /// With [`CodeGenConfig::file_per_package`] set, the per-proto content
 /// kinds are not emitted at all — the single `<dotted.pkg>.rs` (still
@@ -317,11 +320,12 @@ pub fn allow_lints_attr() -> TokenStream {
 pub struct GeneratedFile {
     /// The output file path (e.g., `"my.pkg.foo.rs"` or `"my.pkg.mod.rs"`).
     pub name: String,
-    /// The proto package this file belongs to.
+    /// The proto package this file belongs to; empty for native adapters,
+    /// whose API module is chosen by the application.
     pub package: String,
     /// What this file contains. Build integrations only need to wire up
-    /// [`GeneratedFileKind::PackageMod`] files; everything else is reached
-    /// via `include!` from there.
+    /// [`GeneratedFileKind::PackageMod`] files. Portable content is reached
+    /// via `include!` from there; native adapters are included explicitly.
     pub kind: GeneratedFileKind,
     /// The generated Rust source code.
     pub content: String,
@@ -351,6 +355,9 @@ pub struct GeneratedFile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GeneratedFileKind {
+    /// Standalone process-local adapter, included explicitly by its API owner.
+    /// Never added to the portable protobuf module tree.
+    Adapter,
     /// Owned message structs and enums (`<stem>.rs`).
     Owned,
     /// View structs (`<stem>.__view.rs`).
@@ -1189,6 +1196,11 @@ pub struct TableCodecFallbackReason {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct CodeGenConfig {
+    /// Explicit native adapter mappings. `None` leaves ordinary generation
+    /// unchanged. Outputs are separate [`GeneratedFileKind::Adapter`] files.
+    pub adapters: Option<adapters::AdapterConfig>,
+    /// Read typed adapter options from requested files. Disabled by default.
+    pub generate_adapters: bool,
     /// Generate recursive `Zeroize`, `ZeroizeOnDrop` and `Drop` for messages,
     /// oneofs and the owned storage of their views. Borrowed input is not wiped.
     /// Requires the runtime's `zeroize` feature, guarded custom bytes/string
@@ -2086,6 +2098,8 @@ pub struct CodeGenConfig {
 impl Default for CodeGenConfig {
     fn default() -> Self {
         Self {
+            adapters: None,
+            generate_adapters: false,
             generate_zeroize: false,
             zeroize_messages: Vec::new(),
             deny_view_json: Vec::new(),
@@ -4063,6 +4077,32 @@ pub fn generate_with_diagnostics(
         )?;
     }
 
+    let mut native_config = config.adapters.clone();
+    if config.generate_adapters {
+        let mut from_schema = adapters::descriptor_options(file_descriptors, files_to_generate)?;
+        if let Some(explicit) = &mut native_config {
+            explicit.selectors.append(&mut from_schema.selectors);
+            explicit.payloads.append(&mut from_schema.payloads);
+            explicit.borrowed.append(&mut from_schema.borrowed);
+            explicit.ports.append(&mut from_schema.ports);
+        } else {
+            native_config = Some(from_schema);
+        }
+    }
+    if let Some(adapters) = &native_config {
+        let native = adapters::generate_adapters(file_descriptors, files_to_generate, adapters)?;
+        for file in native {
+            if output
+                .iter()
+                .any(|existing| existing.name.eq_ignore_ascii_case(&file.name))
+            {
+                return Err(
+                    adapters::AdapterError::from(adapters::ErrorReason::DuplicateOutput).into(),
+                );
+            }
+            output.push(file);
+        }
+    }
     Ok((output, ctx.take_warnings()))
 }
 
@@ -5856,6 +5896,9 @@ pub enum ZeroizeConfigurationErrorReason {
 #[derive(Debug, Clone, thiserror::Error)]
 #[non_exhaustive]
 pub enum CodeGenError {
+    /// Native adapter metadata failed validation; input values are redacted.
+    #[error(transparent)]
+    Adapter(#[from] adapters::AdapterError),
     /// A view-export restriction matches no known message.
     #[error("deny_view_json rule '{rule}' matches no known message")]
     ViewJsonRuleMatchedNothing { rule: String },

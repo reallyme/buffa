@@ -1,0 +1,3 @@
+kind: Added
+body: 'Add opt-in, descriptor-checked native adapter generation through typed protobuf options, Rust configuration and bounded manifests. Closed selectors reject unspecified and unknown values, preserve explicit normalization and external registrations, and provide checked conversions. Payload selectors and borrowed byte/capability adapters preserve native signatures without changing portable generation.'
+time: 2026-11-17T03:08:46+01:00

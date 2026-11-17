@@ -10,6 +10,8 @@ The fork has an independent version line. Compatible fixes can be released as 0.
 
 **0.1.2** updates the ProtoJSON base64 dependency to 0.23.1.
 
+The next release adds opt-in, descriptor-checked native adapters.
+
 ## Packages and Rust names
 
 | Registry package | Dependency alias / Rust library |

@@ -37,6 +37,8 @@ Cleanup is opt-in. It does not wipe parser scratch, transport bodies, foreign-ru
 
 ## Use the ReallyMe packages
 
+The next release adds [opt-in native adapters](docs/native-adapters.md) for closed selectors, payload selectors and borrowed callback inputs. Portable generation retains its default behavior.
+
 The current fork version is **0.1.2**. Registry package names have a `reallyme-` prefix; Rust library names remain unchanged:
 
 ```toml

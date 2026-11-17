@@ -530,6 +530,9 @@ dependencies = [
  "quote",
  "reallyme-buffa",
  "reallyme-buffa-descriptor",
+ "reallyme-buffa-proto-options",
+ "serde",
+ "serde_json",
  "syn 3.0.10",
  "thiserror",
 ]
@@ -543,6 +546,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "reallyme-buffa-proto-options"
+version = "0.1.2"
+dependencies = [
+ "reallyme-buffa",
+ "serde",
 ]
 
 [[package]]

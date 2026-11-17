@@ -44,6 +44,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
         with:
           components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
 
       - name: Install protoc
         run: |

@@ -51,6 +51,10 @@ The proto side of extern_path is a dotted protobuf package or type name
 (leading dot optional); a name with an empty or non-identifier segment
 is an error.
 
+To emit native adapters from typed protobuf options, pass adapters=true.
+Alternatively, adapter_manifest=path reads a bounded typed JSON manifest.
+Native adapter files are included explicitly by their API owner.
+
 To reject JSON serialization of a message's views and containing views while
 keeping owned-message JSON, use deny_view_json (repeatable; '.' selects all):
   --reallyme-buffa_opt=json=true,deny_view_json=.my.pkg.Private
@@ -215,6 +219,14 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             .split_once('=')
             .ok_or_else(|| format!("plugin option '{param}' must use key=value syntax"))?;
         match key.trim() {
+            "adapters" => codegen.generate_adapters = parse_bool("adapters", value)?,
+            "adapter_manifest" => {
+                if codegen.adapters.is_some() {
+                    return Err("adapter_manifest may only be specified once".into());
+                }
+                codegen.adapters = Some(buffa_codegen::adapters::AdapterConfig::read_json(value)
+                    .map_err(|error| error.to_string())?);
+            }
             "views" => codegen.generate_views = parse_bool("views", value)?,
             "lazy_views" => codegen.lazy_views = parse_bool("lazy_views", value)?,
             "unknown_fields" => {
@@ -694,6 +706,31 @@ fn normalize_proto_path(path: &str, label: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_adapters_require_explicit_plugin_selection() {
+        assert!(!parse_config("").unwrap().codegen.generate_adapters);
+        assert!(
+            parse_config("adapters=true")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+        assert!(
+            !parse_config("adapters=false")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+        assert!(parse_err("adapters=invalid").contains("adapters"));
+    }
+
+    #[test]
+    fn native_manifest_read_failures_are_fixed_and_redacted() {
+        let error = parse_err("adapter_manifest=/a-path-that-does-not-exist/private-contract.json");
+        assert_eq!(error, "adapter generation failed: ManifestIo");
+        assert!(!error.contains("private-contract"));
+    }
 
     fn parse_err(params: &str) -> String {
         match parse_config(params) {
