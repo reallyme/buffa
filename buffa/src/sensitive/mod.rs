@@ -38,6 +38,23 @@ impl<T: Default + Zeroize, P: crate::ProtoBox<T>> Zeroize for crate::MessageFiel
     }
 }
 
+/// Wipe every element of `values`, drop them, then wipe the whole allocation.
+///
+/// As of zeroize 1.9, `Vec::zeroize` invokes each element's cleanup before
+/// dropping it, but does not wipe the slots the dropped elements vacate. Those
+/// slots can still hold an enum discriminant, an inner buffer's pointer and
+/// capacity, or padding. At length zero the entire allocation is `MaybeUninit`
+/// storage, so wiping the spare capacity afterwards covers every vacated slot.
+/// Under earlier zeroize releases the final pass is merely redundant. The
+/// capacity is kept, so the buffer stays available for reuse. Only the current
+/// allocation is covered: buffers an ordinary `Vec` released while growing
+/// were never wiped.
+#[doc(hidden)]
+pub fn zeroize_vec<T: Zeroize>(values: &mut alloc::vec::Vec<T>) {
+    values.zeroize();
+    values.spare_capacity_mut().zeroize();
+}
+
 /// Overwrite a copyable value with its valid default using volatile stores.
 /// Used by generated enums, whose valid default is not necessarily zero.
 #[doc(hidden)]

@@ -50,7 +50,7 @@ impl Zeroize for Struct {
 }
 impl Zeroize for ListValue {
     fn zeroize(&mut self) {
-        self.values.zeroize();
+        buffa::sensitive::zeroize_vec(&mut self.values);
         self.__buffa_unknown_fields.zeroize();
     }
 }

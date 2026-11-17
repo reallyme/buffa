@@ -226,7 +226,9 @@ impl<'a> arbitrary::Arbitrary<'a> for UnknownFields {
 #[cfg(feature = "zeroize")]
 impl zeroize::Zeroize for UnknownFields {
     fn zeroize(&mut self) {
-        self.fields.zeroize();
+        // Also wipes the discriminants, payload buffer headers and padding
+        // the dropped fields leave in the retained buffer.
+        crate::sensitive::zeroize_vec(&mut self.fields);
     }
 }
 #[cfg(feature = "zeroize")]

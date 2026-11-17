@@ -66,13 +66,10 @@ impl<T: Zeroize> List<T> {
     }
     /// Erase all elements and spare capacity, leaving the list empty.
     pub fn clear(&mut self) {
-        self.0.zeroize();
-        // zeroize 1.9 drops initialized elements after invoking their cleanup,
-        // but no longer overwrites their vacated representation. An enum can
-        // retain inactive payload bytes, so wipe those slots after every
-        // destructor has finished. At length zero the entire allocation is
-        // MaybeUninit storage, including padding and the original spare space.
-        self.0.spare_capacity_mut().zeroize();
+        // Element slots vacated by the destructors (discriminants, inactive
+        // payload bytes, buffer headers, padding) are wiped once every
+        // destructor has run.
+        super::zeroize_vec(&mut self.0);
     }
 }
 impl<T: Zeroize> Default for List<T> {
