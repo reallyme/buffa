@@ -68,7 +68,7 @@ buffa-codegen = { package = "reallyme-buffa-codegen", path = "buffa-codegen", ve
 buffa-build = { package = "reallyme-buffa-build", path = "buffa-build", version = "=0.1.1" }
 buffa-smolstr = { path = "examples/buffa-smolstr", version = "0.1.1" }
 buffa-test = { path = "buffa-test", version = "0.1.1" }
-base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
 bytes = { version = "1", default-features = false }
 # Minimum 0.4.34: the `chrono::TimeDelta` name (used throughout
 # duration_chrono.rs) was introduced in 0.4.34 as the rename of
