@@ -11,6 +11,14 @@ ReallyMe Technologies Limited publishes all nine packages at one independent ver
 
 Repository configuration and credential setup are separate from these local files. The workflow does not add owners or configure environment protections automatically.
 
+## Branch roles
+
+`upstream-main` tracks upstream without fork changes. `main` integrates the ReallyMe topics. Keep upstream contributions on `feature/*`, compiler/MSRV changes and their validation on `maintenance/msrv`, and dependency upgrades with their compatibility fixes on `maintenance/dependencies`.
+
+Cut `release/X.Y.Z` from the validated integration state for version preparation and final stabilization. Merge or fast-forward the release back onto `main`, then validate that exact main commit before publication: the preflight and publication workflows accept only the current `main` SHA.
+
+The historical `release/0.1.0`, `release/0.1.1` and `release/0.1.2` branches preserve the published source trees while separating feature integration from release preparation. Some reconstructed commits have new identities. The existing `reallyme-v*` tags and publication attestations retain their original commit IDs and remain the authoritative publication record.
+
 ## Prepare and publish
 
 Use the pinned Rust/Cargo 1.100.0 release tooling. The workspace and packaged crates require Rust 1.100, including the table codec.
