@@ -95,8 +95,7 @@ smoothutf8 = { version = "0.2.3", default-features = false }
 subtle = { version = "2.6", default-features = false }
 thiserror = { version = "2", default-features = false }
 # Allow newer compatible releases for consumers sharing cleanup traits.
-# MSRV CI regenerates a compatible lockfile using modern Cargo's resolver;
-# older Cargo users can pin with `cargo update -p zeroize --precise 1.8.2`.
+# The MSRV CI job builds from the checked-in lockfile on Rust 1.100.
 zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
 # Optional `string` field representations that will be selectable via
 # `buffa_build`'s forthcoming `string_type` knob. Declared
@@ -105,8 +104,9 @@ zeroize = { version = "1.8.2", default-features = false, features = ["alloc"] }
 # feature (see buffa/Cargo.toml).
 #
 # `smol_str` is capped below 0.3.4: that release raised its MSRV to 1.89, above
-# buffa's 1.87. 0.3.2 (no declared MSRV) keeps the `serde`/`arbitrary` features
-# we need. Relax the cap when buffa's MSRV reaches 1.89.
+# buffa's MSRV when the cap was added. 0.3.2 (no declared MSRV) keeps the
+# `serde`/`arbitrary` features we need. buffa's MSRV is now 1.100, so the cap
+# is no longer needed for MSRV and can be relaxed in a dependency update.
 smol_str = { version = ">=0.3, <0.3.4", default-features = false }
 ecow = { version = "0.2", default-features = false }
 compact_str = { version = "0.9", default-features = false }

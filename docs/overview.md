@@ -397,9 +397,11 @@ Compatibility is tested against protoc v21.12, v22.5, v25.5, v27.3, v29.5, and v
 
 The current MSRV is **1.100**, including the opt-in `CodecStrategy::Table` (see [Smaller generated code](../docs/guide.md#smaller-generated-code-codec_strategy)).
 
-buffa is a foundational codec crate, so its `rust-version` is set to the lowest toolchain the released code actually compiles on, not to a calendar target. CI verifies the workspace builds at the MSRV and at stable on every change. With cargo's MSRV-aware resolver (`resolver = "3"`, Rust 1.84+), a downstream project on an older toolchain will automatically resolve to the newest buffa release whose `rust-version` fits — so an accurate declaration matters more than a conservative one.
+The ReallyMe fork deliberately sets its MSRV to the compiler it pins for development and release in `rust-toolchain.toml` (currently Rust 1.100.0), and raises `rust-version` whenever that pin is bumped. The MSRV is therefore a support policy, not the lowest toolchain the code happens to compile on, and older compilers are neither tested nor supported. Earlier fork releases (0.1.0 to 0.1.2) declared Rust 1.75.
 
-We reserve the right to raise the MSRV in any minor release when a language feature, standard-library API, or dependency makes it worthwhile, but never further than roughly twelve months behind the current stable. An MSRV bump is recorded in [FORK_CHANGELOG.md](../FORK_CHANGELOG.md). We do not add workarounds for rustc or cargo bugs that are already fixed in stable; if you hit one on an older toolchain, the answer is to upgrade.
+Apart from the Miri job, which uses a pinned nightly, CI builds and tests the workspace on the pinned toolchain only. The `msrv-check` job runs `cargo check --workspace --all-targets --all-features` and the table codec tests on it, so it currently overlaps `lint-and-test` rather than covering a different compiler. No CI job tracks the latest stable release or uses a compiler older than the MSRV.
+
+An MSRV bump is recorded under breaking changes in [FORK_CHANGELOG.md](../FORK_CHANGELOG.md). It can ship in any release, including a patch release, so a project that must stay on an older compiler should use cargo's MSRV-aware resolver (`resolver = "3"`, Rust 1.84+), which selects the newest release whose `rust-version` fits, or pin the buffa version. Such a release can lack later fixes; upgrade to the current MSRV to receive them. We do not add workarounds for rustc or cargo bugs that are fixed in a newer Rust release; we bump the pinned toolchain instead.
 
 ## License
 
