@@ -17,12 +17,12 @@ A limited derive for self-contained tests and examples is under discussion in [#
  [dependencies]
 -prost = "0.13"
 -prost-types = "0.13"
-+buffa = { package = "reallyme-buffa", version = "=0.1.1" }
-+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1" }
++buffa = { package = "reallyme-buffa", version = "=0.1.2" }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.2" }
 
  [build-dependencies]
 -prost-build = "0.13"
-+buffa-build = { package = "reallyme-buffa-build", version = "=0.1.1" }
++buffa-build = { package = "reallyme-buffa-build", version = "=0.1.2" }
 ```
 
 If you use JSON serialization via `pbjson`:
@@ -31,8 +31,8 @@ If you use JSON serialization via `pbjson`:
  [dependencies]
 -pbjson = "0.7"
 -pbjson-types = "0.7"
-+buffa = { package = "reallyme-buffa", version = "=0.1.1", features = ["json"] }
-+buffa-types = { package = "reallyme-buffa-types", version = "=0.1.1", features = ["json"] }
++buffa = { package = "reallyme-buffa", version = "=0.1.2", features = ["json"] }
++buffa-types = { package = "reallyme-buffa-types", version = "=0.1.2", features = ["json"] }
  serde_json = "1"
 -
 -[build-dependencies]

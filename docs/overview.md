@@ -2,7 +2,7 @@
 
 <!-- Modified by ReallyMe Technologies Limited. -->
 
-Maintained by **ReallyMe Technologies Limited** as an independent Apache-2.0 fork of [upstream Buffa](https://github.com/anthropics/buffa). This release is **0.1.1**, with separately named registry packages and plugin binaries. See [fork provenance, migration and release instructions](../FORK.md), [fork release notes](../FORK_CHANGELOG.md), and the [guarded-fields guide](../docs/guarded-fields.md).
+Maintained by **ReallyMe Technologies Limited** as an independent Apache-2.0 fork of [upstream Buffa](https://github.com/anthropics/buffa). This release is **0.1.2**, with separately named registry packages and plugin binaries. See [fork provenance, migration and release instructions](../FORK.md), [fork release notes](../FORK_CHANGELOG.md), and the [guarded-fields guide](../docs/guarded-fields.md).
 
 [![crates.io](https://img.shields.io/crates/v/reallyme-buffa.svg)](https://crates.io/crates/reallyme-buffa)
 [![docs.rs](https://img.shields.io/docsrs/reallyme-buffa)](https://docs.rs/reallyme-buffa)
@@ -62,7 +62,7 @@ These are gaps we intend to address in future releases:
 
 ## Semver and API stability
 
-Buffa is pre-1.0. We follow the [Rust community convention](https://doc.rust-lang.org/cargo/reference/semver.html) for 0.x crates: breaking changes increment the **minor** version (0.1.x → 0.2.0), additive changes increment the **patch** version (0.1.1 → 0.1.1). Use the exact package aliases in [FORK.md](../FORK.md) to keep the runtime and generator on the same reviewed release.
+Buffa is pre-1.0. We follow the [Rust community convention](https://doc.rust-lang.org/cargo/reference/semver.html) for 0.x crates: breaking changes increment the **minor** version (0.1.x → 0.2.0), additive changes increment the **patch** version (0.1.1 → 0.1.2). Use the exact package aliases in [FORK.md](../FORK.md) to keep the runtime and generator on the same reviewed release.
 
 The generated code API (struct shapes, `Message` trait, `MessageView` trait, `EnumValue`, `MessageField`) is considered the primary stability surface. Internal helper modules marked `#[doc(hidden)]` (`__private`, `__buffa_*` fields) may change at any time.
 
