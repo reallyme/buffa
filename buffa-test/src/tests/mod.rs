@@ -76,6 +76,7 @@ pub(super) fn install_type_registry() {
 mod any_type_url;
 mod arbitrary_bytes;
 mod basic;
+mod borrowed_only;
 mod box_type;
 mod bytes_type;
 mod closed_enum;

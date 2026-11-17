@@ -1132,14 +1132,17 @@ fn collect_natural_reexports(
                     views_gate,
                 ),
             });
-            let owned_view_ident = format_ident!("{nested_rust_name}OwnedView");
-            candidates.push(ReexportCandidate {
-                name: owned_view_ident.to_string(),
-                tokens: crate::feature_gates::cfg_block(
-                    quote! { #inline pub use #view_prefix #owned_view_ident; },
-                    views_gate,
-                ),
-            });
+            let nested_fqn = format!("{proto_fqn}.{}", nested.name.as_deref().unwrap_or(""));
+            if !ctx.borrowed_views_only(&nested_fqn) {
+                let owned_view_ident = format_ident!("{nested_rust_name}OwnedView");
+                candidates.push(ReexportCandidate {
+                    name: owned_view_ident.to_string(),
+                    tokens: crate::feature_gates::cfg_block(
+                        quote! { #inline pub use #view_prefix #owned_view_ident; },
+                        views_gate,
+                    ),
+                });
+            }
             if ctx.config.lazy_views {
                 let lazy_ident = format_ident!("{nested_rust_name}LazyView");
                 candidates.push(ReexportCandidate {

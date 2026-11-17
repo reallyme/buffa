@@ -1205,6 +1205,10 @@ pub struct CodeGenConfig {
     /// and imported descriptors. Owned-message JSON is unchanged. `.` selects all.
     /// Every rule must match a known message, including imported messages.
     pub deny_view_json: Vec<String>,
+    /// Omit the generated owned-view wrapper and `HasMessageView` binding
+    /// for messages matched by these proto path prefixes and their containers.
+    /// Eager and lazy views stay available for callers with custom owners.
+    pub borrowed_views_only_in: Vec<String>,
     /// Permit message selectors that belong to another directory-scoped plugin
     /// request. Such selectors still produce warnings. Keep this disabled when
     /// validating the complete project so misspelled security rules are errors.
@@ -2085,6 +2089,7 @@ impl Default for CodeGenConfig {
             generate_zeroize: false,
             zeroize_messages: Vec::new(),
             deny_view_json: Vec::new(),
+            borrowed_views_only_in: Vec::new(),
             allow_unmatched_message_rules: false,
             generate_views: true,
             lazy_views: false,
@@ -2349,6 +2354,9 @@ pub enum CodeGenWarning {
     /// An explicitly permitted view selector was absent from this scoped request.
     #[non_exhaustive]
     ViewJsonRuleMatchedNothing { rule: String },
+    /// An explicitly permitted borrowed-view selector is absent from this request.
+    #[non_exhaustive]
+    BorrowedViewsRuleMatchedNothing { rule: String },
     /// View JSON restrictions cannot apply without both JSON and view generation.
     #[non_exhaustive]
     ViewJsonRulesRequireJsonAndViews,
@@ -2609,6 +2617,9 @@ impl core::fmt::Display for CodeGenWarning {
             ),
             Self::ZeroizeRuleMatchedNothing { rule } => write!(
                 f, "zeroize_in rule '{rule}' matches no message in this scoped request; validate the full project with allow_unmatched_message_rules=false"
+            ),
+            Self::BorrowedViewsRuleMatchedNothing { rule } => write!(
+                f, "borrowed_views_only_in rule '{rule}' matches no message in this scoped request; validate the full project with allow_unmatched_message_rules=false"
             ),
             Self::ViewJsonRuleMatchedNothing { rule } => write!(
                 f, "deny_view_json rule '{rule}' matches no message in this scoped request; validate the full project with allow_unmatched_message_rules=false"
@@ -3746,6 +3757,19 @@ pub fn generate_with_diagnostics(
         }
     }
 
+    for (rule_index, rule) in config.borrowed_views_only_in.iter().enumerate() {
+        if rule.trim().is_empty() {
+            return Err(CodeGenError::BorrowedViewsRuleMatchedNothing { rule_index });
+        }
+        if !rule_matches_generated_message(rule, file_descriptors, &known_files) {
+            if config.allow_unmatched_message_rules {
+                ctx.warn(CodeGenWarning::BorrowedViewsRuleMatchedNothing { rule: rule.clone() });
+            } else {
+                return Err(CodeGenError::BorrowedViewsRuleMatchedNothing { rule_index });
+            }
+        }
+    }
+
     if !config.deny_view_json.is_empty() && (!config.generate_json || !config.generate_views) {
         ctx.warn(CodeGenWarning::ViewJsonRulesRequireJsonAndViews);
     }
@@ -4841,17 +4865,19 @@ fn generate_proto_content(
             });
             // The owned-view wrapper gets the same natural-path treatment as
             // the view struct, so `pkg::FooOwnedView` works out of the box.
-            let owned_view_ident = format_ident!("{rust_name}OwnedView");
-            root_reexports.push(message::ReexportCandidate {
-                name: owned_view_ident.to_string(),
-                tokens: feature_gates::cfg_block(
-                    quote! {
-                        #[doc(inline)]
-                        pub use self :: #sentinel :: view :: #owned_view_ident;
-                    },
-                    ctx.config.feature_gates().views,
-                ),
-            });
+            if !ctx.borrowed_views_only(&proto_fqn) {
+                let owned_view_ident = format_ident!("{rust_name}OwnedView");
+                root_reexports.push(message::ReexportCandidate {
+                    name: owned_view_ident.to_string(),
+                    tokens: feature_gates::cfg_block(
+                        quote! {
+                            #[doc(inline)]
+                            pub use self :: #sentinel :: view :: #owned_view_ident;
+                        },
+                        ctx.config.feature_gates().views,
+                    ),
+                });
+            }
             if ctx.config.lazy_views {
                 let lazy_ident = format_ident!("{rust_name}LazyView");
                 root_reexports.push(message::ReexportCandidate {
@@ -5833,6 +5859,12 @@ pub enum CodeGenError {
     /// A view-export restriction matches no known message.
     #[error("deny_view_json rule '{rule}' matches no known message")]
     ViewJsonRuleMatchedNothing { rule: String },
+    /// A borrowed-view selector matches no known message.
+    #[error("borrowed_views_only_in rule at index {rule_index} matches no known message")]
+    BorrowedViewsRuleMatchedNothing {
+        /// Zero-based index in the configured selector list.
+        rule_index: usize,
+    },
     /// A cleanup selector matches no message in the request's descriptors.
     #[error("zeroize_in rule '{rule}' matches no known message")]
     ZeroizeRuleMatchedNothing { rule: String },
