@@ -37,6 +37,7 @@ class Reason(Enum):
     CHECKSUM = "release-archive-checksum-mismatch"
     REGISTRY = "release-registry-check-failed"
     REGISTRY_RETRY = "release-registry-not-ready"
+    RATE_LIMIT = "release-rate-limit-wait-exhausted"
     PUBLISH = "release-publication-failed"
     CREDENTIAL = "release-credential-missing"
 
