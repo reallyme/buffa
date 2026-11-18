@@ -33,7 +33,7 @@ chrono = ["dep:chrono"]
 jiff = ["dep:jiff"]
 
 # Explicit cleanup only; ordinary WKTs do not gain Drop implementations.
-zeroize = ["dep:zeroize", "buffa/zeroize"]
+zeroize = ["dep:zeroize", "buffa/zeroize", "buffa-descriptor?/zeroize"]
 # Separate wipe-owning alternatives; ordinary public fields remain unchanged.
 sensitive = ["zeroize", "dep:secrecy", "dep:subtle", "buffa-descriptor?/zeroize"]
 

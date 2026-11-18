@@ -1,0 +1,11 @@
+syntax = "proto3";
+package reflect.owned_input;
+enum State { ZERO = 0; READY = 1; }
+message Record {
+  bool flag = 1;
+  int64 count = 2;
+  string text = 3;
+  State state = 4;
+  repeated State states = 5;
+  map<string, State> by_state = 6;
+}
