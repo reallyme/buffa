@@ -1423,6 +1423,12 @@ pub mod bytes {
     use base64::Engine as _;
     use serde::{Deserializer, Serializer};
 
+    #[derive(Debug, thiserror::Error)]
+    enum DecodeErrorReason {
+        #[error("invalid base64")]
+        InvalidBase64,
+    }
+
     /// Serialize as a base64-encoded string.
     ///
     /// Takes `&[u8]` so both `Vec<u8>` and `bytes::Bytes` fields are
@@ -1495,10 +1501,11 @@ pub mod bytes {
     /// not valid base64 or `out` is too small. On error, `out` may hold part
     /// of the decoded bytes. Constructing the caller's error type may allocate;
     /// the allocation-free guarantee covers decoding, not error construction.
+    /// The error reason is fixed and does not include input symbols or offsets.
     pub fn decode_into<E: serde::de::Error>(text: &str, out: &mut [u8]) -> Result<usize, E> {
         super::lenient_engine(text)
             .decode_slice(text, out)
-            .map_err(E::custom)
+            .map_err(|_| E::custom(DecodeErrorReason::InvalidBase64))
     }
 
     /// Deserialize from a base64-encoded string (or JSON `null` → empty).
