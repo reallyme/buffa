@@ -7,6 +7,8 @@ use core::{
 };
 use zeroize::Zeroize;
 
+// Borrowed slots need destruction but do not require T: Zeroize. Owned values
+// use sensitive::zeroize_vec to run element cleanup before this final wipe.
 pub(crate) fn clear<T>(values: &mut Vec<T>) {
     values.clear();
     values.spare_capacity_mut().zeroize();

@@ -40,7 +40,10 @@ impl<T: Default + Zeroize, P: crate::ProtoBox<T>> Zeroize for crate::MessageFiel
 
 /// Wipe every element of `values`, drop them, then wipe the whole allocation.
 ///
-/// As of zeroize 1.9, `Vec::zeroize` invokes each element's cleanup before
+/// The allocation guarantee applies when element cleanup and destruction return
+/// normally. A panic in a consumer-provided implementation can interrupt it.
+///
+/// As of zeroize 1.9.1, `Vec::zeroize` invokes each element's cleanup before
 /// dropping it, but does not wipe the slots the dropped elements vacate. Those
 /// slots can still hold an enum discriminant, an inner buffer's pointer and
 /// capacity, or padding. At length zero the entire allocation is `MaybeUninit`

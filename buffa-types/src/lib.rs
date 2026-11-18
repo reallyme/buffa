@@ -120,6 +120,13 @@
 //!   requires `std` (the embedded descriptor pool uses `std::sync::OnceLock`).
 //!   If you reach for `&view as &dyn ReflectMessage` on a WKT view and the
 //!   compiler says `ReflectMessage` is not implemented, enable this feature.
+//!
+//! - **`zeroize`** — explicit cleanup for ordinary temporal and dynamic WKTs;
+//!   it does not enable automatic cleanup on drop. Current vector allocations
+//!   are wiped, but earlier growth allocations and vacated `Struct` hash-table
+//!   buckets remain outside that guarantee.
+//! - **`sensitive`** — separate wipe-owning WKTs, including collections that
+//!   wipe their outgrown buffers; see the `sensitive` module.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
