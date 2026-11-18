@@ -271,6 +271,9 @@ impl<'de> serde::Deserialize<'de> for Timestamp {
         use buffa::json_helpers::JsonValueError;
 
         let s = buffa::json_helpers::wkt::deserialize_string(d)?;
+        // This parsing buffer is distinct from any accepted owned payload.
+        #[cfg(feature = "zeroize")]
+        let s = zeroize::Zeroizing::new(s);
         let (secs, nanos) =
             parse_rfc3339(&s).ok_or_else(|| serde::de::Error::custom(JsonValueError::Timestamp))?;
         Ok(Self {

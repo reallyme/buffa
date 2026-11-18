@@ -805,7 +805,9 @@ impl<'de> Visitor<'de> for MessageVisitor<'_> {
         )
     }
 
-    buffa::json_helpers::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+    buffa::json_helpers::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+    );
 
     // Absent documents are distinct from JSON null. Preserve the previous
     // typed entry point's empty-container behavior without accepting null.
@@ -1072,7 +1074,9 @@ fn deserialize_optional_scalar<'de, D: Deserializer<'de>>(
         fn visit_some<D2: Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
             deserialize_scalar(self.0, d).map(Some)
         }
-        buffa::json_helpers::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+        buffa::json_helpers::reject_other_json_kinds!(
+            bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+        );
     }
     d.deserialize_option(Opt(sc))
 }
@@ -1110,7 +1114,9 @@ impl<'de> Visitor<'de> for NestedMessageVisitor<'_> {
         .map(|m| Some(Value::Message(m)))
     }
 
-    buffa::json_helpers::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+    buffa::json_helpers::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+    );
 }
 
 fn deserialize_scalar<'de, D: Deserializer<'de>>(sc: ScalarType, d: D) -> Result<Value, D::Error> {
@@ -1141,6 +1147,17 @@ fn deserialize_scalar<'de, D: Deserializer<'de>>(sc: ScalarType, d: D) -> Result
             scalar_from_f64(self.0, v)
         }
 
+        fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+            if self.0 == ScalarType::String {
+                // Transfer accepted payload ownership; cleanup must not erase
+                // a value retained by the resulting ordinary dynamic message.
+                return Ok(Value::String(value));
+            }
+            #[cfg(feature = "zeroize")]
+            let value = buffa::sensitive::Zeroizing::new(value);
+            self.visit_str(&value)
+        }
+
         fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
             scalar_from_str(self.0, v)
         }
@@ -1150,7 +1167,7 @@ fn deserialize_scalar<'de, D: Deserializer<'de>>(sc: ScalarType, d: D) -> Result
             Err(de::Error::invalid_type(de::Unexpected::Unit, &self))
         }
 
-        buffa::json_helpers::reject_other_json_kinds!(i128, u128, bytes);
+        buffa::json_helpers::reject_other_json_kinds!(i128, u128, bytes, byte_buf);
     }
     d.deserialize_any(ScalarVisitor(sc))
 }
@@ -1268,6 +1285,18 @@ fn deserialize_enum<'de, D: Deserializer<'de>>(
         fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             write!(f, "an enum string, number, or null")
         }
+        fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+            // Enum names become numbers, so the transferred token is temporary
+            // on successful conversion as well as on rejection.
+            #[cfg(feature = "zeroize")]
+            let value = buffa::sensitive::Zeroizing::new(value);
+            self.visit_str(&value)
+        }
+        fn visit_byte_buf<E: de::Error>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+            #[cfg(feature = "zeroize")]
+            let value = buffa::sensitive::Zeroizing::new(value);
+            self.visit_bytes(&value)
+        }
         fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
             let ed = self.pool.enumeration(self.eidx);
             ed.value_by_name(v)
@@ -1334,6 +1363,15 @@ fn deserialize_enum<'de, D: Deserializer<'de>>(
 // Wrong-shaped scalar values must not bypass redaction at a collection boundary.
 macro_rules! reject_container_scalar_values {
     ($reason:ident) => {
+        fn visit_string<Err: serde::de::Error>(
+            self,
+            value: alloc::string::String,
+        ) -> Result<Self::Value, Err> {
+            buffa::json_helpers::discard_rejected_text(value);
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
         fn visit_str<Err: serde::de::Error>(self, _: &str) -> Result<Self::Value, Err> {
             Err(Err::custom(
                 buffa::json_helpers::EnumJsonErrorReason::$reason,
@@ -1395,7 +1433,7 @@ impl<'de> Visitor<'de> for ListVisitor<'_> {
         Ok(None)
     }
     reject_container_scalar_values!(InvalidListType);
-    buffa::json_helpers::reject_other_json_kinds!(bytes);
+    buffa::json_helpers::reject_other_json_kinds!(bytes, byte_buf);
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
         let mut out = Vec::new();
         while let Some(v) = seq.next_element_seed(SingularSeed {
@@ -1441,7 +1479,7 @@ impl<'de> Visitor<'de> for MapFieldVisitor<'_> {
         Ok(None)
     }
     reject_container_scalar_values!(InvalidMapType);
-    buffa::json_helpers::reject_other_json_kinds!(bytes);
+    buffa::json_helpers::reject_other_json_kinds!(bytes, byte_buf);
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         // Collect into a Vec then sort+dedup once at the end, rather than
         // sorted-insert per entry (which is `O(n)` per insert into a `Vec`).

@@ -46,7 +46,7 @@ pub fn deserialize_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Stri
         fn visit_string<E>(self, v: String) -> Result<String, E> {
             Ok(v)
         }
-        crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, bytes);
+        crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, bytes, byte_buf);
     }
     // `deserialize_any` so a non-string reaches `V`: `deserialize_string`
     // lets the deserializer format the mismatched value itself.

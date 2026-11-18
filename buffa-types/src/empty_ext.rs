@@ -24,7 +24,7 @@ impl<'de> serde::Deserialize<'de> for Empty {
                 f.write_str("an empty JSON object")
             }
             buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
             );
             // An empty YAML value reaches `deserialize_any` as `visit_none`;
             // `deserialize_map` read it as an empty map. JSON never sends it.

@@ -1,0 +1,3 @@
+kind: Added
+body: "Add optional explicit Zeroize support for ordinary temporal and dynamic well-known types without changing their fields or adding Drop. Wipe live values, owned string buffers and current vector allocations; earlier growth allocations and vacated Struct hash-table buckets remain outside the guarantee."
+time: 2026-11-18T22:00:00+01:00
