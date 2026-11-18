@@ -435,8 +435,8 @@ opt:
 These types preserve protobuf wire and JSON forms while owning recursive
 cleanup. Dynamic trees use guarded strings, lists and maps; temporal JSON
 formatting uses bounded wipe-owning stack storage. Eager and lazy borrowed
-views are available; JSON serialization of a view materializes a guarded owned
-value. There are no standard owned-view wrappers such as `TimestampOwnedView`;
+views are available; dynamic JSON export borrows their string and value payloads
+without materializing another owned tree. There are no standard owned-view wrappers such as `TimestampOwnedView`;
 use `GuardedOwnedView<TimestampView<'static>>` (see
 [Owning a guarded borrowed view](#owning-a-guarded-borrowed-view)). A message in
 your own generation step that holds one of these types is not a cleanup message
@@ -444,6 +444,20 @@ of that step, so it keeps its standard owned-view wrapper unless you also select
 it, for example with `borrowed_views_only_in`. The guarded family supports borrowed inspection with `sensitive,reflect`
 and guarded arbitrary construction with `sensitive,arbitrary`. It has no
 chrono/jiff adapter implementations.
+
+Dynamic view JSON keeps the guarded owned map's sorted key order and retains
+the last value for a duplicate key. Maps with multiple wire entries allocate
+wipe-owned ordering metadata; they do not copy key or string payload bytes.
+Empty/singleton maps and eager lists need no serialization collection scratch.
+
+Lazy lists first validate all deferred wire children, then re-decode and export
+one borrowed child at a time under the same recorded decode limits. This extra
+decode pass preserves the previous priority of wire errors over JSON or sink
+errors while bounding temporary decoded storage to one child. A malformed wire
+child therefore still fails before any JSON is written. Missing Value kinds and
+nonfinite numbers retain their fixed diagnostics. JSON and sink failures may
+leave the same partial output as before. Temporal views retain their bounded
+scalar conversion and wipe-owned stack formatting.
 
 Ordinary WKTs remain source-compatible and do not gain `Drop`. The lighter
 `buffa-types/zeroize` feature adds explicit `Zeroize` implementations for these

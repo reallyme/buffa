@@ -274,7 +274,9 @@ jobs:
   # cache key follows it. `cargo +<toolchain>` overrides rust-toolchain.toml.
   miri:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Include a cold sysroot and the instrumented borrowed-JSON compatibility
+    # cases, in addition to the existing storage/interpreter checks.
+    timeout-minutes: 25
     env:
       MIRI_TOOLCHAIN: nightly-2026-11-10
     steps:
@@ -342,6 +344,9 @@ jobs:
           cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa
           --no-default-features --features std,json,zeroize --lib --
           sensitive:: erasing::
+
+      - name: Miri (borrowed guarded WKT JSON compatibility and scratch ownership)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p reallyme-buffa-types --features sensitive,json --test borrowed_sensitive_json
 
       - name: Miri (borrowed inspection scalar slots)
         run: >-
