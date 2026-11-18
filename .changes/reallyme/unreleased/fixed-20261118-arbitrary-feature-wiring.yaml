@@ -1,3 +1,3 @@
 kind: Fixed
-body: 'Enable std for the opt-in WKT and descriptor arbitrary features, as their generated derives require. Add isolated native and Wasm checks, including the guarded WKT combination, while retaining ordinary no_std coverage on bare-metal ARM.'
+body: 'Enable std for the opt-in WKT and descriptor arbitrary features, as their generated derives require. Add isolated native and Wasm checks, including the guarded WKT combination, while retaining ordinary no_std coverage on bare-metal ARM. The feature-check script selects the repository''s toolchain and configuration when called from another directory.'
 time: 2026-11-18T11:00:00+01:00
