@@ -24,6 +24,8 @@
 
 mod containers;
 mod dynamic;
+#[cfg(feature = "zeroize")]
+mod inspect;
 #[cfg(feature = "json")]
 mod json;
 mod message;
@@ -31,6 +33,11 @@ mod value;
 
 pub use containers::{ReflectElement, ReflectMapKey};
 pub use dynamic::{AnyError, BridgeError, DynamicMessage, EmptyMessage};
+#[cfg(feature = "zeroize")]
+pub use inspect::{
+    InspectElement, InspectErrorReason, InspectList, InspectMap, InspectMapKeyRef, InspectMessage,
+    InspectMessageRef, InspectValueRef,
+};
 #[cfg(feature = "json")]
 pub use json::DynamicMessageSeed;
 pub use message::{ReflectCow, ReflectError, ReflectMessage, ReflectMessageMut, Reflectable};

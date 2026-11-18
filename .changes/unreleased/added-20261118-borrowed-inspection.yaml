@@ -1,0 +1,3 @@
+kind: Added
+body: "Add an optional borrowed-only inspection API for cleanup-enabled messages and collections, with fixed field-membership errors, redacted debug output and cleanup of scalar inspection slots. It does not construct dynamic snapshots or expose serialization."
+time: 2026-11-18T22:00:00+01:00
