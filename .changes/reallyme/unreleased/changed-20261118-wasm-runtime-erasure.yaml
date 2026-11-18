@@ -1,0 +1,3 @@
+kind: Changed
+body: Execute guarded cleanup regression tests in actual wasm32-unknown-unknown modules on Node.js, in debug and optimized release builds. A pre-release allocation observer and deliberate residue controls cover vector slots, guarded collection growth and iteration, sensitive WKT strings and replacement, and map decode-error cleanup without changing application APIs.
+time: 2026-11-18T17:00:00+01:00

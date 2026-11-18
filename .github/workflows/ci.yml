@@ -322,6 +322,9 @@ jobs:
       - name: Miri (allocation wipe observer, including negative controls)
         run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p reallyme-buffa-types --features zeroize --test zeroized_vec_slots
 
+      - name: Miri (allocation observer used by Wasm fixtures)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p wasm-erasure-tests --features runtime-tests
+
       # OwnedView: the view borrows from the Bytes it is stored beside, with
       # forged 'static lifetimes hidden behind a MaybeDangling wrapper. Miri
       # turns a wrong field order (a dangling borrow while the view's
@@ -348,6 +351,30 @@ jobs:
           cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa-descriptor
           --no-default-features --features std,reflect,zeroize --lib --
           reflect::inspect::tests
+
+  # Execute the actual browser-target module, not only a cross-compilation.
+  wasm-erasure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
+
+      - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (sha-pinned)
+        with:
+          node-version: '26'
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 (sha-pinned)
+
+      - name: Clippy (Wasm allocation observer)
+        run: cargo clippy --locked -p wasm-erasure-tests --features runtime-tests --lib --target wasm32-unknown-unknown -- -D warnings
+
+      - name: Execute Wasm cleanup and residue controls (debug and release)
+        run: scripts/test-wasm-erasure.sh
 
   # ── no_std and 32-bit compilation checks ─────────────────────────────────
   check-nostd:
