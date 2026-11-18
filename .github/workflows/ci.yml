@@ -313,6 +313,9 @@ jobs:
       - name: Miri (table interpreter soundness)
         run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa --lib -- 'table::'
 
+      - name: Miri (zeroization cleanup ordering and niche validity)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p reallyme-buffa --features zeroize --test zeroize_vec
+
       # OwnedView: the view borrows from the Bytes it is stored beside, with
       # forged 'static lifetimes hidden behind a MaybeDangling wrapper. Miri
       # turns a wrong field order (a dangling borrow while the view's
@@ -353,7 +356,7 @@ jobs:
       # file then bypasses, and the bare-metal check fails with E0463.
       - uses: dtolnay/rust-toolchain@d5e4d57b030548f435d0befec15ff413a2c60eff # 1.100.0 (sha-pinned)
         with:
-          targets: i686-unknown-linux-gnu, thumbv7em-none-eabihf
+          targets: i686-unknown-linux-gnu, thumbv7em-none-eabihf, wasm32-unknown-unknown
 
       - name: Install protoc
         run: |
@@ -399,6 +402,23 @@ jobs:
 
       - name: Check buffa-proto-options no_std + json/text/views
         run: cargo check -p reallyme-buffa-proto-options --no-default-features --features json,text,views
+
+      - name: Check ordinary generated crates remain no_std (bare-metal ARM)
+        run: |
+          cargo check --manifest-path buffa-types/Cargo.toml --no-default-features --target thumbv7em-none-eabihf
+          cargo check --manifest-path buffa-descriptor/Cargo.toml --no-default-features --target thumbv7em-none-eabihf
+
+      # Check crates separately: workspace feature unification would hide a
+      # missing std dependency in an arbitrary-only consumer.
+      - name: Check isolated arbitrary features (host and Wasm)
+        run: |
+          scripts/check-arbitrary-features.sh
+          scripts/check-arbitrary-features.sh wasm32-unknown-unknown
+
+      - name: Check guarded WKT arbitrary features (host and Wasm)
+        run: |
+          cargo check --locked --manifest-path buffa-types/Cargo.toml --no-default-features --features sensitive,json,arbitrary
+          cargo check --locked --manifest-path buffa-types/Cargo.toml --no-default-features --features sensitive,json,arbitrary --target wasm32-unknown-unknown
 
       - name: Check workspace 32-bit
         run: cargo check --workspace --target i686-unknown-linux-gnu

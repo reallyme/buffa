@@ -1,0 +1,3 @@
+kind: Security
+body: 'Wipe the vacated element slots when zeroizing `UnknownFields` and `buffa-types` `ListValue`. Since zeroize 1.9.1, `Vec::zeroize` no longer overwrites an element''s storage after its destructor runs, so unknown-field wire types, payload buffer pointers and capacities, `Value` kind tags and padding stayed in the retained buffer until it was reused or freed. Consumers of 0.1.2 whose lockfile resolved zeroize 1.9.1 are affected and should upgrade. `Struct` entries are still moved out of their hash table without wiping the vacated buckets, which remains a best-effort limitation.'
+time: 2026-11-17T14:00:00+01:00
