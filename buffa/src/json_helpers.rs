@@ -775,15 +775,22 @@ fn try_deserialize_enum<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// A null element is only meaningful for an explicitly marked NullValue enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum EnumCollectionErrorReason {
+    #[error("null is not an enum collection element")]
+    NullElement,
+}
+
 // ── repeated_enum: Vec<EnumValue<E>> with unknown-value filtering ────────────
 
 /// Serde with-module for `Vec<EnumValue<E>>` repeated enum fields, or any
 /// collection that is `From<Vec<EnumValue<E>>>`.
 ///
 /// When `ignore_unknown_enum_values` is active, unknown enum string values
-/// are silently skipped instead of producing an error. In default mode this
-/// behaves identically to the standard `Vec<EnumValue<E>>` deserialization
-/// with null→empty-vec handling.
+/// are silently skipped instead of producing an error. A null field becomes
+/// an empty collection. Null elements are rejected in both modes unless
+/// [`Enumeration::IS_NULL_VALUE`](crate::Enumeration::IS_NULL_VALUE) is set.
 pub mod repeated_enum {
     use alloc::vec::Vec;
     use serde::{Deserializer, Serializer};
@@ -819,6 +826,13 @@ pub mod repeated_enum {
             ) -> Result<Vec<crate::EnumValue<E>>, A::Error> {
                 let mut out = Vec::with_capacity(super::clamp_size_hint(seq.size_hint()));
                 while let Some(super::BufferedValue(raw)) = seq.next_element()? {
+                    // Scalar enum null means default; sequence null is invalid
+                    // except for the canonical WKT's explicit null sentinel.
+                    if raw.is_null() && !E::IS_NULL_VALUE {
+                        return Err(serde::de::Error::custom(
+                            super::EnumCollectionErrorReason::NullElement,
+                        ));
+                    }
                     match super::try_deserialize_enum::<crate::EnumValue<E>>(raw) {
                         Ok(Some(v)) => out.push(v),
                         Ok(None) => continue,
