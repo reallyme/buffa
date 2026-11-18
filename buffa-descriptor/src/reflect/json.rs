@@ -1148,6 +1148,17 @@ fn deserialize_scalar<'de, D: Deserializer<'de>>(sc: ScalarType, d: D) -> Result
             scalar_from_f64(self.0, v)
         }
 
+        fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+            if self.0 == ScalarType::String {
+                // Transfer accepted payload ownership; cleanup must not erase
+                // a value retained by the resulting ordinary dynamic message.
+                return Ok(Value::String(value));
+            }
+            #[cfg(feature = "zeroize")]
+            let value = buffa::sensitive::Zeroizing::new(value);
+            self.visit_str(&value)
+        }
+
         fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
             scalar_from_str(self.0, v)
         }
@@ -1274,6 +1285,18 @@ fn deserialize_enum<'de, D: Deserializer<'de>>(
         type Value = Option<Value>;
         fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             write!(f, "an enum string, number, or null")
+        }
+        fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+            // Enum names become numbers, so the transferred token is temporary
+            // on successful conversion as well as on rejection.
+            #[cfg(feature = "zeroize")]
+            let value = buffa::sensitive::Zeroizing::new(value);
+            self.visit_str(&value)
+        }
+        fn visit_byte_buf<E: de::Error>(self, value: Vec<u8>) -> Result<Self::Value, E> {
+            #[cfg(feature = "zeroize")]
+            let value = buffa::sensitive::Zeroizing::new(value);
+            self.visit_bytes(&value)
         }
         fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
             let ed = self.pool.enumeration(self.eidx);

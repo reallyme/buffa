@@ -41,3 +41,8 @@ runtime. They do not establish universal physical erasure, cleanup of caller or
 JavaScript copies, parser scratch storage, or arbitrary compiler temporaries.
 Ordinary `Struct` hash-table buckets and historical ordinary-container growth
 allocations remain outside the documented cleanup guarantee.
+
+The observer deliberately makes allocation contents externally observable and
+may influence optimization. Passing an instrumented release build supports the
+claim for that build; it does not prove identical behavior in uninstrumented
+applications.

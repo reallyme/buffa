@@ -1404,23 +1404,23 @@ fn generate_custom_deserialize(
             // whose sole branch returns would trigger clippy::never_loop.
             if guarded {
                 quote! {
-                    if let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                    if let ::core::option::Option::Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
                         #guard_key
                         #number_key
-                        return Err(#unknown_error);
+                        return ::core::result::Result::Err(#unknown_error);
                     }
                 }
             } else {
                 quote! {
-                    if let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                    if let ::core::option::Option::Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
                         #number_key
-                        return Err(<__A::Error as ::serde::de::Error>::unknown_field(&key,&[]));
+                        return ::core::result::Result::Err(<__A::Error as ::serde::de::Error>::unknown_field(&key,&[]));
                     }
                 }
             }
         } else {
             quote! {
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
                     #guard_key
                     #number_key
                     let _ = key;
@@ -1434,7 +1434,7 @@ fn generate_custom_deserialize(
         let allow_never_loop = guarded.then(|| quote! { #[allow(clippy::never_loop)] });
         quote! {
             #allow_never_loop
-            while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+            while let ::core::option::Option::Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
                 #guard_key
                 #number_key
                 match key.as_str() {
@@ -1555,7 +1555,7 @@ fn generate_custom_deserialize(
                         #late_result
                         #(#field_inits)*
                         #ext_init
-                        Ok(__r)
+                        ::core::result::Result::Ok(__r)
                     }
 
                     #reject_other_kinds
@@ -1689,7 +1689,7 @@ fn custom_deser_regular_field(
         let duplicate_check = duplicates.then(|| {
             quote! {
                 if #var_ident {
-                    return Err(<__A::Error as ::serde::de::Error>::duplicate_field(#field_name));
+                    return ::core::result::Result::Err(<__A::Error as ::serde::de::Error>::duplicate_field(#field_name));
                 }
             }
         });

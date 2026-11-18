@@ -1137,6 +1137,26 @@ pub mod proto_enum {
             fn visit_bool<Err: serde::de::Error>(self, _: bool) -> Result<Self::Value, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
             }
+            #[cfg(feature = "zeroize")]
+            fn visit_string<Err: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<Self::Value, Err> {
+                // Generated open-enum fields use this adapter rather than the
+                // standalone EnumValue visitor. Each owns its transferred token.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+            #[cfg(feature = "zeroize")]
+            fn visit_byte_buf<Err: serde::de::Error>(
+                self,
+                value: alloc::vec::Vec<u8>,
+            ) -> Result<Self::Value, Err> {
+                // Preserve Serde's borrowed-byte rejection while wiping the
+                // owned allocation that its default forwarding would release.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_bytes(&value)
+            }
             fn visit_str<Err: serde::de::Error>(self, v: &str) -> Result<crate::EnumValue<E>, Err> {
                 match E::from_proto_name(v) {
                     Some(e) => Ok(crate::EnumValue::from(e)),
@@ -2890,6 +2910,16 @@ pub mod closed_enum {
                 // Borrowed text and parser scratch stay with the deserializer.
                 let value = zeroize::Zeroizing::new(value);
                 self.visit_str(&value)
+            }
+            #[cfg(feature = "zeroize")]
+            fn visit_byte_buf<Err: serde::de::Error>(
+                self,
+                value: alloc::vec::Vec<u8>,
+            ) -> Result<Self::Value, Err> {
+                // Preserve Serde's borrowed-byte rejection while wiping the
+                // owned allocation that its default forwarding would release.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_bytes(&value)
             }
             fn visit_str<Err: serde::de::Error>(self, v: &str) -> Result<E, Err> {
                 match E::from_proto_name(v) {

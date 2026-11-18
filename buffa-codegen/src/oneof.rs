@@ -658,7 +658,7 @@ pub fn generate_oneof_enum(
                 } else {
                     value
                 };
-                Ok(quote! { #index => Ok(Self::#name(#value)), })
+                Ok(quote! { #index => ::core::result::Result::Ok(Self::#name(#value)), })
             })
             .collect::<Result<Vec<_>, CodeGenError>>()?;
         crate::guarded_arbitrary::implementation(
@@ -666,7 +666,7 @@ pub fn generate_oneof_enum(
             quote! {
                 match __u.int_in_range(0usize..=#last)? {
                     #(#arms)*
-                    _ => Err(::arbitrary::Error::IncorrectFormat),
+                    _ => ::core::result::Result::Err(::arbitrary::Error::IncorrectFormat),
                 }
             },
             &quote! {},

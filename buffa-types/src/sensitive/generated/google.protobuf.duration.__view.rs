@@ -245,15 +245,19 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         ::buffa_descriptor::reflect::InspectValueRef::I64(self.seconds)
                     }
                     2u32 => ::buffa_descriptor::reflect::InspectValueRef::I32(self.nanos),
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }

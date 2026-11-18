@@ -252,6 +252,8 @@ fn rustc_minor() -> u32 {
 }
 
 fn main() {
+    compile_cleanup_hygiene();
+    compile_cleanup_json_hygiene();
     // Compile ordinary vtable collections over an enum-local CLOSED override,
     // independently of the guarded inspection path.
     buffa_build::Config::new()
@@ -1792,4 +1794,35 @@ fn main() {
             println!("cargo:warning=editions_2024.proto skipped (protoc too old?): {e}");
         }
     }
+}
+
+fn compile_cleanup_hygiene() {
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_hygiene.proto"])
+        .includes(&["protos/"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .generate_reflection(true)
+        .generate_json(false)
+        .generate_text(false)
+        .generate_arbitrary(true)
+        .lazy_views(true)
+        .compile()
+        .expect("cleanup hygiene fixture generation failed");
+}
+
+fn compile_cleanup_json_hygiene() {
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_json_hygiene.proto"])
+        .includes(&["protos/"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .generate_views(false)
+        .generate_reflection(false)
+        .generate_json(true)
+        .generate_text(false)
+        .generate_arbitrary(false)
+        .deny_unknown_json_fields(true)
+        .compile()
+        .expect("cleanup JSON hygiene fixture generation failed");
 }

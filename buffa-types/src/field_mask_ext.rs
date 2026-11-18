@@ -346,6 +346,9 @@ impl<'de> serde::Deserialize<'de> for FieldMask {
     /// JSON representation.
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = buffa::json_helpers::wkt::deserialize_string(d)?;
+        // This parsing buffer is distinct from any accepted owned payload.
+        #[cfg(feature = "zeroize")]
+        let s = zeroize::Zeroizing::new(s);
         let paths = if s.is_empty() {
             Vec::new()
         } else {

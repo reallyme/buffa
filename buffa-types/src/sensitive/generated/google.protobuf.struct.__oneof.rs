@@ -55,7 +55,7 @@ pub mod value {
             let _ = __depth;
             match __u.int_in_range(0usize..=5usize)? {
                 0usize => {
-                    Ok(
+                    ::core::result::Result::Ok(
                         Self::NullValue(
                             <::buffa::EnumValue<
                                 super::super::super::NullValue,
@@ -64,14 +64,14 @@ pub mod value {
                     )
                 }
                 1usize => {
-                    Ok(
+                    ::core::result::Result::Ok(
                         Self::NumberValue(
                             <f64 as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)?,
                         ),
                     )
                 }
                 2usize => {
-                    Ok(
+                    ::core::result::Result::Ok(
                         Self::StringValue(
                             ::buffa::sensitive::arbitrary::string::<
                                 crate::sensitive::SecretString,
@@ -80,14 +80,14 @@ pub mod value {
                     )
                 }
                 3usize => {
-                    Ok(
+                    ::core::result::Result::Ok(
                         Self::BoolValue(
                             <bool as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)?,
                         ),
                     )
                 }
                 4usize => {
-                    Ok(
+                    ::core::result::Result::Ok(
                         Self::StructValue(
                             ::buffa::alloc::boxed::Box::new(
                                 <super::super::super::Struct as ::buffa::sensitive::GuardedArbitrary<
@@ -98,7 +98,7 @@ pub mod value {
                     )
                 }
                 5usize => {
-                    Ok(
+                    ::core::result::Result::Ok(
                         Self::ListValue(
                             ::buffa::alloc::boxed::Box::new(
                                 <super::super::super::ListValue as ::buffa::sensitive::GuardedArbitrary<
@@ -108,7 +108,7 @@ pub mod value {
                         ),
                     )
                 }
-                _ => Err(::arbitrary::Error::IncorrectFormat),
+                _ => ::core::result::Result::Err(::arbitrary::Error::IncorrectFormat),
             }
         }
     }

@@ -270,6 +270,18 @@ impl InspectElement for &[u8] {
         InspectValueRef::Bytes(self)
     }
 }
+// Standard owned representations can borrow their payload just like custom
+// types. Downstream consumers cannot supply these foreign trait impls.
+impl InspectElement for alloc::string::String {
+    fn as_inspect_value(&self) -> InspectValueRef<'_> {
+        InspectValueRef::String(self.as_str())
+    }
+}
+impl InspectElement for alloc::vec::Vec<u8> {
+    fn as_inspect_value(&self) -> InspectValueRef<'_> {
+        InspectValueRef::Bytes(self.as_slice())
+    }
+}
 impl<E: buffa::Enumeration> InspectElement for buffa::EnumValue<E> {
     fn as_inspect_value(&self) -> InspectValueRef<'_> {
         InspectValueRef::EnumNumber(self.to_i32())
@@ -343,6 +355,34 @@ impl<K: ReflectMapKey + Ord, V: InspectElement> InspectMap for buffa::sensitive:
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn owned_standard_text_and_bytes_are_inspected_by_borrow() {
+        let strings: buffa::sensitive::List<alloc::string::String> =
+            [alloc::string::String::from("private text")]
+                .into_iter()
+                .collect();
+        let list: &dyn InspectList = &strings;
+        match list.get(0).unwrap() {
+            InspectValueRef::String(text) => assert_eq!(text.as_ptr(), strings[0].as_ptr()),
+            _ => panic!("text inspection changed its kind"),
+        }
+        let bytes: buffa::sensitive::List<alloc::vec::Vec<u8>> =
+            [alloc::vec![0x37u8; 3]].into_iter().collect();
+        let list: &dyn InspectList = &bytes;
+        match list.get(0).unwrap() {
+            InspectValueRef::Bytes(value) => assert_eq!(value.as_ptr(), bytes[0].as_ptr()),
+            _ => panic!("byte inspection changed its kind"),
+        }
+        let mut map = buffa::sensitive::Map::<u64, alloc::string::String>::default();
+        map.insert(7, alloc::string::String::from("map value"));
+        let inspected: &dyn InspectMap = &map;
+        match inspected.get(&MapKeyRef::U64(7)).unwrap() {
+            InspectValueRef::String(text) => {
+                assert_eq!(text.as_ptr(), map.get(&7).unwrap().as_ptr())
+            }
+            _ => panic!("map inspection changed its kind"),
+        };
+    }
 
     #[test]
     fn inspection_slots_erase_copies_and_leave_borrowed_storage_untouched() {

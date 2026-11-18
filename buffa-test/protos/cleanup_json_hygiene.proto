@@ -1,0 +1,4 @@
+syntax = "proto3";
+package cleanup_json_hygiene;
+message Record { uint32 value = 1; }
+message Empty {}

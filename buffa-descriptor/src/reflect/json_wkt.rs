@@ -136,16 +136,25 @@ impl WktKind {
             Self::Any => deserialize_any(pool, midx, d, flags, budget),
             Self::Timestamp => {
                 let s = buffa::json_helpers::wkt::deserialize_string(d)?;
+                // This parsing buffer is distinct from any accepted owned payload.
+                #[cfg(feature = "zeroize")]
+                let s = buffa::sensitive::Zeroizing::new(s);
                 let (secs, nanos) = parse_rfc3339(&s).map_err(de::Error::custom)?;
                 Ok(make_two_field(pool, midx, secs, nanos))
             }
             Self::Duration => {
                 let s = buffa::json_helpers::wkt::deserialize_string(d)?;
+                // This parsing buffer is distinct from any accepted owned payload.
+                #[cfg(feature = "zeroize")]
+                let s = buffa::sensitive::Zeroizing::new(s);
                 let (secs, nanos) = parse_duration(&s).map_err(de::Error::custom)?;
                 Ok(make_two_field(pool, midx, secs, nanos))
             }
             Self::FieldMask => {
                 let s = buffa::json_helpers::wkt::deserialize_string(d)?;
+                // This parsing buffer is distinct from any accepted owned payload.
+                #[cfg(feature = "zeroize")]
+                let s = buffa::sensitive::Zeroizing::new(s);
                 // A `FieldMask` is `repeated string paths`, and each comma
                 // in the input buys another `Value` slot — the same
                 // amplification a repeated field has, so the same charge.
@@ -436,7 +445,9 @@ impl<'de> Visitor<'de> for StructVisitor<'_> {
     fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "a JSON object")
     }
-    buffa::json_helpers::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf);
+    buffa::json_helpers::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+    );
     // Absent documents are distinct from JSON null. Preserve the previous
     // typed entry point's empty-container behavior without accepting null.
     fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
@@ -505,7 +516,9 @@ impl<'de> Visitor<'de> for ListValueVisitor<'_> {
     fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "a JSON array")
     }
-    buffa::json_helpers::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf);
+    buffa::json_helpers::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+    );
     // Absent documents are distinct from JSON null. Preserve the previous
     // typed entry point's empty-container behavior without accepting null.
     fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {

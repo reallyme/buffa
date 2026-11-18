@@ -179,7 +179,7 @@ impl<'a> ::buffa::sensitive::GuardedArbitrary<'a> for Struct {
                 __value.into_inner(),
             );
         }
-        Ok(__owned)
+        ::core::result::Result::Ok(__owned)
     }
 }
 #[cfg(feature = "arbitrary")]
@@ -218,14 +218,18 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         ::buffa_descriptor::reflect::InspectValueRef::Map(&self.fields)
                     }
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }
@@ -390,24 +394,24 @@ impl ::buffa::text::TextFormat for Struct {
                                     match __n {
                                         "key" => {
                                             ::buffa::sensitive::Zeroize::zeroize(&mut *__k);
-                                            *__k = Some(
+                                            *__k = ::core::option::Option::Some(
                                                 ::core::convert::Into::into(__d.read_string()?.into_owned()),
                                             );
                                         }
                                         "value" => {
                                             ::buffa::sensitive::Zeroize::zeroize(&mut *__v);
-                                            *__v = Some({
+                                            *__v = ::core::option::Option::Some({
                                                 let mut __m = ::core::default::Default::default();
                                                 __d.merge_message(&mut __m)?;
                                                 __m
                                             });
                                         }
-                                        _ => return Err(__d.unknown_field()),
+                                        _ => return ::core::result::Result::Err(__d.unknown_field()),
                                     }
                                 }
-                                Ok(())
+                                ::core::result::Result::Ok(())
                             })?;
-                            Ok((
+                            ::core::result::Result::Ok((
                                 __k.take().unwrap_or_default(),
                                 __v.take().unwrap_or_default(),
                             ))
@@ -491,15 +495,15 @@ impl<'a> ::buffa::sensitive::GuardedArbitrary<'a> for Value {
         let _ = __depth;
         let mut __owned = Self::default();
         __owned.kind = if <bool as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)? {
-            Some(
+            ::core::option::Option::Some(
                 <__buffa::oneof::value::Kind as ::buffa::sensitive::GuardedArbitrary<
                     'a,
                 >>::arbitrary_guarded(__u, __depth)?,
             )
         } else {
-            None
+            ::core::option::Option::None
         };
-        Ok(__owned)
+        ::core::result::Result::Ok(__owned)
     }
 }
 #[cfg(feature = "arbitrary")]
@@ -538,9 +542,9 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         match &self.kind {
@@ -622,7 +626,11 @@ const _: () = {
                             }
                         }
                     }
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }
@@ -1101,7 +1109,7 @@ impl<'a> ::buffa::sensitive::GuardedArbitrary<'a> for ListValue {
                 >>::arbitrary_guarded(__u, __depth)?,
             );
         }
-        Ok(__owned)
+        ::core::result::Result::Ok(__owned)
     }
 }
 #[cfg(feature = "arbitrary")]
@@ -1140,14 +1148,18 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         ::buffa_descriptor::reflect::InspectValueRef::List(&self.values)
                     }
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }

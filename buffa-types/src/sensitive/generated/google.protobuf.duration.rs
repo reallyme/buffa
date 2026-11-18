@@ -144,7 +144,7 @@ impl<'a> ::buffa::sensitive::GuardedArbitrary<'a> for Duration {
         let mut __owned = Self::default();
         __owned.seconds = <_ as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)?;
         __owned.nanos = <_ as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)?;
-        Ok(__owned)
+        ::core::result::Result::Ok(__owned)
     }
 }
 #[cfg(feature = "arbitrary")]
@@ -183,15 +183,19 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         ::buffa_descriptor::reflect::InspectValueRef::I64(self.seconds)
                     }
                     2u32 => ::buffa_descriptor::reflect::InspectValueRef::I32(self.nanos),
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }

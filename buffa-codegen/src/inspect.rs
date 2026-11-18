@@ -13,12 +13,12 @@ pub(crate) fn message_impl(
     allow: &TokenStream,
 ) -> TokenStream {
     let get_result = if get_arms.is_empty() {
-        quote! { Err(InspectErrorReason::FieldNotMember) }
+        quote! { ::core::result::Result::Err(InspectErrorReason::FieldNotMember) }
     } else {
         quote! {
-            Ok(match field.number() {
+            ::core::result::Result::Ok(match field.number() {
                 #(#get_arms)*
-                _ => return Err(InspectErrorReason::FieldNotMember),
+                _ => return ::core::result::Result::Err(InspectErrorReason::FieldNotMember),
             })
         }
     };
@@ -52,7 +52,7 @@ pub(crate) fn message_impl(
                 if !descriptor.field(field.number()).is_some_and(|declared| {
                     ::core::ptr::eq(declared, field)
                 }) {
-                    return Err(InspectErrorReason::FieldNotMember);
+                    return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
                 }
                 #get_result
             }

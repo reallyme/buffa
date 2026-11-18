@@ -125,8 +125,8 @@ pub(crate) fn message(
             let expression = if impl_message::is_explicit_presence_scalar(field, kind, &features) {
                 quote! {
                     if <bool as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)? {
-                        Some(#element)
-                    } else { None }
+                        ::core::option::Option::Some(#element)
+                    } else { ::core::option::Option::None }
                 }
             } else {
                 element
@@ -146,15 +146,15 @@ pub(crate) fn message(
         );
         fields.push(quote! {
             __owned.#field = if <bool as ::arbitrary::Arbitrary<'a>>::arbitrary(__u)? {
-                Some(<#oneof_prefix #enum_name as ::buffa::sensitive::GuardedArbitrary<'a>>::arbitrary_guarded(__u, __depth)?)
-            } else { None };
+                ::core::option::Option::Some(<#oneof_prefix #enum_name as ::buffa::sensitive::GuardedArbitrary<'a>>::arbitrary_guarded(__u, __depth)?)
+            } else { ::core::option::Option::None };
         });
     }
     let mutable = (!fields.is_empty()).then(|| quote! { mut });
     let body = quote! {
         let #mutable __owned = Self::default();
         #(#fields)*
-        Ok(__owned)
+        ::core::result::Result::Ok(__owned)
     };
     let allow = crate::message::deprecated_field_allow(scope.ctx, descriptor, scope.proto_fqn);
     Ok(implementation(name, body, &allow))

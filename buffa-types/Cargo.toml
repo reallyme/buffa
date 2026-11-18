@@ -34,7 +34,7 @@ chrono = ["dep:chrono"]
 # `default-features = false` + `alloc`); the `std` feature adds `jiff/std`.
 jiff = ["dep:jiff"]
 # Explicit wiping for ordinary temporal and dynamic WKTs.
-zeroize = ["dep:zeroize", "buffa/zeroize"]
+zeroize = ["dep:zeroize", "buffa/zeroize", "buffa-descriptor?/zeroize"]
 # Separate wipe-owning WKT family for secret-bearing messages.
 sensitive = ["zeroize", "dep:secrecy", "dep:subtle", "buffa-descriptor?/zeroize"]
 

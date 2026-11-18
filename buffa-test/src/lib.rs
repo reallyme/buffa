@@ -1526,3 +1526,21 @@ pub mod cleanup_input {
 pub mod enum_nulls {
     buffa::include_proto!("enum_nulls");
 }
+
+/// User helper constructors must not capture generated Result constructors.
+#[allow(clippy::derivable_impls)]
+pub mod cleanup_hygiene {
+    buffa::include_proto!("cleanup_hygiene");
+    pub struct Ok;
+    pub struct Err;
+}
+
+/// Cleanup's no-oneof JSON visitor preserves consumer value namespaces.
+// The empty schema uses the same single-binding codec match as other empty fixtures.
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod cleanup_json_hygiene {
+    buffa::include_proto!("cleanup_json_hygiene");
+    pub struct Ok;
+    pub struct Err;
+    pub struct Some;
+}

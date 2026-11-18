@@ -1164,14 +1164,14 @@ fn map_merge_arm(
                     __d.merge_map_entry(|__d| {
                         while let ::core::option::Option::Some(__n)=__d.read_field_name()? {
                             match __n {
-                                "key"=>{::buffa::sensitive::Zeroize::zeroize(&mut *__k);*__k=Some(#key_read);},
-                                "value"=>{::buffa::sensitive::Zeroize::zeroize(&mut *__v);*__v=Some(#val_read);},
-                                _=>return Err(__d.unknown_field()),
+                                "key"=>{::buffa::sensitive::Zeroize::zeroize(&mut *__k);*__k=::core::option::Option::Some(#key_read);},
+                                "value"=>{::buffa::sensitive::Zeroize::zeroize(&mut *__v);*__v=::core::option::Option::Some(#val_read);},
+                                _=>return ::core::result::Result::Err(__d.unknown_field()),
                             }
                         }
-                        Ok(())
+                        ::core::result::Result::Ok(())
                     })?;
-                    Ok((__k.take().unwrap_or_default(),__v.take().unwrap_or_default()))
+                    ::core::result::Result::Ok((__k.take().unwrap_or_default(),__v.take().unwrap_or_default()))
                 })?;
             }
         });

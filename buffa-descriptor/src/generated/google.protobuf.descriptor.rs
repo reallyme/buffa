@@ -503,7 +503,9 @@ impl<'de> ::serde::Deserialize<'de> for FileDescriptorSet {
                     ::buffa::alloc::vec::Vec<FileDescriptorProto>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -568,7 +570,7 @@ impl<'de> ::serde::Deserialize<'de> for FileDescriptorSet {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -3196,7 +3198,9 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionRangeOptions {
                     ::core::option::Option<extension_range_options::VerificationState>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -3325,7 +3329,7 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionRangeOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -8222,7 +8226,9 @@ impl<'de> ::serde::Deserialize<'de> for FileOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -8723,7 +8729,7 @@ impl<'de> ::serde::Deserialize<'de> for FileOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -9491,7 +9497,9 @@ impl<'de> ::serde::Deserialize<'de> for MessageOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -9677,7 +9685,7 @@ impl<'de> ::serde::Deserialize<'de> for MessageOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -10750,7 +10758,9 @@ impl<'de> ::serde::Deserialize<'de> for FieldOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -11080,7 +11090,7 @@ impl<'de> ::serde::Deserialize<'de> for FieldOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -12523,7 +12533,9 @@ impl<'de> ::serde::Deserialize<'de> for OneofOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -12602,7 +12614,7 @@ impl<'de> ::serde::Deserialize<'de> for OneofOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -13119,7 +13131,9 @@ impl<'de> ::serde::Deserialize<'de> for EnumOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -13262,7 +13276,7 @@ impl<'de> ::serde::Deserialize<'de> for EnumOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -13772,7 +13786,9 @@ impl<'de> ::serde::Deserialize<'de> for EnumValueOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -13907,7 +13923,7 @@ impl<'de> ::serde::Deserialize<'de> for EnumValueOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -14314,7 +14330,9 @@ impl<'de> ::serde::Deserialize<'de> for ServiceOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -14414,7 +14432,7 @@ impl<'de> ::serde::Deserialize<'de> for ServiceOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -14885,7 +14903,9 @@ impl<'de> ::serde::Deserialize<'de> for MethodOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -15008,7 +15028,7 @@ impl<'de> ::serde::Deserialize<'de> for MethodOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -16547,7 +16567,9 @@ impl<'de> ::serde::Deserialize<'de> for FeatureSet {
                     >,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -16775,7 +16797,7 @@ impl<'de> ::serde::Deserialize<'de> for FeatureSet {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
@@ -18684,7 +18706,9 @@ impl<'de> ::serde::Deserialize<'de> for SourceCodeInfo {
                     ::buffa::alloc::vec::Vec<source_code_info::Location>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
                     if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
                         return ::core::result::Result::Err(
                             <__A::Error as ::serde::de::Error>::invalid_type(
@@ -18751,7 +18775,7 @@ impl<'de> ::serde::Deserialize<'de> for SourceCodeInfo {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
             ::buffa::json_helpers::reject_other_json_kinds!(
                 bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq

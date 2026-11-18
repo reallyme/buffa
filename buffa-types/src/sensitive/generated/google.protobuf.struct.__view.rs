@@ -259,14 +259,18 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         ::buffa_descriptor::reflect::InspectValueRef::Map(&self.fields)
                     }
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }
@@ -665,9 +669,9 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         match &self.kind {
@@ -769,7 +773,11 @@ const _: () = {
                             }
                         }
                     }
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }
@@ -1031,14 +1039,18 @@ const _: () = {
                 .field(field.number())
                 .is_some_and(|declared| { ::core::ptr::eq(declared, field) })
             {
-                return Err(InspectErrorReason::FieldNotMember);
+                return ::core::result::Result::Err(InspectErrorReason::FieldNotMember);
             }
-            Ok(
+            ::core::result::Result::Ok(
                 match field.number() {
                     1u32 => {
                         ::buffa_descriptor::reflect::InspectValueRef::List(&self.values)
                     }
-                    _ => return Err(InspectErrorReason::FieldNotMember),
+                    _ => {
+                        return ::core::result::Result::Err(
+                            InspectErrorReason::FieldNotMember,
+                        );
+                    }
                 },
             )
         }

@@ -114,17 +114,6 @@ impl<T: Zeroize> Zeroize for crate::MessageFieldView<T> {
         *self = Self::unset();
     }
 }
-impl<V> Zeroize for crate::LazyMessageFieldView<'_, V> {
-    fn zeroize(&mut self) {
-        *self = Self::default();
-    }
-}
-impl<V> Zeroize for crate::LazyRepeatedView<'_, V> {
-    fn zeroize(&mut self) {
-        *self = Self::default();
-    }
-}
-
 #[doc(hidden)]
 pub use crate::erasing::Erasing as Slot;
 

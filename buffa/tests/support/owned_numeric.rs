@@ -81,3 +81,17 @@ pub(super) fn assert_detects_unwiped_drop() {
     assert!(RELEASED.load(Ordering::SeqCst));
     assert!(!WIPED.load(Ordering::SeqCst));
 }
+
+/// Rejected owned byte tokens obey the same allocation boundary.
+// Shared by several integration binaries, some of which only transfer text.
+#[allow(dead_code)]
+pub(super) fn observe_bytes(reject: impl FnOnce(Vec<u8>) -> bool) {
+    let mut bytes = vec![0x37; 97];
+    LENGTH.store(bytes.len(), Ordering::SeqCst);
+    RELEASED.store(false, Ordering::SeqCst);
+    WIPED.store(false, Ordering::SeqCst);
+    WATCHED.store(bytes.as_mut_ptr(), Ordering::SeqCst);
+    assert!(reject(bytes));
+    assert!(RELEASED.load(Ordering::SeqCst));
+    assert!(WIPED.load(Ordering::SeqCst));
+}

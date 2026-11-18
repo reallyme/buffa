@@ -5629,3 +5629,24 @@ mod unknown_fields_view_repr {
 
 #[cfg(feature = "zeroize")]
 pub(crate) mod guarded;
+
+// These implementations live beside the private storage so cleanup can erase
+// the current fragment allocation before resetting the ordinary lazy wrapper.
+// Borrowed wire bytes and earlier ordinary Vec growth allocations are not owned
+// by this operation. Ordinary lazy-view Drop behavior remains unchanged.
+#[cfg(feature = "zeroize")]
+impl<V> zeroize::Zeroize for LazyMessageFieldView<'_, V> {
+    fn zeroize(&mut self) {
+        if let LazyFragments::Many(fragments) = &mut self.raw {
+            crate::sensitive::view_storage::clear(fragments);
+        }
+        *self = Self::default();
+    }
+}
+#[cfg(feature = "zeroize")]
+impl<V> zeroize::Zeroize for LazyRepeatedView<'_, V> {
+    fn zeroize(&mut self) {
+        crate::sensitive::view_storage::clear(&mut self.elements);
+        *self = Self::default();
+    }
+}
