@@ -309,6 +309,12 @@ jobs:
       - name: Miri (table interpreter soundness)
         run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p reallyme-buffa --lib -- 'table::'
 
+      - name: Miri (zeroization cleanup ordering and niche validity)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p reallyme-buffa --features zeroize --test zeroize_vec
+
+      - name: Miri (allocation wipe observer, including negative controls)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p reallyme-buffa-types --features zeroize --test zeroized_vec_slots
+
       # OwnedView: the view borrows from the Bytes it is stored beside, with
       # forged 'static lifetimes hidden behind a MaybeDangling wrapper. Miri
       # turns a wrong field order (a dangling borrow while the view's

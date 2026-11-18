@@ -8,6 +8,8 @@
 //! failing run. Production containers are checked separately without reading
 //! their representation or relying on their private layout.
 
+#![cfg(feature = "zeroize")]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 

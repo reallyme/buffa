@@ -28,10 +28,15 @@ fn niche_values_remain_valid_until_their_destructor_finishes() {
 
     let mut values = Vec::with_capacity(3);
     values.push(Niche(NonZeroU64::new(19).unwrap()));
-    let pointer = values.as_ptr().cast::<u64>();
+    let pointer = values.as_ptr();
+    let capacity = values.capacity();
     zeroize_vec(&mut values);
     assert_eq!(DROPPED.load(Ordering::SeqCst), 1);
     assert!(values.is_empty());
+    // Fail before reading storage if cleanup ever releases or replaces it.
+    assert_eq!(values.capacity(), capacity);
+    assert_eq!(values.as_ptr(), pointer);
+    let pointer = values.as_ptr().cast::<u64>();
     // SAFETY: this padding-free slot is fully initialized even if the final
     // wipe regresses, because Drop writes its entire u64 representation. The
     // vector still owns the aligned allocation. No invalid Niche is read.
