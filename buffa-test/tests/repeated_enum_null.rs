@@ -39,7 +39,8 @@ fn whole_field_null_and_null_value_elements_remain_supported() {
                 );
             }
             let input = r#"{"values":[1,0,99],"nulls":[null,0,"NULL_VALUE",99]}"#;
-            let expected = serde_json::json!({"values":["READY","ZERO",99],"nulls":["NULL_VALUE","NULL_VALUE","NULL_VALUE",99]});
+            let expected =
+                serde_json::json!({"values":["READY","ZERO",99],"nulls":[null,null,null,99]});
             assert_eq!(
                 serde_json::to_value(serde_json::from_str::<Plain>(input).unwrap()).unwrap(),
                 expected
