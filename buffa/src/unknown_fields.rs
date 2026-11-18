@@ -222,6 +222,33 @@ impl<'a> arbitrary::Arbitrary<'a> for UnknownFields {
     }
 }
 
+#[cfg(feature = "zeroize")]
+impl zeroize::Zeroize for UnknownFields {
+    fn zeroize(&mut self) {
+        // Also wipes the discriminants, payload buffer headers and padding
+        // the dropped fields leave in the retained buffer.
+        crate::sensitive::zeroize_vec(&mut self.fields);
+    }
+}
+#[cfg(feature = "zeroize")]
+impl zeroize::Zeroize for UnknownField {
+    fn zeroize(&mut self) {
+        self.number.zeroize();
+        self.data.zeroize();
+    }
+}
+#[cfg(feature = "zeroize")]
+impl zeroize::Zeroize for UnknownFieldData {
+    fn zeroize(&mut self) {
+        match self {
+            Self::Varint(value) | Self::Fixed64(value) => value.zeroize(),
+            Self::Fixed32(value) => value.zeroize(),
+            Self::LengthDelimited(value) => value.zeroize(),
+            Self::Group(value) => value.zeroize(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

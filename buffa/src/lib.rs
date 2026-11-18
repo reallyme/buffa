@@ -818,3 +818,7 @@ pub mod __doctest_fixtures {
 }
 
 mod erasing;
+
+/// Wipe-owning collections and support for opt-in generated cleanup.
+#[cfg(feature = "zeroize")]
+pub mod sensitive;

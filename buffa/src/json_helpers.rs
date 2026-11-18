@@ -53,6 +53,7 @@ pub use policy::{ProtoBytesJson, ProtoStringJson};
 
 use buffered::BufferedValue;
 
+#[cfg(not(feature = "zeroize"))]
 use alloc::string::ToString;
 
 /// Ignore a carrier's tag and decode its payload with the same JSON-kind
@@ -1691,7 +1692,16 @@ int_serde_module!(
     doc = "Serde with-module for `i64` fields encoded as a quoted decimal string.\n\n\
            Proto JSON also accepts unquoted integers and float notation.\n\n\
            Use with `#[serde(with = \"::buffa::json_helpers::int64\")]`.",
-    serialize_body = |v, s| s.serialize_str(&v.to_string()),
+    serialize_body = |v, s| {
+        #[cfg(feature = "zeroize")]
+        {
+            crate::sensitive::serialize_decimal(v, s)
+        }
+        #[cfg(not(feature = "zeroize"))]
+        {
+            s.serialize_str(&v.to_string())
+        }
+    },
     expecting = "an i64 as a quoted decimal string, integer, float, or null",
     reason = Int64,
     parse_str = parse_int_from_str,
@@ -1708,7 +1718,16 @@ int_serde_module!(
     doc = "Serde with-module for `u64` fields encoded as a quoted decimal string.\n\n\
            Proto JSON also accepts unquoted integers and float notation.\n\n\
            Use with `#[serde(with = \"::buffa::json_helpers::uint64\")]`.",
-    serialize_body = |v, s| s.serialize_str(&v.to_string()),
+    serialize_body = |v, s| {
+        #[cfg(feature = "zeroize")]
+        {
+            crate::sensitive::serialize_decimal(v, s)
+        }
+        #[cfg(not(feature = "zeroize"))]
+        {
+            s.serialize_str(&v.to_string())
+        }
+    },
     expecting = "a u64 as a quoted decimal string, integer, float, or null",
     reason = Uint64,
     parse_str = parse_u64,

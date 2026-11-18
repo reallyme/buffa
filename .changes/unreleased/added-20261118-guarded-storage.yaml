@@ -1,0 +1,3 @@
+kind: Added
+body: "Add opt-in wipe-owning repeated and map storage, bounded temporary formatting, borrowed view slot cleanup and recursive runtime cleanup support. Lists and view buffers erase vacated slots after element destruction; maps keep payload owners stable and clean keys and values according to their Zeroize contracts. Existing ordinary storage APIs are unchanged."
+time: 2026-11-18T22:00:00+01:00
