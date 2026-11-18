@@ -121,6 +121,11 @@
 //!   If you reach for `&view as &dyn ReflectMessage` on a WKT view and the
 //!   compiler says `ReflectMessage` is not implemented, enable this feature.
 
+//! - **`zeroize`** — explicit cleanup for ordinary temporal and dynamic WKTs;
+//!   it does not enable automatic cleanup on drop. Current vector allocations
+//!   are wiped, but earlier growth allocations and vacated `Struct` hash-table
+//!   buckets remain outside that guarantee.
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(rustdoc::broken_intra_doc_links)]
@@ -293,3 +298,6 @@ mod full_name_tests {
         assert_eq!(Option::FULL_NAME, "google.protobuf.Option");
     }
 }
+
+#[cfg(feature = "zeroize")]
+mod zeroize_ext;
