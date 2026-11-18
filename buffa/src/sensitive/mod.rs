@@ -24,6 +24,9 @@ pub use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum JsonErrorReason {
+    /// A typed parser may reject a value before the redacting visitor runs.
+    #[error("invalid JSON for guarded message")]
+    InvalidMessage,
     /// Unknown field names can contain caller-provided private data.
     #[error("unknown JSON field in guarded message")]
     UnknownField,
@@ -36,6 +39,26 @@ impl<T: Default + Zeroize, P: crate::ProtoBox<T>> Zeroize for crate::MessageFiel
         }
         *self = Self::none();
     }
+}
+
+/// Wipe every element of `values`, drop them, then wipe the whole allocation.
+///
+/// The allocation guarantee applies when element cleanup and destruction return
+/// normally. A panic in a consumer-provided implementation can interrupt it.
+///
+/// As of zeroize 1.9.1, `Vec::zeroize` invokes each element's cleanup before
+/// dropping it, but does not wipe the slots the dropped elements vacate. Those
+/// slots can still hold an enum discriminant, an inner buffer's pointer and
+/// capacity, or padding. At length zero the entire allocation is `MaybeUninit`
+/// storage, so wiping the spare capacity afterwards covers every vacated slot.
+/// Under earlier zeroize releases the final pass is merely redundant. The
+/// capacity is kept, so the buffer stays available for reuse. Only the current
+/// allocation is covered: buffers an ordinary `Vec` released while growing
+/// were never wiped.
+#[doc(hidden)]
+pub fn zeroize_vec<T: Zeroize>(values: &mut alloc::vec::Vec<T>) {
+    values.zeroize();
+    values.spare_capacity_mut().zeroize();
 }
 
 /// Overwrite a copyable value with its valid default using volatile stores.

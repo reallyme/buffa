@@ -1,5 +1,5 @@
 // Modified by ReallyMe Technologies Limited.
-use crate::sensitive_test::{Record, RecordLazyView, RecordOwnedView, RecordView, Status};
+use crate::sensitive_test::{Record, RecordLazyView, RecordView, Status};
 use buffa::{DecodeError, DecodeOptions, LazyMessageView, Message, MessageView};
 use zeroize::Zeroize;
 
@@ -142,6 +142,124 @@ fn recursive_cleanup_preserves_proto2_presence_and_declared_defaults() {
         serde_json::from_str::<DeclaredDefaults>(&serde_json::to_string(&eager).unwrap()).unwrap(),
         value
     );
+}
+
+#[test]
+fn guarded_messages_never_echo_a_rejected_json_token() {
+    use serde::de::value::{Error, U128Deserializer};
+    const MARKERS: [&str; 5] = [
+        "123456789",
+        "1.5e",
+        "true",
+        "private-token",
+        "340282366920938463463374607431768211455",
+    ];
+    let probes = [
+        "123456789",
+        "-1.5e300",
+        "true",
+        r#""private-token""#,
+        "[]",
+        "{}",
+    ];
+    let check = |label: &str, error: Option<String>| {
+        let error = error.unwrap_or_else(|| panic!("{label} was accepted"));
+        for marker in MARKERS {
+            assert!(!error.contains(marker), "{label} echoed {marker}: {error}");
+        }
+    };
+    // The generated visitor itself, at the root and as a nested message.
+    for probe in probes.iter().filter(|probe| **probe != "{}") {
+        check(
+            probe,
+            serde_json::from_str::<Record>(probe)
+                .err()
+                .map(|e| e.to_string()),
+        );
+    }
+    let error =
+        <Record as serde::Deserialize>::deserialize(U128Deserializer::<Error>::new(u128::MAX))
+            .err();
+    check("u128", error.map(|e| e.to_string()));
+    // Guarded field helpers: message, repeated message, message and enum
+    // maps, scalar list and guarded timestamp.
+    for (field, accepted) in [
+        ("child", "{}"),
+        ("history", "[]"),
+        ("auditValues", "{}"),
+        ("statusValues", "{}"),
+        ("embedding", "[]"),
+        ("createdAt", ""),
+    ] {
+        for probe in probes.iter().filter(|probe| **probe != accepted) {
+            let source = format!(r#"{{"{field}":{probe}}}"#);
+            check(
+                &source,
+                serde_json::from_str::<Record>(&source)
+                    .err()
+                    .map(|e| e.to_string()),
+            );
+        }
+    }
+}
+
+#[test]
+fn guarded_inspection_reads_declared_defaults_of_unset_optional_fields() {
+    use crate::sensitive_test::{declared_defaults::State, DeclaredDefaults, DeclaredDefaultsView};
+    use buffa_descriptor::reflect::{InspectMessage, InspectValueRef};
+    let unset = DeclaredDefaults::default();
+    let wire = unset.encode_to_vec();
+    let view = DeclaredDefaultsView::decode_view(&wire).unwrap();
+    for inspected in [unset.inspect(), view.inspect()] {
+        let field = |number| inspected.message_descriptor().field(number).unwrap();
+        assert!(!inspected.has(field(5)));
+        assert!(matches!(
+            inspected.get(field(5)).unwrap(),
+            InspectValueRef::String("optional")
+        ));
+        assert!(matches!(
+            inspected.get(field(10)).unwrap(),
+            InspectValueRef::Bytes(b"b\x01")
+        ));
+        assert!(matches!(
+            inspected.get(field(11)).unwrap(),
+            InspectValueRef::I32(-4)
+        ));
+        assert!(matches!(
+            inspected.get(field(12)).unwrap(),
+            InspectValueRef::EnumNumber(8)
+        ));
+        // Without a declared default, an unset enum reads its first value.
+        assert!(matches!(
+            inspected.get(field(8)).unwrap(),
+            InspectValueRef::EnumNumber(7)
+        ));
+    }
+
+    // Set values still win over the declared default.
+    let mut set = DeclaredDefaults::default();
+    set.note = Some(String::from("explicit").into());
+    set.blob = Some(b"set".to_vec().into());
+    set.level = Some(3);
+    set.fallback = Some(State::FIRST);
+    let inspected = set.inspect();
+    let field = |number| inspected.message_descriptor().field(number).unwrap();
+    assert!(matches!(
+        inspected.get(field(5)).unwrap(),
+        InspectValueRef::String("explicit")
+    ));
+    assert!(matches!(
+        inspected.get(field(10)).unwrap(),
+        InspectValueRef::Bytes(b"set")
+    ));
+    assert!(matches!(
+        inspected.get(field(11)).unwrap(),
+        InspectValueRef::I32(3)
+    ));
+    assert!(matches!(
+        inspected.get(field(12)).unwrap(),
+        InspectValueRef::EnumNumber(7)
+    ));
 }
 
 #[test]
@@ -329,7 +447,6 @@ fn view_export_denial_covers_numeric_fields_and_containing_messages() {
     denied(&ViewPrivateView::decode_view(&bytes).unwrap());
     denied(&ViewPrivateLazyView::decode_lazy(&bytes).unwrap());
     denied(&ViewPrivateView::default());
-    denied(&ViewPrivateOwnedView::decode(bytes.clone().into()).unwrap());
     denied(&buffa::OwnedView::<ViewPrivateView<'static>>::decode(bytes.into()).unwrap());
 
     let parent = ViewPrivateParent::default()
@@ -339,14 +456,14 @@ fn view_export_denial_covers_numeric_fields_and_containing_messages() {
     let bytes = parent.encode_to_vec();
     denied(&ViewPrivateParentView::decode_view(&bytes).unwrap());
     denied(&ViewPrivateParentLazyView::decode_lazy(&bytes).unwrap());
-    denied(&ViewPrivateParentOwnedView::decode(bytes.into()).unwrap());
+    denied(&buffa::OwnedView::<ViewPrivateParentView<'static>>::decode(bytes.into()).unwrap());
 
     let map: ViewPrivateMap =
         serde_json::from_str(r#"{"values":{"private":{"tokenHandle":"37"}}}"#).unwrap();
     let bytes = map.encode_to_vec();
     denied(&ViewPrivateMapView::decode_view(&bytes).unwrap());
     denied(&ViewPrivateMapLazyView::decode_lazy(&bytes).unwrap());
-    denied(&ViewPrivateMapOwnedView::decode(bytes.into()).unwrap());
+    denied(&buffa::OwnedView::<ViewPrivateMapView<'static>>::decode(bytes.into()).unwrap());
 
     // Denial runs before materializing a malformed lazy child too.
     let lazy = ViewPrivateParentLazyView::decode_lazy(&[10, 1, 0xff]).unwrap();
@@ -439,12 +556,29 @@ fn views_preserve_wire_and_json_behavior() {
     let wire = value.encode_to_bytes();
     let view = RecordView::decode_view(&wire).unwrap();
     let lazy = RecordLazyView::decode_lazy(&wire).unwrap();
-    let owned = RecordOwnedView::decode(wire.clone()).unwrap();
+    let owned = buffa::OwnedView::<RecordView<'static>>::decode(wire.clone()).unwrap();
     for json in [
         serde_json::to_string(&view).unwrap(),
         serde_json::to_string(&lazy).unwrap(),
         serde_json::to_string(&owned).unwrap(),
     ] {
+        assert_eq!(serde_json::from_str::<Record>(&json).unwrap(), value);
+    }
+}
+
+#[test]
+fn cleanup_messages_own_views_through_the_guarded_owner() {
+    // Cleanup messages have no generated owned-view wrapper; the guarded
+    // owner is the replacement and keeps view JSON and owned conversion.
+    type Owner = buffa::sensitive::GuardedOwnedView<RecordView<'static>>;
+    let value = record();
+    let wire = value.encode_to_vec();
+    let encoded = Owner::from_owned(&value, &DecodeOptions::new()).unwrap();
+    let copied = Owner::decode(&wire, &DecodeOptions::new()).unwrap();
+    for owner in [&encoded, &copied] {
+        assert_eq!(owner.bytes(), wire.as_slice());
+        assert_eq!(owner.to_owned_message().unwrap(), value);
+        let json = serde_json::to_string(owner.view()).unwrap();
         assert_eq!(serde_json::from_str::<Record>(&json).unwrap(), value);
     }
 }
@@ -462,9 +596,10 @@ fn cleanup_builders_avoid_owned_struct_updates() {
     assert_eq!(value.child.handle, 9);
     assert_eq!(&*value.embedding, &[1.25, 2.5]);
     assert!(!format!("{value:?}").contains("42"));
-    let null: Record = serde_json::from_str(r#"{"statusHistory":["STATUS_VALID",null]}"#).unwrap();
-    assert_eq!(null.status_history.len(), 2);
-    assert_eq!(null.status_history[1].to_i32(), 0);
+    assert!(serde_json::from_str::<Record>(r#"{"statusHistory":["STATUS_VALID",null]}"#).is_err());
+    let zero: Record = serde_json::from_str(r#"{"statusHistory":["STATUS_VALID",0]}"#).unwrap();
+    assert_eq!(zero.status_history.len(), 2);
+    assert_eq!(zero.status_history[1].to_i32(), 0);
     assert!(serde_json::from_str::<Record>(
         r#"{"statusHistory":["STATUS_VALID",9223372036854775807]}"#,
     )
@@ -480,7 +615,7 @@ fn guarded_debug_does_not_reveal_oneof_presence_or_selected_case() {
         let wire = value.encode_to_bytes();
         let view = RecordView::decode_view(&wire).unwrap();
         let lazy = RecordLazyView::decode_lazy(&wire).unwrap();
-        let owned = RecordOwnedView::decode(wire.clone()).unwrap();
+        let owned = buffa::OwnedView::<RecordView<'static>>::decode(wire.clone()).unwrap();
         let debug = [
             format!("{value:?}"),
             format!("{view:?}"),
@@ -558,4 +693,88 @@ fn cleanup_preserves_derived_json_duplicate_rejection() {
     let value: Numeric = serde_json::from_str(r#"{"first":1.25,"second":"42"}"#).unwrap();
     assert_eq!(value.first, 1.25);
     assert_eq!(value.second, 42);
+}
+
+#[test]
+fn guarded_inspection_reaches_extern_enums_opened_only_by_their_owner() {
+    use crate::guarded_extern_enum_owner::{OwnerTiers, Tier};
+    use crate::guarded_extern_enum_user::{Vault, VaultView};
+    use buffa_descriptor::reflect::{InspectMessage, InspectValueRef as Value, MapKeyRef};
+
+    // The owner's rule opens Tier in its own generation only.
+    let mut opened = OwnerTiers::default();
+    opened.tiers.push(buffa::EnumValue::from(Tier::TIER_HIGH));
+    assert_eq!(opened.tiers.len(), 1);
+
+    // The user generation resolves Tier as closed and holds it bare, which
+    // compiles only because the owner emits `InspectElement` for it.
+    let mut owned = Vault::default();
+    owned.tiers.push(Tier::TIER_HIGH);
+    owned.tier_by_id.insert(7, Tier::TIER_HIGH);
+    let wire = owned.encode_to_vec();
+    let view = VaultView::decode_view(&wire).unwrap();
+    for inspected in [owned.inspect(), view.inspect()] {
+        let descriptor = inspected.message_descriptor();
+        match inspected.get(descriptor.field(1).unwrap()).unwrap() {
+            Value::List(list) => {
+                assert_eq!(list.len(), 1);
+                assert!(matches!(list.get(0), Some(Value::EnumNumber(1))));
+            }
+            other => panic!("expected enum list, got {other:?}"),
+        }
+        match inspected.get(descriptor.field(2).unwrap()).unwrap() {
+            Value::Map(map) => {
+                assert_eq!(map.len(), 1);
+                assert!(matches!(
+                    map.get(&MapKeyRef::I32(7)),
+                    Some(Value::EnumNumber(1))
+                ));
+            }
+            other => panic!("expected enum map, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn policy_elements_and_values_decode_straight_into_guarded_collections() {
+    use crate::sensitive_test::{PolicyContainers, PolicyContainersView};
+    let json = concat!(
+        r#"{"keys":["a2V5","AA=="],"labels":["label"],"#,
+        r#""byIndex":{"-9":"aW5kZXg="},"byName":{"name":"value"}}"#
+    );
+    let value: PolicyContainers = serde_json::from_str(json).unwrap();
+    assert_eq!(value.keys.len(), 2);
+    assert_eq!(&*value.keys[0], b"key");
+    assert_eq!(&*value.labels[0], "label");
+    assert_eq!(value.by_index.get(&-9).map(|v| &**v), Some(&b"index"[..]));
+    assert_eq!(value.by_name.len(), 1);
+    assert_eq!(serde_json::to_string(&value).unwrap(), json);
+    let wire = value.encode_to_vec();
+    let view = PolicyContainersView::decode_view(&wire).unwrap();
+    assert_eq!(serde_json::to_string(&view).unwrap(), json);
+    assert_eq!(
+        serde_json::from_str::<PolicyContainers>(
+            r#"{"keys":null,"labels":null,"byIndex":null,"byName":null}"#
+        )
+        .unwrap(),
+        PolicyContainers::default()
+    );
+    for input in [
+        r#"{"keys":["a2V5",null]}"#,
+        r#"{"labels":[null]}"#,
+        r#"{"byIndex":{"1":null}}"#,
+        r#"{"byName":{"name":null}}"#,
+    ] {
+        let error = serde_json::from_str::<PolicyContainers>(input).unwrap_err();
+        assert!(
+            error.to_string().contains("null is not a valid"),
+            "{input}: {error}"
+        );
+    }
+    for input in [r#"{"byIndex":{"secret":"AA=="}}"#, r#"{"keys":"secret"}"#] {
+        let error = serde_json::from_str::<PolicyContainers>(input)
+            .unwrap_err()
+            .to_string();
+        assert!(!error.contains("secret"), "{input}: {error}");
+    }
 }

@@ -47,6 +47,9 @@ where
             }
             Ok(out)
         }
+        crate::reject_other_json_kinds!(
+            bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, seq
+        );
     }
     input.deserialize_any(Map::<C>(PhantomData))
 }

@@ -588,8 +588,9 @@ pub mod helpers {
         let i = match v {
             serde_json::Value::String(s) => {
                 E::from_proto_name(&s).map(|e| e.to_i32()).ok_or_else(|| {
-                    alloc::string::ToString::to_string(
-                        &crate::json_helpers::EnumJsonErrorReason::UnknownName,
+                    format!(
+                        "field {n}: {}",
+                        crate::json_helpers::EnumJsonErrorReason::UnknownName
                     )
                 })?
             }
@@ -1494,7 +1495,8 @@ mod tests {
     #[test]
     fn enum_from_json_unknown_name_errors() {
         let err = enum_from_json::<Color>(serde_json::json!("PURPLE"), 1).unwrap_err();
-        assert_eq!(err, "unknown enum name");
+        assert_eq!(err, "field 1: unknown enum name");
+        assert!(!err.contains("PURPLE"), "{err}");
     }
 
     #[test]

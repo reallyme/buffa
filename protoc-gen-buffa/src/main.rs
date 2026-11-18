@@ -20,7 +20,6 @@ use std::io::{self, Read, Write};
 use buffa::Message;
 use buffa_codegen::generated::compiler::code_generator_response::File as CodeGeneratorResponseFile;
 use buffa_codegen::generated::compiler::CodeGeneratorResponse;
-use buffa_codegen::generated::descriptor::Edition;
 
 use buffa_codegen::{CodeGenConfig, CodecStrategy, EnumTypeOverride, FeatureOverride};
 
@@ -52,7 +51,8 @@ The proto side of extern_path is a dotted protobuf package or type name
 is an error.
 
 To emit native adapters from typed protobuf options, pass adapters=true.
-Alternatively, adapter_manifest=path reads a bounded typed JSON manifest.
+Additionally or instead, adapter_manifest=path reads a bounded typed JSON
+manifest; with a manifest, files without adapter options are allowed.
 Native adapter files are included explicitly by their API owner.
 
 To reject JSON serialization of a message's views and containing views while
@@ -60,7 +60,8 @@ keeping owned-message JSON, use deny_view_json (repeatable; '.' selects all):
   --reallyme-buffa_opt=json=true,deny_view_json=.my.pkg.Private
 
 For recursive owned/view cleanup, use zeroize=true or zeroize_in (repeatable;
-'.' selects all). Guarded fields and buffa's zeroize feature are required:
+'.' selects all). Selected messages and their containers get no owned-view
+wrapper or HasMessageView. Guarded fields and buffa's zeroize feature are required:
   --reallyme-buffa_opt=unknown_fields=false,zeroize_in=.my.pkg.Private
 Unmatched cleanup/export selectors are errors unless scoped generation
 explicitly enables allow_unmatched_message_rules=true.
@@ -99,7 +100,7 @@ fn main() {
             // Protocol: write a response with an error string, don't just crash.
             let response = CodeGeneratorResponse {
                 error: Some(format!("{}", e)),
-                ..response_metadata()
+                ..buffa_codegen::plugin_response_metadata()
             };
             write_response(&response).unwrap_or_else(|io_err| {
                 eprintln!(
@@ -151,7 +152,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = CodeGeneratorResponse {
         file: files,
-        ..response_metadata()
+        ..buffa_codegen::plugin_response_metadata()
     };
 
     write_response(&response)?;
@@ -165,24 +166,6 @@ fn write_response(response: &CodeGeneratorResponse) -> io::Result<()> {
     io::stdout().write_all(&output)?;
     io::stdout().flush()?;
     Ok(())
-}
-
-// Buf validates edition support on failures too; keep a single source for
-// response capabilities so it can surface the actual configuration error.
-fn response_metadata() -> CodeGeneratorResponse {
-    CodeGeneratorResponse {
-        supported_features: Some(feature_flags()),
-        minimum_edition: Some(Edition::EDITION_PROTO2 as i32),
-        maximum_edition: Some(Edition::EDITION_2024 as i32),
-        ..Default::default()
-    }
-}
-
-/// Feature flags we support (bitmask).
-fn feature_flags() -> u64 {
-    const FEATURE_PROTO3_OPTIONAL: u64 = 1;
-    const FEATURE_SUPPORTS_EDITIONS: u64 = 2;
-    FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS
 }
 
 /// Plugin configuration parsed from the parameter string.
@@ -219,10 +202,16 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             .split_once('=')
             .ok_or_else(|| format!("plugin option '{param}' must use key=value syntax"))?;
         match key.trim() {
-            "adapters" => codegen.generate_adapters = parse_bool("adapters", value)?,
+            "adapters" => {
+                codegen.generate_adapters =
+                    parse_adapter_bool(value).map_err(|error| error.to_string())?;
+            }
             "adapter_manifest" => {
                 if codegen.adapters.is_some() {
-                    return Err("adapter_manifest may only be specified once".into());
+                    return Err(buffa_codegen::adapters::AdapterError::from(
+                        buffa_codegen::adapters::ErrorReason::InvalidPluginOption,
+                    )
+                    .to_string());
                 }
                 codegen.adapters = Some(buffa_codegen::adapters::AdapterConfig::read_json(value)
                     .map_err(|error| error.to_string())?);
@@ -608,6 +597,16 @@ fn parse_codec_strategy(value: &str) -> Result<CodecStrategy, String> {
     }
 }
 
+// Adapter diagnostics must not format rejected values even transiently. Other
+// plugin options retain their existing diagnostics through parse_bool below.
+fn parse_adapter_bool(value: &str) -> Result<bool, buffa_codegen::adapters::AdapterError> {
+    match value.trim() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(buffa_codegen::adapters::ErrorReason::InvalidPluginOption.into()),
+    }
+}
+
 fn parse_bool(key: &str, value: &str) -> Result<bool, String> {
     match value.trim() {
         "true" => Ok(true),
@@ -722,7 +721,32 @@ mod tests {
                 .codegen
                 .generate_adapters
         );
-        assert!(parse_err("adapters=invalid").contains("adapters"));
+        assert!(
+            parse_config("adapters= true ")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+    }
+
+    #[test]
+    fn native_adapter_option_errors_never_echo_values() {
+        for value in ["invalid", "private-token", "", "1", "TRUE"] {
+            let error = parse_err(&format!("adapters={value}"));
+            assert_eq!(error, "adapter generation failed: InvalidPluginOption");
+        }
+    }
+
+    #[test]
+    fn native_manifest_duplicates_have_a_fixed_typed_reason() {
+        let manifest = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/empty_adapters.json"
+        );
+        let error = parse_err(&format!(
+            "adapter_manifest={manifest},adapter_manifest=private-path"
+        ));
+        assert_eq!(error, "adapter generation failed: InvalidPluginOption");
     }
 
     #[test]

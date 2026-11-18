@@ -39,6 +39,9 @@ pub(crate) mod impl_message;
 pub(crate) mod impl_text;
 pub(crate) mod imports;
 pub(crate) mod json_policy;
+mod serde_input;
+
+pub use serde_input::ErrorReason as CleanupJsonAttributeErrorReason;
 pub(crate) mod lazy_view;
 pub(crate) mod message;
 pub(crate) mod oneof;
@@ -235,6 +238,36 @@ pub fn decode_request(input: &[u8]) -> Result<generated::compiler::CodeGenerator
         .map_err(|e| decode_failure("CodeGeneratorRequest", &e, options.element_memory_limit()))
 }
 
+/// A `CodeGeneratorResponse` carrying only the plugin capability fields:
+/// `supported_features` (proto3 `optional` and editions) and the edition
+/// range this crate's code generation supports, currently `EDITION_PROTO2`
+/// through `EDITION_2024`. The range widens when buffa-codegen gains support
+/// for a newer edition.
+///
+/// Attach these to every response a plugin writes, success or error, with
+/// struct-update syntax:
+/// `CodeGeneratorResponse { error: Some(msg), ..plugin_response_metadata() }`.
+/// Buf validates them even on an error response: when editions support is
+/// advertised without an edition range, it reports a protocol error in place
+/// of the plugin's own message. A plugin whose output supports a narrower
+/// range should override `maximum_edition` (or `supported_features`) in the
+/// same struct expression.
+// Both buffa plugin binaries build every response from this, so their
+// advertisements cannot drift apart.
+#[must_use]
+pub fn plugin_response_metadata() -> generated::compiler::CodeGeneratorResponse {
+    use generated::compiler::code_generator_response::Feature;
+    use generated::descriptor::Edition;
+    generated::compiler::CodeGeneratorResponse {
+        supported_features: Some(
+            Feature::FEATURE_PROTO3_OPTIONAL as u64 | Feature::FEATURE_SUPPORTS_EDITIONS as u64,
+        ),
+        minimum_edition: Some(Edition::EDITION_PROTO2 as i32),
+        maximum_edition: Some(Edition::EDITION_2024 as i32),
+        ..Default::default()
+    }
+}
+
 /// Resolve [`ELEMENT_MEMORY_LIMIT_ENV`]'s value to a byte count.
 ///
 /// `None` and an all-whitespace value both mean "unset", yielding
@@ -395,10 +428,28 @@ pub enum GeneratedFileKind {
 /// Parse a custom owned-type path string (e.g. `"::smol_str::SmolStr"`) into a
 /// token stream, validating it as a Rust type so a malformed path surfaces as a
 /// codegen error rather than unparseable generated output.
+///
+/// The type must be a plain type path (`crate::Name`, `::a::B<C>`). Other Rust
+/// types such as `_`, `()`, `[u8; 4]`, `&'static [u8]` or `impl Trait` parse,
+/// but are not supported as a custom representation (most cannot implement
+/// `ProtoString` / `ProtoBytes` in the consumer crate, or appear in a struct
+/// field at all), so they are rejected here rather than surfacing as a compile
+/// error inside generated code. A type alias names anything else.
 pub(crate) fn parse_custom_type_path(path: &str) -> Result<proc_macro2::TokenStream, CodeGenError> {
     let ty: syn::Type =
         syn::parse_str(path).map_err(|_| CodeGenError::InvalidTypePath(path.to_string()))?;
+    if !is_plain_type_path(&ty) {
+        return Err(CodeGenError::InvalidTypePath(format!(
+            "{path} (a custom type must be a type path such as `crate::Name`)"
+        )));
+    }
     Ok(quote::quote! { #ty })
+}
+
+/// Whether `ty` is a type path with no qualified-self (`<T as Trait>::X`)
+/// prefix: the shape codegen accepts for a custom field representation.
+fn is_plain_type_path(ty: &syn::Type) -> bool {
+    matches!(ty, syn::Type::Path(tp) if tp.qself.is_none())
 }
 
 /// Parse a custom **map** container path, which is applied as `path<K, V>`.
@@ -460,7 +511,8 @@ pub(crate) fn parse_wildcard_type_path(
 /// so substitution is textual — every `*` in `template` is replaced by the
 /// element's token text before the whole string is parsed. The template must
 /// contain at least one `*`, otherwise the element type would have nowhere to
-/// go and the field would silently drop its element type.
+/// go and the field would silently drop its element type. As with
+/// [`parse_custom_type_path`], the substituted type must be a plain type path.
 pub(crate) fn parse_custom_list_path(
     template: &str,
     elem: &proc_macro2::TokenStream,
@@ -470,7 +522,13 @@ pub(crate) fn parse_custom_list_path(
     }
     let substituted = template.replace('*', &elem.to_string());
     let ty: syn::Type = syn::parse_str(&substituted)
-        .map_err(|_| CodeGenError::InvalidTypePath(template.to_string()))?;
+        .map_err(|_| CodeGenError::InvalidTypePath(format!("{template} (as {substituted})")))?;
+    if !is_plain_type_path(&ty) {
+        return Err(CodeGenError::InvalidTypePath(format!(
+            "{template} (as {substituted}; a custom collection must be a type path \
+             such as `crate::List<*>`)"
+        )));
+    }
     Ok(quote::quote! { #ty })
 }
 
@@ -501,10 +559,10 @@ pub enum StringRepr {
     ///
     /// # Limitations
     ///
-    /// - With `generate_reflection_vtable`, a *foreign* custom type used as a
-    ///   `repeated` element or as a `map` key or value fails to compile (the
-    ///   emitted `ReflectElement` / `ReflectMapKey` impl violates the orphan
-    ///   rule). Wrap it in a crate-local newtype, or set
+    /// - With `generate_reflection_vtable`, or any reflection with message
+    ///   cleanup, a *foreign* custom type used as a `repeated` element or as a
+    ///   `map` key or value fails to compile (the emitted `ReflectElement` /
+    ///   `InspectElement` / `ReflectMapKey` impl violates the orphan rule). Wrap it in a crate-local newtype, or set
     ///   [`CodeGenConfig::emit_custom_type_impls`] to `false` when the defining
     ///   crate supplies those integrations. Singular / optional / oneof uses
     ///   work with a foreign type directly.
@@ -513,15 +571,22 @@ pub enum StringRepr {
     /// - With `generate_json`, a custom type on an `optional`, `repeated` or
     ///   oneof field, or used as a `map` key or value, must implement
     ///   `serde::Serialize` and `serde::Deserialize`. A singular field without
-    ///   `optional` needs no `serde` impl.
-    /// - A path that does not parse as a Rust type surfaces as
+    ///   `optional` needs no `serde` impl, and neither does a type listed in
+    ///   [`json_policy_types`](CodeGenConfig::json_policy_types), whose JSON
+    ///   goes through its `ProtoStringJson` policy in every generated JSON
+    ///   position; codegen emits no JSON trait impl for such a type, so under
+    ///   JSON it may be foreign.
+    /// - A path that is not a plain type path like `crate::Name` (for example
+    ///   `_`, `()` or `&'static [u8]`) surfaces as
     ///   [`CodeGenError::InvalidTypePath`] at generation (`.compile()`) time.
     /// - The per-element impls are deduplicated within a single generation, but
-    ///   the *same* crate-local type used as a `repeated` element across two
-    ///   separate `compile()` invocations in one crate emits the impl twice (a
-    ///   duplicate-impl `E0119`). Generate from a single `compile()`, use
-    ///   distinct element types, or disable generated integrations and provide
-    ///   them once in the defining crate.
+    ///   the *same* crate-local type used as a `repeated` element or `map` key
+    ///   or value across two separate `compile()` invocations in one crate
+    ///   emits the impl twice (a duplicate-impl `E0119`) when those runs
+    ///   generate vtable reflection or reflection with message cleanup (JSON
+    ///   emits no string element impl). Generate from a single `compile()`,
+    ///   use distinct element types, or disable generated integrations and
+    ///   provide them once in the defining crate.
     Custom(String),
 }
 
@@ -535,8 +600,8 @@ impl StringRepr {
     ///
     /// # Errors
     ///
-    /// Returns [`CodeGenError::InvalidTypePath`] if a custom path does not parse
-    /// as a Rust type.
+    /// Returns [`CodeGenError::InvalidTypePath`] if a custom path is not a Rust
+    /// type path.
     pub(crate) fn type_path(
         &self,
         resolver: &imports::ImportResolver,
@@ -587,25 +652,37 @@ pub enum BytesRepr {
     ///
     /// # Limitations
     ///
-    /// - A *foreign* custom type used as a `repeated` element fails to compile
-    ///   (the emitted `ReflectElement` / `ProtoElemJson` impls violate the
-    ///   orphan rule). Wrap it in a crate-local newtype, or set
+    /// - Under `generate_json` (for a type not listed in
+    ///   [`json_policy_types`](CodeGenConfig::json_policy_types)),
+    ///   `generate_reflection_vtable`, or any reflection with message cleanup,
+    ///   a *foreign* custom type used as a `repeated` element fails to compile
+    ///   (the emitted `ProtoElemJson` / `ReflectElement` / `InspectElement`
+    ///   impls violate the orphan rule). Wrap it in a
+    ///   crate-local newtype, or set
     ///   [`CodeGenConfig::emit_custom_type_impls`] to `false` when the defining
     ///   crate supplies those integrations. Singular / optional / oneof uses
     ///   work with a foreign type directly.
     /// - A `Custom` rule applies to `map<K, bytes>` values, as
-    ///   [`Bytes`](BytesRepr::Bytes) does. With `generate_json` or
-    ///   `generate_reflection_vtable`, codegen emits `ProtoElemJson` /
-    ///   `ReflectElement` impls for the value type, so it must be a
-    ///   crate-local type unless generated integrations are disabled.
-    /// - A path that does not parse as a Rust type surfaces as
+    ///   [`Bytes`](BytesRepr::Bytes) does, with the same element impls and the
+    ///   same crate-local requirement.
+    /// - A type listed in `json_policy_types` gets no `ProtoElemJson` impl: its
+    ///   `repeated` elements and `map` values go through buffa's policy
+    ///   helpers, so with JSON alone it may be defined, together with its
+    ///   `ProtoBytes` and `ProtoBytesJson` impls, in another crate. Vtable
+    ///   reflection still emits `ReflectElement`, and reflection with message
+    ///   cleanup `InspectElement`, for it.
+    /// - A path that is not a plain type path like `crate::Name` (for example
+    ///   `_`, `()` or `&'static [u8]`) surfaces as
     ///   [`CodeGenError::InvalidTypePath`] at generation (`.compile()`) time.
     /// - The per-element impls are deduplicated within a single generation, but
-    ///   the *same* crate-local type used as a `repeated` element across two
-    ///   separate `compile()` invocations in one crate emits the impl twice (a
-    ///   duplicate-impl `E0119`). Generate from a single `compile()`, use
-    ///   distinct element types, or disable generated integrations and provide
-    ///   them once in the defining crate.
+    ///   the *same* crate-local type used as a `repeated` element or `map`
+    ///   value across two separate `compile()` invocations in one crate emits
+    ///   the impl twice (a duplicate-impl `E0119`), unless neither run emits
+    ///   one: the type is listed in `json_policy_types` and the runs generate
+    ///   no vtable reflection and no reflection with message cleanup.
+    ///   Otherwise generate from a single `compile()`, use distinct element
+    ///   types, or disable generated integrations and provide them once in the
+    ///   defining crate.
     Custom(String),
 }
 
@@ -618,8 +695,8 @@ impl BytesRepr {
     ///
     /// # Errors
     ///
-    /// Returns [`CodeGenError::InvalidTypePath`] if a custom path does not parse
-    /// as a Rust type.
+    /// Returns [`CodeGenError::InvalidTypePath`] if a custom path is not a Rust
+    /// type path.
     pub(crate) fn type_path(
         &self,
         resolver: &imports::ImportResolver,
@@ -942,7 +1019,7 @@ pub enum RepeatedRepr {
     ///   substituted for every `*` before the result is parsed as a Rust type.
     ///   A template that omits `*` surfaces as
     ///   [`CodeGenError::MissingListPlaceholder`], and one whose substitution
-    ///   does not parse as [`CodeGenError::InvalidTypePath`], at generation
+    ///   is not a plain type path as [`CodeGenError::InvalidTypePath`], at generation
     ///   (`.compile()`) time.
     /// - A custom collection always needs a crate-local newtype — this is not
     ///   limited to the reflection path. The generated decode and clear code
@@ -970,8 +1047,8 @@ impl RepeatedRepr {
     /// # Errors
     ///
     /// Returns [`CodeGenError::MissingListPlaceholder`] if a custom template
-    /// omits `*`, or [`CodeGenError::InvalidTypePath`] if it does not parse as a
-    /// Rust type once the element is substituted.
+    /// omits `*`, or [`CodeGenError::InvalidTypePath`] if it is not a Rust type
+    /// path once the element is substituted.
     pub(crate) fn type_path(
         &self,
         elem: &proc_macro2::TokenStream,
@@ -1200,6 +1277,11 @@ pub struct CodeGenConfig {
     /// unchanged. Outputs are separate [`GeneratedFileKind::Adapter`] files.
     pub adapters: Option<adapters::AdapterConfig>,
     /// Read typed adapter options from requested files. Disabled by default.
+    ///
+    /// Combined with [`Self::adapters`] when both are set, in which case the
+    /// schema options are optional. Without an explicit configuration, at
+    /// least one requested file must declare them
+    /// ([`adapters::ErrorReason::MissingSchemaAdapters`] otherwise).
     pub generate_adapters: bool,
     /// Generate recursive `Zeroize`, `ZeroizeOnDrop` and `Drop` for messages,
     /// oneofs and the owned storage of their views. Borrowed input is not wiped.
@@ -1208,9 +1290,14 @@ pub struct CodeGenConfig {
     /// to wipe-owning runtime collections; referenced messages must also support cleanup.
     /// Reflection uses borrowed `InspectMessage` access without snapshots.
     /// Arbitrary construction uses an early cleanup owner and a depth bound.
+    /// No owned-view wrapper or `HasMessageView` impl is generated, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
     pub generate_zeroize: bool,
     /// Proto path prefixes selecting messages for recursive cleanup.
     /// `.` selects every generated message, including nested messages.
+    /// Selected messages and their containers get no owned-view wrapper or
+    /// `HasMessageView` impl, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
     pub zeroize_messages: Vec<String>,
     /// Message prefixes whose views reject JSON serialization before writing output.
     /// The restriction propagates to containing messages, including through maps
@@ -1220,6 +1307,8 @@ pub struct CodeGenConfig {
     /// Omit the generated owned-view wrapper and `HasMessageView` binding
     /// for messages matched by these proto path prefixes and their containers.
     /// Eager and lazy views stay available for callers with custom owners.
+    /// Messages selected for cleanup, and their containers, are always
+    /// treated as selected.
     pub borrowed_views_only_in: Vec<String>,
     /// Permit message selectors that belong to another directory-scoped plugin
     /// request. Such selectors still produce warnings. Keep this disabled when
@@ -1441,14 +1530,43 @@ pub struct CodeGenConfig {
     /// or `ProtoStringJson`.
     ///
     /// Every field of a listed type then serializes and deserializes through
-    /// the type's policy: singular, optional, repeated and oneof fields, `map`
-    /// values, and the corresponding fields of generated views and owned views.
+    /// the type's policy in the generated `serde` impls: singular, optional,
+    /// repeated and oneof fields, `map` keys and values, and the corresponding
+    /// fields of generated views, lazy views and owned views.
+    ///
+    /// Generated code implements no JSON trait for a listed type: repeated
+    /// elements and `map` values go through buffa's policy with-modules, which
+    /// also decode straight into a custom or guarded collection. With JSON
+    /// alone, a listed type may therefore be defined, together with its
+    /// representation and policy impls, in another crate, and separate
+    /// generation runs into one crate can share it. With
+    /// [`generate_reflection_vtable`](Self::generate_reflection_vtable), or
+    /// reflection with message cleanup, its `repeated` and `map` uses still get
+    /// per-run `ReflectElement` / `InspectElement` / `ReflectMapKey` impls,
+    /// which need a crate-local type generated in one run (or
+    /// [`emit_custom_type_impls`](Self::emit_custom_type_impls) off). The list
+    /// applies per run: list the type in every run that generates a field of
+    /// it, since a run that omits it never calls the policy (bytes fields
+    /// become plain base64; string fields use the type's own `serde` impls).
+    ///
     /// Paths are compared as parsed Rust types, so whitespace does not matter.
     /// A listed type that no unshadowed representation rule names produces
     /// [`CodeGenError::JsonPolicyTypeMatchedNothing`]; a listed `string` type
     /// used as a key of an enum-valued `map` is a
     /// [`CodeGenError::JsonPolicyMapKey`]. Unlisted
     /// custom types keep their existing JSON behavior.
+    ///
+    /// A policy shapes only the generated JSON and is not a confidentiality
+    /// boundary. Binary encoding, generated text format, and descriptor-driven
+    /// reflection never call it: JSON produced or read through `DynamicMessage`
+    /// (including a generated message converted with
+    /// `ReflectMessage::to_dynamic`, or with
+    /// `DynamicMessage::try_from_message`, which works whether or not
+    /// reflection is generated) encodes the field as standard base64 or a
+    /// plain string, so a policy that refuses export does not stop it, and its
+    /// import checks do not run. With `generate_json` and
+    /// [`generate_reflection`](Self::generate_reflection) both on, a non-empty
+    /// list produces [`CodeGenWarning::JsonPolicyTypesBypassedByReflection`].
     pub json_policy_types: Vec<String>,
     /// Emit element JSON/reflection impls for custom bytes/string types.
     ///
@@ -2418,6 +2536,26 @@ pub enum CodeGenWarning {
     /// JSON generation is off, so no field uses a policy.
     #[non_exhaustive]
     JsonPolicyTypesRequireJson,
+    /// [`json_policy_types`](CodeGenConfig::json_policy_types) is non-empty
+    /// while JSON and [`generate_reflection`](CodeGenConfig::generate_reflection)
+    /// are both on. JSON policies govern only the generated `serde` impls:
+    /// descriptor-driven reflection (a generated message converted with
+    /// `to_dynamic` or `DynamicMessage::try_from_message`, then serialized or
+    /// deserialized through `DynamicMessage`'s own JSON) encodes fields of the
+    /// listed types as standard base64 or plain strings and never calls the
+    /// policy, so a policy that refuses export does not stop it and its import
+    /// checks do not run. Generated reflection only makes that one call away:
+    /// `try_from_message` works without it, including for messages whose
+    /// reflection is borrowed inspection only, and binary encoding and text
+    /// format never call the policy either, so a policy is not a
+    /// confidentiality boundary in any configuration. The warning is a standing
+    /// reminder where the bypass is a single method call, not a risk check:
+    /// without reflection there is no warning, but the bypass remains.
+    /// Emitted once per generation run whenever policy types are listed;
+    /// buffa-build and protoc-gen-buffa always print it. Match it as
+    /// `JsonPolicyTypesBypassedByReflection { .. }`.
+    #[non_exhaustive]
+    JsonPolicyTypesBypassedByReflection,
     /// `idiomatic_field_names` found two or more members of one message whose
     /// snake_case conversions collide, and adjusted the affected Rust names
     /// deterministically (`_f<number>` suffix for fields, verbatim fallback
@@ -2571,10 +2709,15 @@ pub enum CodeGenWarning {
     /// type (a `string_fields` rule on an `int32` field) is also inert and
     /// does not warn. It runs once per `generate` call, so a config shared by
     /// several calls warns in each call whose files lack the field.
+    ///
+    /// The `Display` text names the rule by its kind and the `buffa-build`
+    /// methods (the bytes, string and repeated `*_custom_in` ones are also the
+    /// `protoc-gen-buffa` option names), not by the [`CodeGenConfig`] list,
+    /// and does not name a front end, so it reads the same from either.
     #[non_exhaustive]
     FieldTypeRuleMatchedNothing {
         /// The rule's path as it is in the [`CodeGenConfig`] list
-        /// (`buffa-build` has normalized it).
+        /// (`buffa-build` or `protoc-gen-buffa` has normalized it).
         rule: String,
         /// The [`CodeGenConfig`] list that contains the rule: `"bytes_fields"`,
         /// `"string_fields"`, `"map_fields"` or `"repeated_fields"`.
@@ -2584,6 +2727,12 @@ pub enum CodeGenWarning {
         /// `extern_path` or `exclude_packages`. The `Display` text then says
         /// so, in place of the path hint.
         matches_ungenerated: bool,
+        /// Whether the rule names an extension field (or a scope that holds
+        /// only extension fields). Field-type rules never apply to extensions,
+        /// which keep their default Rust type; the `Display` text then says
+        /// so, in place of the path hint. When `matches_ungenerated` is also
+        /// set, the text gives that reason instead.
+        names_extension: bool,
     },
     /// A [`codec_strategy_in`](CodeGenConfig::codec_strategy_in) rule matched no
     /// message being generated, so it changed nothing. Usually a typo, a field
@@ -2610,16 +2759,22 @@ pub enum CodeGenWarning {
     },
 }
 
-/// The `buffa-build` methods that add to the field-type rule list `option`,
-/// for [`CodeGenWarning::FieldTypeRuleMatchedNothing`]'s text. A user of
-/// `buffa-build` typed one of these, not the [`CodeGenConfig`] field's name.
-fn field_type_rule_builders(option: &str) -> &'static str {
+/// The kind of field the rule list `option` covers, and the options that add
+/// to it, for [`CodeGenWarning::FieldTypeRuleMatchedNothing`]'s text. These
+/// are the `buffa-build` method names; `bytes_type_custom_in`,
+/// `string_type_custom_in` and `repeated_type_custom_in` are also the
+/// `protoc-gen-buffa` option names, so a user of either front end finds the
+/// option they wrote, rather than the [`CodeGenConfig`] field's name.
+fn field_type_rule_kind(option: &str) -> (&'static str, &'static str) {
     match option {
-        "bytes_fields" => "bytes_type_in / use_bytes_type_in / bytes_type_custom_in",
-        "string_fields" => "string_type_in / string_type_custom_in",
-        "map_fields" => "map_type_in / map_type_custom_in",
-        "repeated_fields" => "repeated_type_in / repeated_type_custom_in",
-        _ => "",
+        "bytes_fields" => (
+            "bytes",
+            "bytes_type_in / use_bytes_type_in / bytes_type_custom_in",
+        ),
+        "string_fields" => ("string", "string_type_in / string_type_custom_in"),
+        "map_fields" => ("map", "map_type_in / map_type_custom_in"),
+        "repeated_fields" => ("repeated", "repeated_type_in / repeated_type_custom_in"),
+        _ => ("field", ""),
     }
 }
 
@@ -2672,6 +2827,21 @@ impl core::fmt::Display for CodeGenWarning {
                     f,
                     "`{wrapper_name}`: accessor for field `{field_name}` suppressed \
                      (collides with a reserved wrapper method); use `.view().{field_name}` instead"
+                )
+            }
+            Self::JsonPolicyTypesBypassedByReflection => {
+                write!(
+                    f,
+                    "json_policy_type governs only the generated serde impls: \
+                     with reflection generated, `to_dynamic` (like \
+                     `DynamicMessage::try_from_message`, which works without it) \
+                     gives `DynamicMessage` JSON that prints and reads fields of \
+                     the listed types as standard base64 or plain strings without \
+                     calling their policy, so a policy that refuses export does \
+                     not stop it and its import checks do not run; a policy is \
+                     not a confidentiality boundary, so keep reflective JSON, \
+                     text format and binary output of these messages away from \
+                     sinks that must not see the values"
                 )
             }
             Self::JsonPolicyTypesRequireJson => {
@@ -2848,9 +3018,10 @@ impl core::fmt::Display for CodeGenWarning {
                 rule,
                 option,
                 matches_ungenerated,
+                names_extension,
             } => {
-                let builders = field_type_rule_builders(option);
-                write!(f, "{option} rule '{rule}' (buffa-build: {builders}) ")?;
+                let (kind, options) = field_type_rule_kind(option);
+                write!(f, "{kind} type rule '{rule}' ({options}) ")?;
                 if *matches_ungenerated {
                     write!(
                         f,
@@ -2858,13 +3029,22 @@ impl core::fmt::Display for CodeGenWarning {
                          (an imported file, or a package under extern_path or \
                          exclude_package), so it changed nothing here"
                     )
+                } else if *names_extension {
+                    write!(
+                        f,
+                        "names (or covers only) extension fields, so it changed nothing — custom field \
+                         type rules do not apply to extensions, which keep their default \
+                         Rust type"
+                    )
                 } else {
                     write!(
                         f,
                         "matched no field of a generated message, so it changed nothing — \
                          a rule is a fully-qualified proto path with its leading dot \
                          ('.my.pkg', '.my.pkg.Msg' or '.my.pkg.Msg.field'); a bare name \
-                         such as 'field' or 'Msg.field' does not match"
+                         such as 'field' or 'Msg.field' does not match. Only the files \
+                         this run generates are checked, so a rule for files that a \
+                         separate run generates also warns here"
                     )
                 }
             }
@@ -2972,6 +3152,34 @@ fn rule_matches_field_in(
     rule == "."
         || generated_files(file_descriptors, file_names)
             .any(|(fd, package_fqn)| any_field_matches(rule, &package_fqn, &fd.message_type))
+}
+
+/// Whether field-type rule `rule` names an extension field declared in any of
+/// `file_descriptors`, at file scope or nested in a message: the rule is a
+/// proto-path prefix of the extension's fully-qualified name.
+fn rule_matches_extension_in(rule: &str, file_descriptors: &[FileDescriptorProto]) -> bool {
+    fn any_extension_matches(
+        rule: &str,
+        parent_fqn: &str,
+        extensions: &[crate::generated::descriptor::FieldDescriptorProto],
+        messages: &[DescriptorProto],
+    ) -> bool {
+        extensions.iter().any(|ext| {
+            let ext_fqn = format!("{parent_fqn}.{}", ext.name.as_deref().unwrap_or(""));
+            context::matches_proto_prefix(rule, &ext_fqn)
+        }) || messages.iter().any(|m| {
+            let fqn = format!("{parent_fqn}.{}", m.name.as_deref().unwrap_or(""));
+            any_extension_matches(rule, &fqn, &m.extension, &m.nested_type)
+        })
+    }
+
+    file_descriptors.iter().any(|fd| {
+        let package_fqn = match fd.package.as_deref() {
+            Some(pkg) if !pkg.is_empty() => format!(".{pkg}"),
+            _ => String::new(),
+        };
+        any_extension_matches(rule, &package_fqn, &fd.extension, &fd.message_type)
+    })
 }
 
 /// The paths of a field-type rule list such as
@@ -3181,7 +3389,8 @@ fn collect_custom_elements(
 /// non-reflect build never references an absent trait. These compile only when
 /// the custom type is local to the generating crate (the orphan rule); that is
 /// the documented limitation of a custom `repeated` element under JSON or vtable
-/// reflection.
+/// reflection. A type listed in `json_policy_types` gets no `ProtoElemJson`
+/// impl.
 fn render_custom_elem_impls(
     ctx: &context::CodeGenContext,
     elems: &CustomElements,
@@ -3194,47 +3403,22 @@ fn render_custom_elem_impls(
     let mut out = TokenStream::new();
     for (path, kind) in &elems.elements {
         let ty = parse_custom_type_path(path)?;
-        // A JSON policy type's elements always go through its policy trait,
-        // whether it is a `bytes` or a `string` representation: codegen routes
-        // its repeated fields and map values through `ProtoElemJson`.
-        if ctx.is_json_policy_type(path) {
-            let policy = match kind {
-                CustomElemKind::Bytes => quote! { ::buffa::json_helpers::ProtoBytesJson },
-                CustomElemKind::String => quote! { ::buffa::json_helpers::ProtoStringJson },
-            };
-            let borrowed = match kind {
-                CustomElemKind::Bytes => quote! { [u8] },
-                CustomElemKind::String => quote! { str },
-            };
-            out.extend(feature_gates::cfg_block(
-                quote! {
-                    impl ::buffa::json_helpers::ProtoElemJson for #ty {
-                        fn serialize_proto_json<__S: ::serde::Serializer>(
-                            v: &Self,
-                            s: __S,
-                        ) -> ::core::result::Result<__S::Ok, __S::Error> {
-                            <Self as #policy>::serialize_json(
-                                ::core::convert::AsRef::<#borrowed>::as_ref(v),
-                                s,
-                            )
-                        }
-                        fn deserialize_proto_json<'de, __D: ::serde::Deserializer<'de>>(
-                            d: __D,
-                        ) -> ::core::result::Result<Self, __D::Error> {
-                            <Self as #policy>::deserialize_json(d)
-                        }
-                    }
-                },
-                json_gate,
-            ));
-        }
+        // A JSON policy type's repeated elements and map values go through
+        // buffa's policy with-modules, which wrap the type in a buffa-owned
+        // element adapter, so it gets no `ProtoElemJson` impl here. That keeps
+        // a foreign policy type usable and lets separate generation runs in
+        // one crate share it without conflicting impls.
+        //
         // Otherwise `ProtoElemJson` is only needed for the `bytes` element
         // path (proto3 JSON base64). A repeated `string` element serializes
         // through the native `Vec<T>` serde derive, and custom `string` map
         // keys/values go through serde too (the derive / `string_key_map` /
         // `proto_str_key_map` paths), so a String-kind `ProtoElemJson` impl
         // would be dead code.
-        else if ctx.config.generate_json && *kind == CustomElemKind::Bytes {
+        if ctx.config.generate_json
+            && *kind == CustomElemKind::Bytes
+            && !ctx.is_json_policy_type(path)
+        {
             out.extend(feature_gates::cfg_block(
                 quote! {
                     impl ::buffa::json_helpers::ProtoElemJson for #ty {
@@ -3793,6 +3977,13 @@ pub fn generate_with_diagnostics(
     if !config.json_policy_types.is_empty() && !config.generate_json {
         ctx.warn(CodeGenWarning::JsonPolicyTypesRequireJson);
     }
+    // Reflection's descriptor-driven JSON never consults a policy.
+    if !config.json_policy_types.is_empty()
+        && config.generate_json
+        && (config.generate_reflection || config.generate_reflection_vtable)
+    {
+        ctx.warn(CodeGenWarning::JsonPolicyTypesBypassedByReflection);
+    }
     // Validate configuration bindings, not just fields in this invocation.
     // Buf's directory strategy gives each process only that directory's files;
     // policy types used by another directory must still be accepted here.
@@ -3900,6 +4091,7 @@ pub fn generate_with_diagnostics(
                 rule: rule.clone(),
                 option,
                 matches_ungenerated: rule_matches_field_in(rule, file_descriptors, every_file),
+                names_extension: rule_matches_extension_in(rule, file_descriptors),
             });
         }
     }
@@ -4079,14 +4271,22 @@ pub fn generate_with_diagnostics(
 
     let mut native_config = config.adapters.clone();
     if config.generate_adapters {
-        let mut from_schema = adapters::descriptor_options(file_descriptors, files_to_generate)?;
-        if let Some(explicit) = &mut native_config {
-            explicit.selectors.append(&mut from_schema.selectors);
-            explicit.payloads.append(&mut from_schema.payloads);
-            explicit.borrowed.append(&mut from_schema.borrowed);
-            explicit.ports.append(&mut from_schema.ports);
-        } else {
-            native_config = Some(from_schema);
+        // Schema options are optional when an explicit configuration exists.
+        let from_schema = adapters::descriptor_options(file_descriptors, files_to_generate)?;
+        native_config = match (from_schema, native_config) {
+            (Some(mut from_schema), Some(mut explicit)) => {
+                explicit.selectors.append(&mut from_schema.selectors);
+                explicit.payloads.append(&mut from_schema.payloads);
+                explicit.borrowed.append(&mut from_schema.borrowed);
+                explicit.ports.append(&mut from_schema.ports);
+                Some(explicit)
+            }
+            (from_schema, explicit) => from_schema.or(explicit),
+        };
+        if native_config.is_none() {
+            return Err(
+                adapters::AdapterError::from(adapters::ErrorReason::MissingSchemaAdapters).into(),
+            );
         }
     }
     if let Some(adapters) = &native_config {
@@ -5876,6 +6076,20 @@ pub enum ZeroizeConfigurationErrorReason {
         "containing messages need cleanup too so reflection cannot snapshot a guarded descendant"
     )]
     ReflectionParent,
+    /// An unselected message contains a selected message, directly or
+    /// transitively. Its ordinary collections and copies would relocate the
+    /// guarded descendant without wiping the stale bytes.
+    #[error(
+        "contains a cleanup-selected message, so it must be selected too (add it to zeroize_in); otherwise its ordinary fields and collections relocate the guarded descendant without wiping"
+    )]
+    ContainingMessage,
+    /// A repeated or map field uses a plain `Vec`, `HashMap` or `BTreeMap`,
+    /// which moves elements as it grows or rebalances and releases the old
+    /// allocation unwiped.
+    #[error(
+        "a repeated or map field has an explicit Vec, HashMap or BTreeMap rule (prefix rules count); remove it or select ::buffa::sensitive::List<*> or ::buffa::sensitive::Map for the field"
+    )]
+    CollectionRepresentation,
     /// Unknown payload storage is not a wipe owner.
     #[error("requires unknown_fields=false")]
     UnknownFieldStorage,
@@ -5899,6 +6113,11 @@ pub enum CodeGenError {
     /// Native adapter metadata failed validation; input values are redacted.
     #[error(transparent)]
     Adapter(#[from] adapters::AdapterError),
+
+    /// A cleanup JSON visitor cannot preserve a caller input policy.
+    #[error(transparent)]
+    CleanupJsonAttribute(#[from] CleanupJsonAttributeErrorReason),
+
     /// A view-export restriction matches no known message.
     #[error("deny_view_json rule '{rule}' matches no known message")]
     ViewJsonRuleMatchedNothing { rule: String },
@@ -5935,7 +6154,8 @@ pub enum CodeGenError {
     /// `field.type_name`.
     #[error("missing required descriptor field: {0}")]
     MissingField(&'static str),
-    /// A resolved type path string could not be parsed as a Rust type.
+    /// A resolved type path string could not be parsed as a Rust type, or is
+    /// not a plain type path where a custom field representation requires one.
     #[error("invalid Rust type path: '{0}'")]
     InvalidTypePath(String),
     /// A [`json_policy_types`](CodeGenConfig::json_policy_types) `string`

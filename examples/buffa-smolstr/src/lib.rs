@@ -28,8 +28,9 @@ use buffa::{DecodeError, ProtoString, WirePayload};
 /// in `O(1)` via the inner `Arc<str>`. Immutable: assign a new value to mutate.
 ///
 /// Under the `serde` feature it serializes transparently as a JSON string, so it
-/// also works in `optional` / `repeated` string fields (which serialize through
-/// the element's native serde rather than buffa's `proto_string` with-module).
+/// also works in `repeated`, `map` and oneof string fields (which serialize
+/// through the element's native serde rather than buffa's `proto_string`
+/// with-module).
 #[derive(Clone, PartialEq, Eq, Default, Debug, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]

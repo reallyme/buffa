@@ -209,3 +209,373 @@ fn a_policy_string_key_over_enum_values_is_rejected() {
         "{err:?}"
     );
 }
+
+/// A `map` entry message named `name` with the given key and value fields.
+fn map_entry(
+    name: &str,
+    key: FieldDescriptorProto,
+    value: FieldDescriptorProto,
+) -> DescriptorProto {
+    DescriptorProto {
+        name: Some(name.to_string()),
+        field: vec![key, value],
+        options: MessageOptions {
+            map_entry: Some(true),
+            ..Default::default()
+        }
+        .into(),
+        ..Default::default()
+    }
+}
+
+/// A `map` field of message `.{package}.{message}` with entry `entry`.
+fn map_field(
+    package: &str,
+    message: &str,
+    name: &str,
+    number: i32,
+    entry: &str,
+) -> FieldDescriptorProto {
+    FieldDescriptorProto {
+        type_name: Some(format!(".{package}.{message}.{entry}")),
+        ..make_field(name, number, Label::LABEL_REPEATED, Type::TYPE_MESSAGE)
+    }
+}
+
+/// Package `package`, file `{package}.proto`:
+///
+/// ```proto
+/// message Box {
+///   repeated bytes chain = 1;
+///   repeated string labels = 2;
+///   map<string, bytes> by_name = 3;
+///   map<int32, string> texts = 4;
+///   map<string, string> pairs = 5;
+///   map<string, bytes> keyed = 6;
+///   map<string, bytes> tagged = 7;
+/// }
+/// ```
+fn containers_file(package: &str) -> FileDescriptorProto {
+    let string_key = || make_field("key", 1, Label::LABEL_OPTIONAL, Type::TYPE_STRING);
+    let value = |ty| make_field("value", 2, Label::LABEL_OPTIONAL, ty);
+    let message = DescriptorProto {
+        name: Some("Box".to_string()),
+        field: vec![
+            make_field("chain", 1, Label::LABEL_REPEATED, Type::TYPE_BYTES),
+            make_field("labels", 2, Label::LABEL_REPEATED, Type::TYPE_STRING),
+            map_field(package, "Box", "by_name", 3, "ByNameEntry"),
+            map_field(package, "Box", "texts", 4, "TextsEntry"),
+            map_field(package, "Box", "pairs", 5, "PairsEntry"),
+            map_field(package, "Box", "keyed", 6, "KeyedEntry"),
+            map_field(package, "Box", "tagged", 7, "TaggedEntry"),
+        ],
+        nested_type: vec![
+            map_entry("ByNameEntry", string_key(), value(Type::TYPE_BYTES)),
+            map_entry(
+                "TextsEntry",
+                make_field("key", 1, Label::LABEL_OPTIONAL, Type::TYPE_INT32),
+                value(Type::TYPE_STRING),
+            ),
+            map_entry("PairsEntry", string_key(), value(Type::TYPE_STRING)),
+            map_entry("KeyedEntry", string_key(), value(Type::TYPE_BYTES)),
+            map_entry("TaggedEntry", string_key(), value(Type::TYPE_BYTES)),
+        ],
+        ..Default::default()
+    };
+    let mut file = proto3_file(&format!("{package}.proto"));
+    file.package = Some(package.to_string());
+    file.message_type = vec![message];
+    file
+}
+
+/// Every container rule of [`containers_file`]: `crate::Secret` (bytes) and
+/// `crate::Text` (string) are the listed policy types, `crate::Tag` an
+/// unlisted custom string key.
+fn containers_config(package: &str) -> CodeGenConfig {
+    let mut config = CodeGenConfig {
+        generate_json: true,
+        ..Default::default()
+    };
+    let secret = || BytesRepr::Custom("crate::Secret".to_string());
+    let text = || StringRepr::Custom("crate::Text".to_string());
+    config.bytes_fields = vec![(format!(".{package}.Box"), secret())];
+    config.string_fields = vec![
+        (format!(".{package}.Box.labels"), text()),
+        (format!(".{package}.Box.texts"), text()),
+        (format!(".{package}.Box.pairs"), text()),
+        (format!(".{package}.Box.keyed"), text()),
+        (
+            format!(".{package}.Box.tagged"),
+            StringRepr::Custom("crate::Tag".to_string()),
+        ),
+    ];
+    config.json_policy_types = vec!["crate::Secret".to_string(), "crate::Text".to_string()];
+    config
+}
+
+/// The generated module text of `files_to_generate`, one run.
+fn generate_containers(files: &[FileDescriptorProto], package: &str) -> String {
+    let (generated, warnings) = generate_with_diagnostics(
+        files,
+        &[format!("{package}.proto")],
+        &containers_config(package),
+    )
+    .unwrap();
+    assert!(
+        warnings
+            .iter()
+            .all(|w| matches!(w, CodeGenWarning::FieldTypeRuleMatchedNothing { .. })),
+        "{warnings:?}"
+    );
+    joined(&generated)
+}
+
+/// The `with` module a generated serde attribute names for field `field`.
+fn with_module_of(code: &str, field: &str) -> String {
+    let compact: String = code.split_whitespace().collect();
+    let anchor = format!("pub{field}:");
+    let at = compact
+        .find(&anchor)
+        .unwrap_or_else(|| panic!("no field {field} in {code}"));
+    // The field's attributes follow the previous member (or the struct's
+    // opening brace); several `#[serde(...)]` attributes may precede it.
+    let start = compact[..at]
+        .rfind("pub")
+        .or_else(|| compact[..at].rfind('{'))
+        .unwrap_or(0);
+    let attrs = &compact[start..at];
+    let with = attrs
+        .find("with=\"")
+        .unwrap_or_else(|| panic!("no with module on {field}: {attrs}"));
+    let rest = &attrs[with + "with=\"".len()..];
+    rest[..rest.find('"').unwrap()].to_string()
+}
+
+#[test]
+fn policy_containers_use_buffa_policy_modules_and_emit_no_element_impl() {
+    let code = generate_containers(&[containers_file("pa")], "pa");
+    for (field, module) in [
+        ("chain", "::buffa::json_helpers::repeated_bytes_policy"),
+        ("labels", "::buffa::json_helpers::repeated_string_policy"),
+        ("by_name", "::buffa::json_helpers::map_bytes_policy"),
+        ("texts", "::buffa::json_helpers::map_string_policy"),
+        (
+            "pairs",
+            "::buffa::json_helpers::map_string_policy_policy_key",
+        ),
+        (
+            "keyed",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+        (
+            "tagged",
+            "::buffa::json_helpers::map_bytes_policy_serde_key",
+        ),
+    ] {
+        assert_eq!(with_module_of(&code, field), module, "field {field}");
+    }
+    // The policy types get no codegen-emitted JSON element impl, so they may
+    // come from another crate.
+    assert!(!code.contains("ProtoElemJson for crate::"), "{code}");
+    assert!(!code.contains("proto_seq"), "{code}");
+    assert!(!code.contains("proto_map"), "{code}");
+    assert!(!code.contains("proto_str_key_map"), "{code}");
+    assert!(!code.contains("policy_str_key_map"), "{code}");
+}
+
+#[test]
+fn separate_runs_sharing_a_policy_type_in_containers_emit_no_duplicate_impls() {
+    // Two packages generated by two runs into one crate, as buf's directory
+    // strategy or two `compile()` calls do. Each uses the listed types in
+    // repeated fields and map values. JSON only: vtable reflection still emits
+    // a `ReflectElement` impl per run, as documented.
+    let files = [containers_file("pa"), containers_file("pb")];
+    let first = generate_containers(&files, "pa");
+    let second = generate_containers(&files, "pb");
+    let both = format!("{first}\n{second}");
+    assert!(!both.contains("ProtoElemJson for crate::"), "{both}");
+
+    // An unlisted custom bytes element still gets its base64 element impl in
+    // every run that uses it; the policy listing is what removes it.
+    let mut unlisted = containers_config("pa");
+    unlisted.json_policy_types.clear();
+    let (generated, _) =
+        generate_with_diagnostics(&files, &["pa.proto".to_string()], &unlisted).unwrap();
+    assert!(joined(&generated).contains("ProtoElemJson for crate::Secret"));
+}
+
+#[test]
+fn a_policy_value_under_a_byte_key_keeps_its_policy() {
+    use crate::generated::descriptor::{
+        feature_set::Utf8Validation, Edition, FeatureSet, FieldOptions,
+    };
+    // `map<string, string>` whose key alone has UTF-8 validation disabled:
+    // with `strict_utf8_mapping` the key becomes bytes and the value stays a
+    // string of the listed policy type.
+    let key = FieldDescriptorProto {
+        options: FieldOptions {
+            features: FeatureSet {
+                utf8_validation: Some(Utf8Validation::NONE),
+                ..Default::default()
+            }
+            .into(),
+            ..Default::default()
+        }
+        .into(),
+        ..make_field("key", 1, Label::LABEL_OPTIONAL, Type::TYPE_STRING)
+    };
+    let file = FileDescriptorProto {
+        name: Some("raw.proto".to_string()),
+        package: Some("raw".to_string()),
+        syntax: Some("editions".to_string()),
+        edition: Some(Edition::EDITION_2023),
+        message_type: vec![DescriptorProto {
+            name: Some("Raw".to_string()),
+            field: vec![map_field("raw", "Raw", "by_key", 1, "ByKeyEntry")],
+            nested_type: vec![map_entry(
+                "ByKeyEntry",
+                key,
+                make_field("value", 2, Label::LABEL_OPTIONAL, Type::TYPE_STRING),
+            )],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut config = CodeGenConfig {
+        generate_json: true,
+        strict_utf8_mapping: true,
+        ..Default::default()
+    };
+    config.string_fields = vec![(
+        ".raw.Raw.by_key".to_string(),
+        StringRepr::Custom("crate::Text".to_string()),
+    )];
+    config.json_policy_types = vec!["crate::Text".to_string()];
+    let (generated, _) =
+        generate_with_diagnostics(&[file], &["raw.proto".to_string()], &config).unwrap();
+    let code = joined(&generated);
+    assert_eq!(
+        with_module_of(&code, "by_key"),
+        "::buffa::json_helpers::map_string_policy_bytes_key"
+    );
+    assert!(!code.contains("bytes_key_map"), "{code}");
+    assert!(!code.contains("ProtoElemJson for crate::"), "{code}");
+}
+
+#[test]
+fn custom_and_guarded_policy_collections_receive_elements_directly() {
+    // A custom collection gets the `list_*` modules, which push each element
+    // into it instead of staging a `Vec`.
+    let mut config = containers_config("pa");
+    for field in ["chain", "labels"] {
+        config.repeated_fields.push((
+            format!(".pa.Box.{field}"),
+            RepeatedRepr::Custom("crate::SecretList<*>".to_string()),
+        ));
+    }
+    let (generated, _) =
+        generate_with_diagnostics(&[containers_file("pa")], &["pa.proto".to_string()], &config)
+            .unwrap();
+    let code = joined(&generated);
+    assert_eq!(
+        with_module_of(&code, "chain"),
+        "::buffa::json_helpers::list_bytes_policy"
+    );
+    assert_eq!(
+        with_module_of(&code, "labels"),
+        "::buffa::json_helpers::list_string_policy"
+    );
+
+    // Under message cleanup, the default `sensitive::List` / `sensitive::Map`
+    // storage also takes the policy modules: they decode straight into the
+    // wipe owner and erase a key whose value fails, so no element passes
+    // through `guarded_map`, `proto_list` or a `ProtoElemJson` impl.
+    let mut config = containers_config("pa");
+    config
+        .string_fields
+        .retain(|(path, _)| !path.ends_with(".tagged"));
+    // Guarded string slots must use a listed type, so the unlisted `Tag` key
+    // and the plain `String` key of `by_name` become `Text` here.
+    for field in ["tagged", "by_name"] {
+        config.string_fields.push((
+            format!(".pa.Box.{field}"),
+            StringRepr::Custom("crate::Text".to_string()),
+        ));
+    }
+    config.zeroize_messages = vec![".pa".to_string()];
+    config.preserve_unknown_fields = false;
+    let (generated, _) =
+        generate_with_diagnostics(&[containers_file("pa")], &["pa.proto".to_string()], &config)
+            .unwrap();
+    let code = joined(&generated);
+    for (field, module) in [
+        ("chain", "::buffa::json_helpers::list_bytes_policy"),
+        ("labels", "::buffa::json_helpers::list_string_policy"),
+        (
+            "by_name",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+        ("texts", "::buffa::json_helpers::map_string_policy"),
+        (
+            "pairs",
+            "::buffa::json_helpers::map_string_policy_policy_key",
+        ),
+        (
+            "keyed",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+        (
+            "tagged",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+    ] {
+        assert_eq!(with_module_of(&code, field), module, "field {field}");
+    }
+    assert!(
+        code.contains("::buffa::sensitive::List<crate::Secret>"),
+        "{code}"
+    );
+    assert!(!code.contains("ProtoElemJson for crate::"), "{code}");
+    assert!(!code.contains("guarded_map"), "{code}");
+    assert!(!code.contains("proto_list"), "{code}");
+}
+
+#[test]
+fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
+    let mut config = policy_config();
+    config.json_policy_types = vec!["crate::Secret".to_string()];
+    config.generate_reflection = true;
+    let (_, warnings) = generate_policy(&config).unwrap();
+    assert_eq!(
+        warnings,
+        [CodeGenWarning::JsonPolicyTypesBypassedByReflection]
+    );
+    let text = warnings[0].to_string();
+    assert!(text.contains("DynamicMessage"), "{text}");
+    assert!(text.contains("refuses export"), "{text}");
+    assert!(text.contains("import checks"), "{text}");
+    assert!(text.contains("try_from_message"), "{text}");
+    assert!(text.contains("not a confidentiality boundary"), "{text}");
+
+    // Vtable reflection implies reflection: still one warning.
+    config.generate_reflection_vtable = true;
+    assert_eq!(
+        generate_policy(&config).unwrap().1,
+        [CodeGenWarning::JsonPolicyTypesBypassedByReflection]
+    );
+    config.generate_reflection_vtable = false;
+
+    // No warning without reflection, without listed types, or without JSON
+    // (where the policies are inactive and a different warning applies).
+    config.generate_reflection = false;
+    assert!(generate_policy(&config).unwrap().1.is_empty());
+    let mut unlisted = policy_config();
+    unlisted.generate_reflection = true;
+    assert!(generate_policy(&unlisted).unwrap().1.is_empty());
+    config.generate_reflection = true;
+    config.generate_json = false;
+    assert_eq!(
+        generate_policy(&config).unwrap().1,
+        [CodeGenWarning::JsonPolicyTypesRequireJson]
+    );
+}

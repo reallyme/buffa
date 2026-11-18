@@ -1,0 +1,13 @@
+syntax = "proto2";
+
+package test.guardedextenum.user;
+
+import "guarded_extern_enum_owner.proto";
+
+// Compiled in build.rs with cleanup selected and the owner package resolved
+// via extern_path, without the owner's open rule. Tier is closed here, so its
+// guarded repeated and map-value fields hold the bare enum.
+message Vault {
+  repeated test.guardedextenum.owner.Tier tiers = 1;
+  map<int32, test.guardedextenum.owner.Tier> tier_by_id = 2;
+}

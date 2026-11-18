@@ -31,7 +31,9 @@ use crate::impl_message::{
 };
 use crate::message::{is_closed_enum, is_map_field, rust_path_to_tokens};
 use crate::oneof::oneof_variant_ident;
-use crate::reflect_view::{enum_default_number, scalar_default, scalar_variant};
+use crate::reflect_view::{
+    enum_default_number, inspect_declared_default, scalar_default, scalar_variant,
+};
 use crate::CodeGenError;
 
 /// Context needed to emit the owned-message vtable impls, mirroring the
@@ -133,18 +135,33 @@ pub(crate) fn reflect_owned_impls(
 
         let f_features = resolve_field(ctx, field, features);
         let (get_val, has_val) = if is_explicit_presence_scalar(field, ty, &f_features) {
-            // Stored as `Option<T>`; absent singular returns the type default.
+            // Stored as `Option<T>`. An absent singular returns the type
+            // default, or for guarded inspection its declared default.
+            let declared = if guarded {
+                inspect_declared_default(ctx, field, ty, &f_features, current_package, nesting)?
+            } else {
+                None
+            };
             match ty {
-                Type::TYPE_STRING => (
-                    quote! { #vr::String(self.#id.as_deref().unwrap_or("")) },
-                    quote! { self.#id.is_some() },
-                ),
-                Type::TYPE_BYTES => (
-                    quote! { #vr::Bytes(self.#id.as_deref().unwrap_or(&[])) },
-                    quote! { self.#id.is_some() },
-                ),
+                Type::TYPE_STRING => {
+                    let default = declared.unwrap_or_else(|| quote! { "" });
+                    (
+                        quote! { #vr::String(self.#id.as_deref().unwrap_or(#default)) },
+                        quote! { self.#id.is_some() },
+                    )
+                }
+                Type::TYPE_BYTES => {
+                    let default = declared.unwrap_or_else(|| quote! { &[] });
+                    (
+                        quote! { #vr::Bytes(self.#id.as_deref().unwrap_or(#default)) },
+                        quote! { self.#id.is_some() },
+                    )
+                }
                 Type::TYPE_ENUM => {
-                    let default = enum_default_number(ctx, field, current_package, nesting)?;
+                    let default = match declared {
+                        Some(default) => default,
+                        None => enum_default_number(ctx, field, current_package, nesting)?,
+                    };
                     (
                         quote! {
                             #vr::EnumNumber(self.#id.map_or_else(|| #default, |e| e.to_i32()))
@@ -154,7 +171,7 @@ pub(crate) fn reflect_owned_impls(
                 }
                 _ => {
                     let variant = scalar_variant(ty);
-                    let def = scalar_default(ty);
+                    let def = declared.unwrap_or_else(|| scalar_default(ty));
                     (
                         quote! { #vr::#variant(self.#id.unwrap_or(#def)) },
                         quote! { self.#id.is_some() },

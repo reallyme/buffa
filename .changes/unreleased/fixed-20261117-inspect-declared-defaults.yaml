@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    Guarded inspection (`InspectMessage::get`) of an unset explicit-presence field now returns its declared `[default = ...]` value, as the owned accessors do, instead of the type default. Ordinary vtable reflection keeps its documented type-default behaviour.
+time: 2026-11-17T12:00:01+01:00

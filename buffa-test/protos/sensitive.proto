@@ -44,6 +44,15 @@ message Numeric {
 
 message Empty {}
 
+// Policy elements and map values in wipe-owning collections: the policy
+// with-modules decode straight into `sensitive::List` / `sensitive::Map`.
+message PolicyContainers {
+ repeated bytes keys = 1;
+ repeated string labels = 2;
+ map<int64, bytes> by_index = 3;
+ map<string, string> by_name = 4;
+}
+
 // Exercises arbitrary collection growth before a later depth failure.
 message ArbitraryValues {
  repeated float values = 1;

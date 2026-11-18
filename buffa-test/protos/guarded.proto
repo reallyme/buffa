@@ -41,6 +41,9 @@ message Sealed {
   oneof choice {
     bytes chosen = 5;
   }
+  map<int32, bytes> by_index = 6;
+  // A custom collection: elements are pushed into it directly.
+  repeated bytes listed = 7;
 }
 
 message Empty {}

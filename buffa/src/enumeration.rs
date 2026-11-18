@@ -10,6 +10,16 @@ use core::hash::Hash;
 
 /// Trait implemented by all generated protobuf enum types.
 pub trait Enumeration: Clone + Copy + PartialEq + Eq + Hash + fmt::Debug {
+    /// Whether this enum represents `google.protobuf.NullValue` for JSON collections.
+    ///
+    /// Generated code sets this only for that exact protobuf type. The default
+    /// preserves existing implementations and rejects null collection elements
+    /// for ordinary enums, including enums with a case named `NULL_VALUE`.
+    /// This is semantic metadata supplied by the enum's owner, not an identity
+    /// check. A manually implemented NullValue provider must opt in explicitly
+    /// and recognize numeric zero as its null sentinel.
+    const IS_NULL_VALUE: bool = false;
+
     /// Convert from an `i32` wire value to the enum.
     ///
     /// Returns `Some` for known variants, `None` for unknown values.
@@ -254,6 +264,20 @@ impl<'de, E: Enumeration> serde::Deserialize<'de> for EnumValue<E> {
                 let n =
                     i32::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
                 Ok(EnumValue::from(n))
+            }
+
+            // Deserializers delivering 128-bit integers, including JSON Values
+            // with arbitrary precision, use checked narrowing to avoid echoing input.
+            fn visit_i128<Err: serde::de::Error>(self, v: i128) -> Result<Self::Value, Err> {
+                let v =
+                    i64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_i64(v)
+            }
+
+            fn visit_u128<Err: serde::de::Error>(self, v: u128) -> Result<Self::Value, Err> {
+                let v =
+                    u64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_u64(v)
             }
 
             fn visit_f64<Err: serde::de::Error>(self, _: f64) -> Result<Self::Value, Err> {

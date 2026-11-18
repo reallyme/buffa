@@ -34,6 +34,10 @@ pub trait InspectMessage: Zeroize + ZeroizeOnDrop {
     fn pool(&self) -> &Arc<DescriptorPool>;
     /// Read a declared field, preserving protobuf default semantics.
     ///
+    /// An unset explicit-presence scalar, string, bytes or enum field reads as
+    /// its declared `[default = ...]`, falling back to the type default. This
+    /// differs from `ReflectMessage::get`, which returns the type default.
+    ///
     /// # Errors
     /// Returns `FieldNotMember` for a foreign or unrelated descriptor, including
     /// a structurally identical descriptor from another pool.
@@ -161,6 +165,19 @@ impl Drop for InspectValueRef<'_> {
 }
 
 /// Borrow one repeated element or map value without making a snapshot.
+///
+/// Codegen emits this impl for each generated message and enum of a cleanup
+/// generation with reflection, and for each local custom element type it
+/// uses in a guarded collection.
+#[rustversion::attr(
+    since(1.78),
+    diagnostic::on_unimplemented(
+        message = "`{Self}` does not implement `InspectElement`, which borrowed inspection requires on guarded repeated-field and map-value element types",
+        note = "if `{Self}` is a message or enum from another buffa-generated crate reached via an extern path, generate that crate with reflection and cleanup (`generate_zeroize` or a `zeroize_in` rule)",
+        note = "if `{Self}` is a message or enum generated in this crate, enable reflection in its `build.rs` config",
+        note = "if `{Self}` is a custom `string_type`/`bytes_type` used as a `repeated` element, it must be a crate-local type (e.g. a newtype) so codegen can emit `impl InspectElement` for it"
+    )
+)]
 pub trait InspectElement {
     /// Inspect the same protobuf value kind on every call.
     fn as_inspect_value(&self) -> InspectValueRef<'_>;

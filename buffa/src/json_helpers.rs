@@ -33,20 +33,53 @@
 //! types, and functions for `#[serde(deserialize_with = "...")]`.
 
 pub mod buffered;
+mod ignored_key;
+mod map_key;
 mod policy;
 pub mod proto_list;
+#[doc(hidden)]
+pub use ignored_key::IgnoredObjectKey;
 #[doc(hidden)]
 pub mod wkt;
 
 #[doc(hidden)]
 pub use policy::{
-    bytes_policy, opt_bytes_policy, opt_string_policy, policy_str_key_map, string_policy,
-    BytesPolicyJson, BytesPolicySeed, BytesPolicySeqJson, StringPolicyJson, StringPolicySeed,
-    StringPolicySeqJson, ViewJsonErrorReason,
+    bytes_policy, list_bytes_policy, list_string_policy, map_bytes_policy,
+    map_bytes_policy_bytes_key, map_bytes_policy_policy_key, map_bytes_policy_serde_key,
+    map_string_policy, map_string_policy_bytes_key, map_string_policy_policy_key,
+    map_string_policy_serde_key, opt_bytes_policy, opt_string_policy, policy_str_key_map,
+    repeated_bytes_policy, repeated_string_policy, string_policy, BytesPolicyJson, BytesPolicySeed,
+    BytesPolicySeqJson, StringPolicyJson, StringPolicySeed, StringPolicySeqJson,
+    ViewJsonErrorReason,
 };
 pub use policy::{ProtoBytesJson, ProtoStringJson};
 
 use buffered::BufferedValue;
+
+/// Ignore a carrier's tag and decode its payload with the same JSON-kind
+/// visitor. Typed string/map/sequence entry points historically ignored YAML
+/// tags; switching to `deserialize_any` must not reject those valid payloads.
+/// The tag itself is discarded without retaining its text.
+///
+/// # Errors
+///
+/// Propagates tag traversal errors and the visitor's payload errors.
+#[doc(hidden)]
+pub fn deserialize_tagged<'de, V, A>(visitor: V, tagged: A) -> Result<V::Value, A::Error>
+where
+    V: serde::de::Visitor<'de>,
+    A: serde::de::EnumAccess<'de>,
+{
+    struct Seed<V>(V);
+    impl<'de, V: serde::de::Visitor<'de>> serde::de::DeserializeSeed<'de> for Seed<V> {
+        type Value = V::Value;
+        fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<V::Value, D::Error> {
+            d.deserialize_any(self.0)
+        }
+    }
+    let (_, variant) = tagged.variant::<serde::de::IgnoredAny>()?;
+    serde::de::VariantAccess::newtype_variant_seed(variant, Seed(visitor))
+}
 
 /// Fixed diagnostics shared by the runtime and its well-known type codecs.
 ///
@@ -75,6 +108,10 @@ pub enum JsonValueError {
     Duration,
     #[error("invalid RFC 3339 timestamp")]
     Timestamp,
+    #[error("invalid FieldMask path, expected comma-separated lowerCamelCase paths")]
+    FieldMask,
+    #[error("invalid FieldMask path, it has no proto3 JSON representation")]
+    FieldMaskEncode,
     #[error("invalid JSON payload for a registered Any message")]
     AnyMessage,
     #[error("invalid JSON value for a registered Any well-known type")]
@@ -101,6 +138,251 @@ pub enum JsonValueError {
     AnyOpaqueField,
 }
 
+/// Implement the `serde::de::Visitor` methods for the input kinds a protobuf
+/// JSON visitor does not accept, without echoing the rejected value.
+///
+/// serde's default `visit_*` methods describe a rejected token by its value
+/// (``invalid type: integer `123` ``), which can carry a would-be secret into
+/// error text. Each listed kind instead returns
+/// `invalid_type(Unexpected::Other("<kind>"), &self)`, which names only the
+/// JSON kind. Rejected owned text and bytes are wiped first when buffa's
+/// `zeroize` feature is enabled. List only kinds the visitor does not accept.
+///
+/// Kinds: `bool`, `i64`, `u64`, `i128`, `u128`, `f64`, `str`, `string`,
+/// `bytes`, `byte_buf`, `unit`, `seq` and `map`. serde forwards the narrower
+/// integer and float methods to `i64`, `u64` and `f64`, `char` and borrowed
+/// strings to `str`, and borrowed bytes to `bytes`. `seq` and `map` require the
+/// surrounding impl to name the visitor lifetime `'de`.
+///
+/// The `i128` and `u128` arms forward values that fit in 64 bits to the
+/// corresponding integer visitor. A deserializer may use these visits even
+/// for narrow values; rejecting them unconditionally would change acceptance.
+/// Values outside that range are rejected without formatting their contents.
+///
+/// A visitor only sees these calls through `deserialize_any`: a typed request
+/// such as serde_json's `deserialize_str` reports a mismatched token itself,
+/// including its value.
+///
+/// ```ignore
+/// impl<'de> serde::de::Visitor<'de> for Text {
+///     // ...expecting, visit_str and visit_string...
+///     buffa::json_helpers::reject_other_json_kinds!(
+///         bool, i64, u64, i128, u128, f64, bytes, byte_buf, unit, seq, map
+///     );
+/// }
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __buffa_reject_other_json_kinds {
+    ($($kind:ident),* $(,)?) => {
+        $($crate::__buffa_reject_other_json_kinds!(@kind $kind);)*
+    };
+    (@kind bool) => {
+        fn visit_bool<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::bool,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("boolean"),
+                &self,
+            ))
+        }
+    };
+    (@kind i64) => {
+        fn visit_i64<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::i64,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("integer"),
+                &self,
+            ))
+        }
+    };
+    (@kind u64) => {
+        fn visit_u64<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::u64,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("integer"),
+                &self,
+            ))
+        }
+    };
+    (@kind i128) => {
+        fn visit_i128<__E: ::serde::de::Error>(
+            self,
+            value: ::core::primitive::i128,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            if let ::core::result::Result::Ok(value) = <::core::primitive::i64 as ::core::convert::TryFrom<::core::primitive::i128>>::try_from(value) {
+                return ::serde::de::Visitor::visit_i64(self, value);
+            }
+            if let ::core::result::Result::Ok(value) = <::core::primitive::u64 as ::core::convert::TryFrom<::core::primitive::i128>>::try_from(value) {
+                return ::serde::de::Visitor::visit_u64(self, value);
+            }
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("integer"),
+                &self,
+            ))
+        }
+    };
+    (@kind u128) => {
+        fn visit_u128<__E: ::serde::de::Error>(
+            self,
+            value: ::core::primitive::u128,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            if let ::core::result::Result::Ok(value) = <::core::primitive::u64 as ::core::convert::TryFrom<::core::primitive::u128>>::try_from(value) {
+                return ::serde::de::Visitor::visit_u64(self, value);
+            }
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("integer"),
+                &self,
+            ))
+        }
+    };
+    (@kind f64) => {
+        fn visit_f64<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::f64,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("floating-point number"),
+                &self,
+            ))
+        }
+    };
+    (@kind str) => {
+        fn visit_str<__E: ::serde::de::Error>(
+            self,
+            _: &::core::primitive::str,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("string"),
+                &self,
+            ))
+        }
+    };
+    (@kind string) => {
+        fn visit_string<__E: ::serde::de::Error>(
+            self,
+            value: $crate::alloc::string::String,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            $crate::json_helpers::discard_rejected_text(value);
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("string"),
+                &self,
+            ))
+        }
+    };
+    (@kind bytes) => {
+        fn visit_bytes<__E: ::serde::de::Error>(
+            self,
+            _: &[::core::primitive::u8],
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("bytes"),
+                &self,
+            ))
+        }
+    };
+    (@kind byte_buf) => {
+        fn visit_byte_buf<__E: ::serde::de::Error>(
+            self,
+            value: $crate::alloc::vec::Vec<::core::primitive::u8>,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            $crate::json_helpers::discard_rejected_bytes(value);
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("bytes"),
+                &self,
+            ))
+        }
+    };
+    (@kind unit) => {
+        fn visit_unit<__E: ::serde::de::Error>(self) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("null"),
+                &self,
+            ))
+        }
+    };
+    (@kind seq) => {
+        fn visit_seq<__A: ::serde::de::SeqAccess<'de>>(
+            self,
+            _: __A,
+        ) -> ::core::result::Result<Self::Value, __A::Error> {
+            ::core::result::Result::Err(<__A::Error as ::serde::de::Error>::invalid_type(
+                ::serde::de::Unexpected::Other("array"),
+                &self,
+            ))
+        }
+    };
+    (@kind map) => {
+        fn visit_map<__A: ::serde::de::MapAccess<'de>>(
+            self,
+            _: __A,
+        ) -> ::core::result::Result<Self::Value, __A::Error> {
+            ::core::result::Result::Err(<__A::Error as ::serde::de::Error>::invalid_type(
+                ::serde::de::Unexpected::Other("object"),
+                &self,
+            ))
+        }
+    };
+}
+#[doc(hidden)]
+pub use crate::__buffa_reject_other_json_kinds as reject_other_json_kinds;
+
+/// Release rejected owned text, wiping it first under the `zeroize` feature.
+#[doc(hidden)]
+pub fn discard_rejected_text(text: alloc::string::String) {
+    discard_rejected_bytes(text.into_bytes());
+}
+
+/// Release rejected owned bytes, wiping them first under the `zeroize` feature.
+#[doc(hidden)]
+pub fn discard_rejected_bytes(bytes: alloc::vec::Vec<u8>) {
+    #[cfg(feature = "zeroize")]
+    {
+        let mut bytes = bytes;
+        zeroize::Zeroize::zeroize(&mut bytes);
+    }
+    #[cfg(not(feature = "zeroize"))]
+    drop(bytes);
+}
+
+/// The object key under which `serde_json`'s `arbitrary_precision` feature
+/// hands a number to `visit_map`.
+///
+/// A message visitor driven by `deserialize_any` rejects this key as a
+/// number, as `deserialize_map` would. An explicit schema `json_name` can
+/// legally use this spelling; those messages retain typed map deserialization
+/// to distinguish genuine objects from synthetic number objects.
+#[doc(hidden)]
+pub const SERDE_JSON_NUMBER_KEY: &str = "$serde_json::private::Number";
+
+/// `visit_i128` / `visit_u128` for a numeric helper: a value that fits in 64
+/// bits goes to the visitor's `visit_i64` / `visit_u64`, and a wider one is
+/// rejected with the helper's fixed reason.
+macro_rules! visit_wide_ints {
+    ($reason:expr) => {
+        fn visit_i128<E: serde::de::Error>(self, v: i128) -> Result<Self::Value, E> {
+            if let Ok(v) = i64::try_from(v) {
+                return serde::de::Visitor::visit_i64(self, v);
+            }
+            match u64::try_from(v) {
+                Ok(v) => serde::de::Visitor::visit_u64(self, v),
+                Err(_) => Err(E::custom($reason)),
+            }
+        }
+        fn visit_u128<E: serde::de::Error>(self, v: u128) -> Result<Self::Value, E> {
+            match u64::try_from(v) {
+                Ok(v) => serde::de::Visitor::visit_u64(self, v),
+                Err(_) => Err(E::custom($reason)),
+            }
+        }
+    };
+}
+
 // ── Lenient base64 engines ──────────────────────────────────────────────────
 //
 // The pre-built `general_purpose` engines reject non-zero trailing bits.
@@ -117,8 +399,8 @@ const LENIENT_CFG: GeneralPurposeConfig = GeneralPurposeConfig::new()
     .with_decode_allow_trailing_bits(true)
     .with_decode_padding_mode(DecodePaddingMode::Indifferent);
 
-const STANDARD_LENIENT: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, LENIENT_CFG);
-const URL_SAFE_LENIENT: GeneralPurpose = GeneralPurpose::new(&alphabet::URL_SAFE, LENIENT_CFG);
+static STANDARD_LENIENT: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, LENIENT_CFG);
+static URL_SAFE_LENIENT: GeneralPurpose = GeneralPurpose::new(&alphabet::URL_SAFE, LENIENT_CFG);
 
 /// Maximum elements to pre-allocate from a deserializer's `size_hint`.
 ///
@@ -291,6 +573,9 @@ impl<'de, T: ProtoElemJson> serde::de::DeserializeSeed<'de> for ProtoElemSeed<T>
             fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<T, D2::Error> {
                 T::deserialize_proto_json(d)
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
         }
         d.deserialize_option(NoNull::<T>(core::marker::PhantomData))
     }
@@ -302,6 +587,26 @@ impl<'de, T: ProtoElemJson> serde::de::DeserializeSeed<'de> for ProtoElemSeed<T>
 /// module already exists (int64, float, bytes, etc.), the ProtoElemJson
 /// impl just forwards to that module's serialize/deserialize.
 macro_rules! proto_elem_json_delegate {
+    ($ty:ty, $mod:ident, null = $expected:literal) => {
+        impl ProtoElemJson for $ty {
+            fn serialize_proto_json<S: serde::Serializer>(
+                v: &Self,
+                s: S,
+            ) -> Result<S::Ok, S::Error> {
+                $mod::serialize(v, s)
+            }
+            fn deserialize_proto_json<'de, D: serde::Deserializer<'de>>(
+                d: D,
+            ) -> Result<Self, D::Error> {
+                $mod::deserialize(d)
+            }
+            // The diagnostic native serde gave a `null` element or map value
+            // before these types were routed through the containers.
+            fn deserialize_proto_json_null<E: serde::de::Error>() -> Result<Self, E> {
+                Err(E::invalid_type(serde::de::Unexpected::Unit, &$expected))
+            }
+        }
+    };
     ($ty:ty, $mod:ident) => {
         impl ProtoElemJson for $ty {
             fn serialize_proto_json<S: serde::Serializer>(
@@ -325,7 +630,9 @@ macro_rules! proto_elem_json_delegate {
 ///
 /// Each element is serialized/deserialized via [`ProtoElemJson`], applying
 /// proto3 JSON semantics (quoted int64, NaN/Inf strings, base64 bytes, etc.).
-/// JSON `null` deserializes to an empty vec.
+/// Generated code also uses it for bool and `String` elements, whose
+/// wrong-kind errors then omit the value. JSON `null` deserializes to an
+/// empty vec.
 ///
 /// Use with `#[serde(with = "::buffa::json_helpers::proto_seq")]`.
 pub mod proto_seq {
@@ -354,9 +661,18 @@ pub mod proto_seq {
             fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.write_str("an array or null")
             }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(
+                self,
+                tagged: A,
+            ) -> Result<Self::Value, A::Error> {
+                super::deserialize_tagged(self, tagged)
+            }
             fn visit_unit<E>(self) -> Result<Vec<T>, E> {
                 Ok(Vec::new())
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
@@ -389,14 +705,68 @@ impl<K: core::fmt::Display + ?Sized> serde::Serialize for DisplayKey<'_, K> {
     }
 }
 
+/// Serde support for native bool/string collections newly routed through
+/// ProtoJSON visitors. Keep the old native container decoder for binary
+/// formats; changing the existing generic helpers' bounds would break users.
+#[doc(hidden)]
+pub mod native_seq {
+    // These native elements already have canonical JSON scalar encodings.
+    // Keep the container's own serializer, including any binary envelope.
+    pub fn serialize<C: serde::Serialize, S: serde::Serializer>(
+        v: &C,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(v, s)
+    }
+
+    pub fn deserialize<'de, T, C, D>(d: D) -> Result<C, D::Error>
+    where
+        T: super::ProtoElemJson,
+        C: From<alloc::vec::Vec<T>> + serde::Deserialize<'de> + Default,
+        D: serde::Deserializer<'de>,
+    {
+        if d.is_human_readable() {
+            super::proto_seq::deserialize(d)
+        } else {
+            super::null_as_default(d)
+        }
+    }
+}
+
+/// Native string-keyed map counterpart of [`native_seq`].
+#[doc(hidden)]
+pub mod native_str_key_map {
+    pub fn serialize<C: serde::Serialize, S: serde::Serializer>(
+        v: &C,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(v, s)
+    }
+
+    pub fn deserialize<'de, C, D>(d: D) -> Result<C, D::Error>
+    where
+        C: crate::map_codec::MapStorage + serde::Deserialize<'de> + Default,
+        C::Key: serde::Deserialize<'de>,
+        C::Value: super::ProtoElemJson,
+        D: serde::Deserializer<'de>,
+    {
+        if d.is_human_readable() {
+            super::proto_str_key_map::deserialize(d)
+        } else {
+            super::null_as_default(d)
+        }
+    }
+}
+
 // ── proto_map: generic map module ────────────────────────────────────────────
 
 /// Serde with-module for `map<K, V>` fields where `V: ProtoElemJson`.
 ///
 /// Keys are stringified (via `Display`) on serialize and parsed (via `FromStr`)
 /// on deserialize — proto3 JSON uses string keys for all maps. Values use
-/// [`ProtoElemJson`] for proto-JSON encoding. JSON `null` deserializes to
-/// an empty map.
+/// [`ProtoElemJson`] for proto-JSON encoding; generated code also uses it for
+/// bool and `String` values, whose wrong-kind errors then omit the value.
+/// JSON `null` deserializes to an empty map.
 ///
 /// Use with `#[serde(with = "::buffa::json_helpers::proto_map")]`.
 pub mod proto_map {
@@ -443,6 +813,9 @@ pub mod proto_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -465,7 +838,8 @@ pub mod proto_map {
 
 /// Serde with-module for `map<string, V>` fields whose **value** needs
 /// proto3-JSON encoding ([`ProtoElemJson`]: int64→quoted, float→NaN token,
-/// bytes→base64) and whose **key** is a custom
+/// bytes→base64, or a bool or `String` whose wrong-kind errors must omit the
+/// value) and whose **key** is a `String` or a custom
 /// [`ProtoString`](crate::types::ProtoString) type.
 ///
 /// This is the string-key twin of [`proto_map`]. [`proto_map`] stringifies its
@@ -513,9 +887,18 @@ pub mod proto_str_key_map {
             fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.write_str("a JSON object with string keys, or null")
             }
+            fn visit_enum<A: serde::de::EnumAccess<'de>>(
+                self,
+                tagged: A,
+            ) -> Result<Self::Value, A::Error> {
+                super::deserialize_tagged(self, tagged)
+            }
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -559,6 +942,9 @@ pub mod proto_bool {
             fn visit_bool<E>(self, v: bool) -> Result<bool, E> {
                 Ok(v)
             }
+            crate::reject_other_json_kinds!(
+                i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
         }
         d.deserialize_any(V)
     }
@@ -618,6 +1004,7 @@ pub mod proto_string {
             fn visit_string<E>(self, v: alloc::string::String) -> Result<T, E> {
                 Ok(T::from(v))
             }
+            crate::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, bytes, byte_buf);
         }
         d.deserialize_any(V::<T>(core::marker::PhantomData))
     }
@@ -625,8 +1012,9 @@ pub mod proto_string {
 
 // ── enum ─────────────────────────────────────────────────────────────────────
 
-/// Shared reasons for protobuf enum JSON errors. Keep diagnostics independent
-/// of the input value so reporting a parse failure does not disclose it.
+/// Shared reasons for protobuf enum values and collection-shape errors.
+/// Reflective list and map fields also use the collection reasons. Diagnostics
+/// stay independent of the input value so a parse failure does not disclose it.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -639,6 +1027,60 @@ pub enum EnumJsonErrorReason {
     OutOfRange,
     #[error("expected a protobuf enum name or integer")]
     InvalidType,
+    #[error("expected a protobuf list or null")]
+    InvalidListType,
+    #[error("expected a protobuf map or null")]
+    InvalidMapType,
+}
+
+// Wrong-shaped scalar values must not bypass redaction at a collection boundary.
+macro_rules! reject_container_scalar_values {
+    ($reason:ident) => {
+        fn visit_string<Err: serde::de::Error>(
+            self,
+            value: alloc::string::String,
+        ) -> Result<Self::Value, Err> {
+            crate::json_helpers::discard_rejected_text(value);
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_str<Err: serde::de::Error>(self, _: &str) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_i64<Err: serde::de::Error>(self, _: i64) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_u64<Err: serde::de::Error>(self, _: u64) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_i128<Err: serde::de::Error>(self, _: i128) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_u128<Err: serde::de::Error>(self, _: u128) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_f64<Err: serde::de::Error>(self, _: f64) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_bool<Err: serde::de::Error>(self, _: bool) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+    };
 }
 
 /// Serde with-module for `EnumValue<E>` fields that accepts JSON `null` as the default.
@@ -676,6 +1118,18 @@ pub mod proto_enum {
                 let i =
                     i32::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
                 Ok(crate::EnumValue::from(i))
+            }
+            // Formats that deliver 128-bit integers (YAML, for one) take the
+            // 64-bit path; serde's defaults would echo the number.
+            fn visit_i128<Err: serde::de::Error>(self, v: i128) -> Result<Self::Value, Err> {
+                let v =
+                    i64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_i64(v)
+            }
+            fn visit_u128<Err: serde::de::Error>(self, v: u128) -> Result<Self::Value, Err> {
+                let v =
+                    u64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_u64(v)
             }
             fn visit_f64<Err: serde::de::Error>(self, _: f64) -> Result<Self::Value, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
@@ -833,8 +1287,8 @@ fn try_deserialize_enum<T: serde::de::DeserializeOwned>(
 ///
 /// When `ignore_unknown_enum_values` is active, unknown enum string values
 /// are silently skipped instead of producing an error. In default mode this
-/// behaves identically to the standard `Vec<EnumValue<E>>` deserialization
-/// with null→empty-vec handling.
+/// accepts names and integers, rejecting null elements except for enums
+/// explicitly representing NullValue. Whole-field null remains empty.
 pub mod repeated_enum {
     use alloc::vec::Vec;
     use serde::{Deserializer, Serializer};
@@ -843,7 +1297,19 @@ pub mod repeated_enum {
         value: &[crate::EnumValue<E>],
         s: S,
     ) -> Result<S::Ok, S::Error> {
-        serde::Serialize::serialize(value, s)
+        if !E::IS_NULL_VALUE || !s.is_human_readable() {
+            return serde::Serialize::serialize(value, s);
+        }
+        use serde::ser::SerializeSeq as _;
+        let mut sequence = s.serialize_seq(Some(value.len()))?;
+        for element in value {
+            if element.to_i32() == 0 {
+                sequence.serialize_element(&())?;
+            } else {
+                sequence.serialize_element(element)?;
+            }
+        }
+        sequence.end()
     }
 
     pub fn deserialize<'de, E, C, D>(d: D) -> Result<C, D::Error>
@@ -864,12 +1330,19 @@ pub mod repeated_enum {
                 Ok(Vec::new())
             }
 
+            reject_container_scalar_values!(InvalidListType);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
             ) -> Result<Vec<crate::EnumValue<E>>, A::Error> {
                 let mut out = Vec::with_capacity(super::clamp_size_hint(seq.size_hint()));
                 while let Some(super::BufferedValue(raw)) = seq.next_element()? {
+                    if raw.is_null() && !E::IS_NULL_VALUE {
+                        return Err(serde::de::Error::custom(
+                            super::enum_list::ErrorReason::Null,
+                        ));
+                    }
                     match super::try_deserialize_enum::<crate::EnumValue<E>>(raw) {
                         Ok(Some(v)) => out.push(v),
                         Ok(None) => continue,
@@ -938,12 +1411,14 @@ pub mod map_enum {
                 Ok(C::default())
             }
 
+            reject_container_scalar_values!(InvalidMapType);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
-                while let Some(key) = map.next_key::<C::Key>()? {
+                while let Some(key) = map.next_key_seed(super::map_key::KeySeed::<C::Key>::new())? {
                     let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let super::BufferedValue(raw) = map.next_value()?;
                     match super::try_deserialize_enum::<C::Value>(raw) {
@@ -1159,6 +1634,17 @@ macro_rules! int_serde_module {
                     fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<$int_type, E> {
                         $parse_str(v).ok_or_else(|| E::custom(JsonValueError::$reason))
                     }
+                    fn visit_string<E: serde::de::Error>(
+                        self,
+                        value: alloc::string::String,
+                    ) -> Result<$int_type, E> {
+                        // A transferred token is ours to erase even if parsing fails.
+                        #[cfg(feature = "zeroize")]
+                        let value = zeroize::Zeroizing::new(value);
+                        self.visit_str(&value)
+                    }
+                    visit_wide_ints!(JsonValueError::$reason);
+                    crate::reject_other_json_kinds!(bytes, byte_buf);
                 }
                 d.deserialize_any(Vis)
             }
@@ -1318,6 +1804,15 @@ pub mod float {
                 }
             }
 
+            fn visit_string<E: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<f32, E> {
+                #[cfg(feature = "zeroize")]
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+
             fn visit_f32<E: serde::de::Error>(self, v: f32) -> Result<f32, E> {
                 Ok(v)
             }
@@ -1336,6 +1831,9 @@ pub mod float {
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<f32, E> {
                 Ok(v as f32)
             }
+
+            visit_wide_ints!(super::JsonValueError::Float);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f32, E> {
                 Ok(v as f32)
@@ -1402,6 +1900,15 @@ pub mod double {
                 }
             }
 
+            fn visit_string<E: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<f64, E> {
+                #[cfg(feature = "zeroize")]
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+
             fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<f64, E> {
                 Ok(v)
             }
@@ -1413,6 +1920,9 @@ pub mod double {
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<f64, E> {
                 Ok(v as f64)
             }
+
+            visit_wide_ints!(super::JsonValueError::Double);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f64, E> {
                 Ok(v as f64)
@@ -1442,11 +1952,115 @@ pub mod bytes {
     ///
     /// Takes `&[u8]` so both `Vec<u8>` and `bytes::Bytes` fields are
     /// accepted via deref coercion at the `#[serde(with = ...)]` call site.
+    ///
+    /// The encoding is streamed through [`Serializer::collect_str`], so a
+    /// serializer that writes strings incrementally (such as `serde_json`'s)
+    /// receives it without an intermediate heap `String`. A serializer that
+    /// does not override `collect_str` still builds one, and the output is
+    /// that of the serializer's `collect_str`, which for a conforming
+    /// serializer matches `serialize_str`.
     pub fn serialize<S: Serializer>(value: &[u8], s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&STANDARD.encode(value))
+        s.collect_str(&base64::display::Base64Display::new(value, &STANDARD))
+    }
+
+    /// Upper bound on the number of bytes `text` decodes to, for sizing the
+    /// buffer passed to [`decode_into`].
+    ///
+    /// The bound is computed from the length of `text` alone: it does not
+    /// validate `text` and can exceed the decoded size, so keep only the
+    /// length [`decode_into`] returns.
+    #[must_use]
+    pub fn max_decoded_len(text: &str) -> usize {
+        base64::decoded_len_estimate(text.len())
+    }
+
+    /// Decode base64 `text` into storage the caller owns, returning the number
+    /// of bytes written to the front of `out`.
+    ///
+    /// Accepts exactly the strings [`deserialize`] accepts (standard or
+    /// URL-safe alphabet, padded or unpadded) and decodes once, without
+    /// allocating. `out` needs room only for the decoded bytes, so a
+    /// fixed-size key buffer works; a buffer of [`max_decoded_len`] bytes is
+    /// always enough. With a fixed-size buffer, check that the returned length
+    /// is the size you expect: shorter input succeeds and leaves the rest of
+    /// `out` untouched, and longer input fails with the buffer error, not with
+    /// a message about the key's length. Meant for a
+    /// [`ProtoBytesJson`](super::ProtoBytesJson) implementation whose visitor
+    /// borrows the JSON string and wants the decoded bytes to land in storage
+    /// it wipes. The decoder itself keeps at most a few decoded bytes in stack
+    /// slots and registers while it runs, which nothing wipes.
+    ///
+    /// The error type is generic so that the call fits a
+    /// [`Visitor`](serde::de::Visitor) method; name it with a turbofish, as
+    /// `?` alone cannot infer it. Outside a visitor,
+    /// [`serde::de::value::Error`] is a ready-made choice.
+    ///
+    /// ```
+    /// use buffa::json_helpers::bytes;
+    /// use serde::de::{Deserializer as _, Error, Visitor};
+    ///
+    /// /// Stands in for storage that the policy wipes.
+    /// struct Secret(Vec<u8>);
+    ///
+    /// struct SecretVisitor;
+    /// impl<'de> Visitor<'de> for SecretVisitor {
+    ///     type Value = Secret;
+    ///     fn expecting(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    ///         f.write_str("a base64-encoded string")
+    ///     }
+    ///     fn visit_str<E: Error>(self, text: &str) -> Result<Secret, E> {
+    ///         let mut buf = vec![0; bytes::max_decoded_len(text)];
+    ///         // Real code must also wipe `buf` when this returns early.
+    ///         let len = bytes::decode_into::<E>(text, &mut buf)?;
+    ///         buf.truncate(len);
+    ///         Ok(Secret(buf))
+    ///     }
+    /// }
+    ///
+    /// let mut de = serde_json::Deserializer::from_str(r#""AP-A""#);
+    /// let secret = de.deserialize_str(SecretVisitor).unwrap();
+    /// assert_eq!(secret.0, [0, 255, 128]);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error built with [`serde::de::Error::custom`] whose message
+    /// is fixed and never quotes a symbol or an offset from `text`:
+    ///
+    /// - `"base64 output buffer too small"` when `out` cannot hold the
+    ///   decoded bytes. The size is checked before the symbols, so this
+    ///   error also hides invalid input.
+    /// - `"invalid base64"` when `text` is not valid base64.
+    ///
+    /// On error, `out` may hold part of the decoded bytes.
+    pub fn decode_into<E: serde::de::Error>(text: &str, out: &mut [u8]) -> Result<usize, E> {
+        super::lenient_engine(text)
+            .decode_slice(text, out)
+            .map_err(|error| {
+                E::custom(match error {
+                    base64::DecodeSliceError::OutputSliceTooSmall => {
+                        Base64ErrorReason::BufferTooSmall
+                    }
+                    base64::DecodeSliceError::DecodeError(_) => Base64ErrorReason::Invalid,
+                })
+            })
+    }
+
+    /// Fixed reasons for a [`decode_into`] failure, so the error never
+    /// carries part of the input.
+    #[derive(Debug, thiserror::Error)]
+    enum Base64ErrorReason {
+        #[error("invalid base64")]
+        Invalid,
+        #[error("base64 output buffer too small")]
+        BufferTooSmall,
     }
 
     /// Deserialize from a base64-encoded string (or JSON `null` → empty).
+    ///
+    /// The bytes are decoded once into a `Vec<u8>` sized from the base64
+    /// length, which `T::from` then takes ownership of. Use [`decode_into`]
+    /// to decode into storage the caller provides instead.
     ///
     /// Generic over the return type so that codegen's `use_bytes_type()`
     /// (which types the field as `bytes::Bytes`) works without a shim:
@@ -1486,6 +2100,9 @@ pub mod bytes {
                 Err(E::custom(super::JsonValueError::Base64))
             }
 
+            visit_wide_ints!(super::JsonValueError::Base64);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
+
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<alloc::vec::Vec<u8>, E> {
                 super::decode_base64(v).map_err(serde::de::Error::custom)
             }
@@ -1506,16 +2123,18 @@ proto_elem_json_delegate!(i64, int64);
 proto_elem_json_delegate!(u64, uint64);
 proto_elem_json_delegate!(f32, float);
 proto_elem_json_delegate!(f64, double);
-proto_elem_json_delegate!(bool, proto_bool);
-proto_elem_json_delegate!(alloc::string::String, proto_string);
+proto_elem_json_delegate!(bool, proto_bool, null = "a boolean");
+proto_elem_json_delegate!(alloc::string::String, proto_string, null = "a string");
 proto_elem_json_delegate!(alloc::vec::Vec<u8>, bytes);
 
-// Only a custom `bytes` element used in a `repeated` / `map` field gets a
-// codegen-emitted `ProtoElemJson` impl (forwarding to the `bytes` base64
-// with-module) into the generating crate, where the type is local. A custom
-// `string` element does NOT: `repeated_serde_module` returns `None` for
-// `TYPE_STRING`, so a repeated string serializes through the element's own
-// native `Serialize`/`Deserialize` rather than `proto_seq`/`ProtoElemJson`.
+// Only an unlisted custom `bytes` element used in a `repeated` / `map` field
+// gets a codegen-emitted `ProtoElemJson` impl (forwarding to the `bytes`
+// base64 with-module) into the generating crate, where the type is local. A
+// type listed with `json_policy_type` does not: the policy with-modules wrap
+// it in their own element adapter. An unlisted custom `string` element does
+// not either: `repeated_serde_module` returns `None` for `TYPE_STRING`, so a
+// repeated string serializes through the element's own native
+// `Serialize`/`Deserialize` rather than `proto_seq`/`ProtoElemJson`.
 
 // bytes::Bytes — for codegen's `use_bytes_type()` with `repeated bytes`.
 // Serialize: `Bytes: Deref<Target=[u8]>` → `bytes::serialize(&[u8], s)`.
@@ -1595,6 +2214,9 @@ pub mod bytes_key_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -1656,6 +2278,9 @@ pub mod bytes_key_bytes_val_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -1731,6 +2356,9 @@ pub mod string_key_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -1760,13 +2388,28 @@ impl serde::Serialize for Base64Wrapper<'_> {
     }
 }
 
+/// The lenient engine for `v`'s alphabet.
+///
+/// `-` and `_` occur only in the URL-safe alphabet, and `+` and `/` only in
+/// the standard one; the other symbols decode to the same values in both, and
+/// both engines share one padding and trailing-bit configuration. The first of
+/// these four symbols therefore decides: an input that mixes the alphabets
+/// fails under either engine. Choosing this way accepts exactly the inputs
+/// that "standard, else URL-safe" accepts, with the same output, while
+/// decoding only once and usually scanning only a short prefix.
+fn lenient_engine(v: &str) -> &'static GeneralPurpose {
+    match v.bytes().find(|b| matches!(b, b'+' | b'/' | b'-' | b'_')) {
+        Some(b'-' | b'_') => &URL_SAFE_LENIENT,
+        _ => &STANDARD_LENIENT,
+    }
+}
+
 /// Decode a base64 string, accepting standard and URL-safe alphabets with
 /// lenient trailing-bit and padding handling.
 pub(crate) fn decode_base64(v: &str) -> Result<alloc::vec::Vec<u8>, JsonValueError> {
     use base64::Engine as _;
-    STANDARD_LENIENT
+    lenient_engine(v)
         .decode(v)
-        .or_else(|_| URL_SAFE_LENIENT.decode(v))
         .map_err(|_| JsonValueError::Base64)
 }
 
@@ -1777,7 +2420,8 @@ pub(crate) fn decode_base64(v: &str) -> Result<alloc::vec::Vec<u8>, JsonValueErr
 // inner module for `Some` and pass through `None` transparently.
 
 macro_rules! opt_serde_module {
-    ($mod_name:ident, $inner:ident, $ty:ty) => {
+    ($(#[$attr:meta])* $mod_name:ident, $inner:ident, $ty:ty) => {
+        $(#[$attr])*
         pub mod $mod_name {
             use serde::{Deserializer, Serializer};
 
@@ -1789,19 +2433,18 @@ macro_rules! opt_serde_module {
             }
 
             pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<$ty>, D::Error> {
-                // Use Option<T> deserialization so null → None (unset),
-                // not Some(default).  For non-null values, delegate to the
-                // inner module's deserializer.
-                <Option<super::$mod_name::Helper> as serde::Deserialize>::deserialize(d)
-                    .map(|opt| opt.map(|h| h.0))
+                // null → None (unset), not Some(default). Non-null values go
+                // to the inner module's deserializer.
+                serde::de::DeserializeSeed::deserialize(super::NullableDeserializeSeed(Inner), d)
             }
 
-            /// Newtype that deserializes via the inner module.
-            struct Helper($ty);
+            /// Seed that deserializes via the inner module.
+            struct Inner;
 
-            impl<'de> serde::Deserialize<'de> for Helper {
-                fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-                    super::$inner::deserialize(d).map(Helper)
+            impl<'de> serde::de::DeserializeSeed<'de> for Inner {
+                type Value = $ty;
+                fn deserialize<D: Deserializer<'de>>(self, d: D) -> Result<$ty, D::Error> {
+                    super::$inner::deserialize(d)
                 }
             }
         }
@@ -1814,6 +2457,97 @@ opt_serde_module!(opt_int64, int64, i64);
 opt_serde_module!(opt_uint64, uint64, u64);
 opt_serde_module!(opt_float, float, f32);
 opt_serde_module!(opt_double, double, f64);
+/// Option wrapper for bool fields with explicit presence.
+/// Pair it with `#[serde(default)]` so an omitted field remains `None`.
+/// Non-human-readable formats retain native Option encoding.
+pub mod opt_bool {
+    /// Serialize the optional bool using the carrier's existing representation.
+    ///
+    /// # Errors
+    /// Returns the serializer's error if writing fails.
+    pub fn serialize<S: serde::Serializer>(value: &Option<bool>, s: S) -> Result<S::Ok, S::Error> {
+        if s.is_human_readable() {
+            match value {
+                Some(value) => super::proto_bool::serialize(value, s),
+                None => s.serialize_none(),
+            }
+        } else {
+            serde::Serialize::serialize(value, s)
+        }
+    }
+    /// Deserialize an optional bool, preserving null as absence.
+    ///
+    /// # Errors
+    /// Returns the deserializer's error for invalid input or source failure.
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+        if !d.is_human_readable() {
+            return serde::Deserialize::deserialize(d);
+        }
+        struct Inner;
+        impl<'de> serde::de::DeserializeSeed<'de> for Inner {
+            type Value = bool;
+            fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<bool, D::Error> {
+                super::proto_bool::deserialize(d)
+            }
+        }
+        serde::de::DeserializeSeed::deserialize(super::NullableDeserializeSeed(Inner), d)
+    }
+}
+
+/// Option wrapper for `string` fields with explicit presence.
+///
+/// Generic over the string type, like
+/// [`proto_string`]: `Option<String>` and
+/// any configured [`ProtoString`](crate::ProtoString) work. JSON `null`
+/// deserializes to `None`; other values go through `proto_string`. As with
+/// any `with` module on an `Option`, add `#[serde(default)]` so a missing key
+/// is `None`. Non-human-readable formats keep native `Option<String>`
+/// encoding. Generated non-default string representations retain their own
+/// Serde implementation rather than selecting this helper.
+pub mod opt_string {
+    use serde::{Deserializer, Serializer};
+
+    /// Serialize an optional `string` field.
+    pub fn serialize<T, S>(value: &Option<T>, s: S) -> Result<S::Ok, S::Error>
+    where
+        T: AsRef<str>,
+        S: Serializer,
+    {
+        match value {
+            Some(v) if s.is_human_readable() => super::proto_string::serialize(v.as_ref(), s),
+            Some(v) => s.serialize_some(v.as_ref()),
+            None => s.serialize_none(),
+        }
+    }
+
+    /// Deserialize an optional `string` field (JSON `null` → `None`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the deserializer's `invalid_type` error, which names the JSON
+    /// kind but not the value, for any input that is not a string or `null`.
+    pub fn deserialize<'de, T, D>(d: D) -> Result<Option<T>, D::Error>
+    where
+        T: crate::ProtoString,
+        D: Deserializer<'de>,
+    {
+        if !d.is_human_readable() {
+            return <Option<alloc::string::String> as serde::Deserialize>::deserialize(d)
+                .map(|value| value.map(T::from));
+        }
+        struct Inner<T>(core::marker::PhantomData<T>);
+        impl<'de, T: crate::ProtoString> serde::de::DeserializeSeed<'de> for Inner<T> {
+            type Value = T;
+            fn deserialize<D2: Deserializer<'de>>(self, d: D2) -> Result<T, D2::Error> {
+                super::proto_string::deserialize(d)
+            }
+        }
+        serde::de::DeserializeSeed::deserialize(
+            super::NullableDeserializeSeed(Inner(core::marker::PhantomData)),
+            d,
+        )
+    }
+}
 
 /// Option wrapper for bytes fields (base64 encoding).
 ///
@@ -1843,13 +2577,18 @@ pub mod opt_bytes {
     {
         // null → None (unset), non-null → delegate to bytes module.
         // The visitor stays Vec<u8>-typed; convert on the way out.
-        struct Helper(alloc::vec::Vec<u8>);
-        impl<'de> serde::Deserialize<'de> for Helper {
-            fn deserialize<D2: Deserializer<'de>>(d: D2) -> Result<Self, D2::Error> {
-                super::bytes::deserialize::<alloc::vec::Vec<u8>, _>(d).map(Helper)
+        struct Inner;
+        impl<'de> serde::de::DeserializeSeed<'de> for Inner {
+            type Value = alloc::vec::Vec<u8>;
+            fn deserialize<D2: Deserializer<'de>>(
+                self,
+                d: D2,
+            ) -> Result<alloc::vec::Vec<u8>, D2::Error> {
+                super::bytes::deserialize(d)
             }
         }
-        <Option<Helper> as serde::Deserialize>::deserialize(d).map(|opt| opt.map(|h| h.0.into()))
+        serde::de::DeserializeSeed::deserialize(super::NullableDeserializeSeed(Inner), d)
+            .map(|opt| opt.map(T::from))
     }
 }
 
@@ -1891,7 +2630,8 @@ pub mod opt_enum {
 
 /// `DeserializeSeed` that detects JSON null and returns `None` instead of
 /// delegating to the inner seed. Used by generated oneof deserializers so
-/// that `null` means "this variant is not set".
+/// that `null` means "this variant is not set", and by the `opt_*` modules so
+/// that `null` means "this field is not set".
 pub struct NullableDeserializeSeed<S>(pub S);
 
 impl<'de, S> serde::de::DeserializeSeed<'de> for NullableDeserializeSeed<S>
@@ -1920,6 +2660,8 @@ where
     fn visit_none<E>(self) -> Result<Self::Value, E> {
         Ok(None)
     }
+
+    crate::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf);
 
     fn visit_unit<E>(self) -> Result<Self::Value, E> {
         Ok(None)
@@ -2121,6 +2863,18 @@ pub mod closed_enum {
                     i32::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
                 E::from_i32(v32).ok_or_else(|| Err::custom(EnumJsonErrorReason::UnknownNumber))
             }
+            // Formats that deliver 128-bit integers (YAML, for one) take the
+            // 64-bit path; serde's defaults would echo the number.
+            fn visit_i128<Err: serde::de::Error>(self, v: i128) -> Result<E, Err> {
+                let v =
+                    i64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_i64(v)
+            }
+            fn visit_u128<Err: serde::de::Error>(self, v: u128) -> Result<E, Err> {
+                let v =
+                    u64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_u64(v)
+            }
             fn visit_f64<Err: serde::de::Error>(self, _: f64) -> Result<E, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
             }
@@ -2207,9 +2961,14 @@ pub mod repeated_closed_enum {
         s: S,
     ) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeSeq;
+        let null_sentinel = E::IS_NULL_VALUE && s.is_human_readable();
         let mut seq = s.serialize_seq(Some(value.len()))?;
         for v in value {
-            seq.serialize_element(&crate::json_helpers::EnumProtoNameRef(v))?;
+            if null_sentinel && v.to_i32() == 0 {
+                seq.serialize_element(&())?;
+            } else {
+                seq.serialize_element(&crate::json_helpers::EnumProtoNameRef(v))?;
+            }
         }
         seq.end()
     }
@@ -2232,12 +2991,23 @@ pub mod repeated_closed_enum {
                 Ok(Vec::new())
             }
 
+            reject_container_scalar_values!(InvalidListType);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
             ) -> Result<Vec<E>, A::Error> {
                 let mut out = Vec::with_capacity(super::clamp_size_hint(seq.size_hint()));
                 while let Some(super::BufferedValue(raw)) = seq.next_element()? {
+                    if raw.is_null() && E::IS_NULL_VALUE {
+                        let value = E::from_i32(0).ok_or_else(|| {
+                            <A::Error as serde::de::Error>::custom(
+                                super::enum_list::ErrorReason::Unknown,
+                            )
+                        })?;
+                        out.push(value);
+                        continue;
+                    }
                     match super::try_deserialize_closed_enum::<E>(&raw) {
                         Ok(Some(v)) => out.push(v),
                         Ok(None) => continue,
@@ -2304,12 +3074,14 @@ pub mod map_closed_enum {
                 Ok(C::default())
             }
 
+            reject_container_scalar_values!(InvalidMapType);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
-                while let Some(key) = map.next_key::<C::Key>()? {
+                while let Some(key) = map.next_key_seed(super::map_key::KeySeed::<C::Key>::new())? {
                     let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let super::BufferedValue(raw) = map.next_value()?;
                     match super::try_deserialize_closed_enum::<C::Value>(&raw) {
@@ -2338,7 +3110,6 @@ pub mod enum_list;
 #[doc(hidden)]
 #[cfg(feature = "zeroize")]
 pub mod guarded_enum;
-#[cfg(feature = "zeroize")]
 mod guarded_key;
 /// Direct-key map decoding for cleanup-enabled generated messages.
 #[doc(hidden)]

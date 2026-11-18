@@ -21,9 +21,9 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 /// Copy one bounded field payload into a single wipe-owned allocation.
 fn read_guarded(payload: &mut FieldPayload<impl Buf>) -> Result<Zeroizing<Vec<u8>>, DecodeError> {
     let mut bytes = Zeroizing::new(Vec::new());
-    // The length is already checked against the input, and the reservation
-    // happens before any secret byte is written, so no reallocation can leave
-    // a copy behind.
+    // The length is already checked against the input (and, under generated
+    // code, the enclosing message), and the reservation happens before any
+    // secret byte is written, so no reallocation can leave a copy behind.
     bytes
         .try_reserve_exact(payload.remaining())
         .map_err(|_| DecodeError::MessageTooLarge)?;
@@ -37,6 +37,11 @@ fn read_guarded(payload: &mut FieldPayload<impl Buf>) -> Result<Zeroizing<Vec<u8
 }
 
 /// UTF-8 storage whose live bytes and spare capacity are wiped on drop.
+///
+/// Its serde `Deserialize` asks a human-readable deserializer for any kind, so
+/// a mismatched token is rejected by kind without echoing its value. Formats
+/// that coerce scalars only on a typed request, such as YAML, therefore no
+/// longer coerce here; other deserializers keep the typed request.
 pub struct SecretString(SecretBox<String>);
 impl Clone for SecretString {
     fn clone(&self) -> Self {
@@ -134,7 +139,7 @@ impl ProtoStringJson for SecretString {
         deserializer: D,
     ) -> Result<Self, D::Error> {
         struct TextVisitor;
-        impl serde::de::Visitor<'_> for TextVisitor {
+        impl<'de> serde::de::Visitor<'de> for TextVisitor {
             type Value = SecretString;
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a string")
@@ -145,8 +150,17 @@ impl ProtoStringJson for SecretString {
             fn visit_string<E: serde::de::Error>(self, value: String) -> Result<Self::Value, E> {
                 Ok(value.into())
             }
+            buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, bytes, byte_buf, unit, seq, map
+            );
         }
-        deserializer.deserialize_string(TextVisitor)
+        // A typed request lets a self-describing parser report a mismatched
+        // token, value included, without consulting the visitor.
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_any(TextVisitor)
+        } else {
+            deserializer.deserialize_string(TextVisitor)
+        }
     }
 }
 

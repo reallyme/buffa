@@ -172,7 +172,9 @@ fn ident(name: &str) -> Result<Ident, AdapterError> {
     {
         return Err(ErrorReason::InvalidIdentifier.into());
     }
-    if name.starts_with("r#") {
+    // syn's identifier parser does not track every newer edition keyword.
+    // Native declarations must remain usable by consumers on those editions.
+    if name.starts_with("r#") || crate::idents::is_rust_keyword(name) {
         return Err(ErrorReason::InvalidIdentifier.into());
     }
     let value: Ident = syn::parse_str(name).map_err(|_| ErrorReason::InvalidIdentifier)?;
@@ -198,10 +200,12 @@ fn path(name: &str) -> Result<syn::Path, AdapterError> {
     }
     let value: syn::Path = syn::parse_str(name).map_err(|_| ErrorReason::InvalidRustPath)?;
     if value.segments.is_empty()
-        || value
-            .segments
-            .iter()
-            .any(|s| !matches!(s.arguments, syn::PathArguments::None))
+        || value.segments.iter().any(|s| {
+            let name = s.ident.to_string();
+            !matches!(s.arguments, syn::PathArguments::None)
+                || (crate::idents::is_rust_keyword(&name)
+                    && !matches!(name.as_str(), "self" | "Self" | "super" | "crate"))
+        })
     {
         return Err(ErrorReason::InvalidRustPath.into());
     }
@@ -379,7 +383,9 @@ fn enum_values(descriptor: &EnumDescriptorProto) -> Result<BTreeMap<String, i32>
             return Err(ErrorReason::InvalidDescriptor.into());
         }
     }
-    if values.values().filter(|&&number| number == 0).count() != 1 {
+    // Unspecified is a numeric boundary, not a unique spelling: protobuf
+    // enums may legally declare several names for zero with allow_alias.
+    if !values.values().any(|&number| number == 0) {
         return Err(ErrorReason::InvalidDescriptor.into());
     }
     Ok(values)
@@ -470,7 +476,7 @@ fn conversion(
     Ok(quote! {
         impl ::core::convert::TryFrom<::buffa::EnumValue<#wire_type>> for #native {
             type Error = #error_type;
-            fn try_from(value: ::buffa::EnumValue<#wire_type>) -> ::core::result::Result<Self, Self::Error> {
+            fn try_from(value: ::buffa::EnumValue<#wire_type>) -> ::core::result::Result<Self, #error_type> {
                 if value.is_unknown() {
                     return ::core::result::Result::Err(::core::convert::Into::into(#error_value));
                 }
@@ -636,12 +642,12 @@ fn identities(selector: &ClosedSelector, variants: &[Ident]) -> Result<TokenStre
         impl #name {
             #[doc = "Exact external protocol identity, distinct from the protobuf number."]
             #[must_use]
-            pub const fn identifier(self) -> i64 { match self { #(Self::#variants => #numbers,)* } }
+            pub const fn identifier(self) -> ::core::primitive::i64 { match self { #(Self::#variants => #numbers,)* } }
             #[doc = "Resolve an exact external identity without policy substitution."]
             #[doc = ""]
             #[doc = "# Errors"]
             #[doc = "Returns the configured fixed domain error for an unsupported identity."]
-            pub fn from_identifier(value: i64) -> ::core::result::Result<Self, #error_type> {
+            pub fn from_identifier(value: ::core::primitive::i64) -> ::core::result::Result<Self, #error_type> {
                 match value {
                     #(#numbers => ::core::result::Result::Ok(Self::#variants),)*
                     _ => ::core::result::Result::Err(::core::convert::Into::into(#error_value)),
@@ -666,7 +672,7 @@ fn payload_type(
             if descriptor.r#type != Some(Type::TYPE_BYTES) {
                 return Err(ErrorReason::InvalidPayload.into());
             }
-            Ok(quote! { &'a [u8] })
+            Ok(quote! { &'a [::core::primitive::u8] })
         }
         PayloadType::Value { source, rust_type } => {
             if !matches!(

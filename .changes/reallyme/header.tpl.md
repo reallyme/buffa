@@ -5,4 +5,4 @@ Upstream release history remains in [CHANGELOG.md](CHANGELOG.md).
 
 Versioning is independent of upstream. Compatible updates increment the patch version; breaking changes increment the minor version while the major version is zero.
 
-Release 0.1.3 is an explicit exception to patch compatibility: it raises the MSRV to Rust 1.100 and changes external integration lines. Its Breaking changes section records the required migration.
+Release 0.1.3 is an explicit exception to patch compatibility: it raises the MSRV to Rust 1.100, changes external integration lines, and removes ordinary owned-view wrappers for messages that opt into cleanup. Its Breaking changes section records the required migration.

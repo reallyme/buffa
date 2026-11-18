@@ -10,7 +10,7 @@ The fork has an independent version line. Compatible fixes can be released as 0.
 
 **0.1.2** updates the ProtoJSON base64 dependency to 0.23.1.
 
-**0.1.3** adds opt-in, descriptor-checked native adapters. It also raises the MSRV to Rust 1.100 and updates the external integration lines listed in [the breaking changes](FORK_CHANGELOG.md). This release is an explicit exception to the patch compatibility policy.
+**0.1.3** adds opt-in, descriptor-checked native adapters and includes reviewed decoder, JSON-policy and memory-cleanup corrections. It raises the MSRV to Rust 1.100, updates external integration lines, and removes ordinary owned-view wrappers for messages that opt into cleanup. This release is an explicit exception to the patch compatibility policy; [the breaking changes](FORK_CHANGELOG.md) record the required migration.
 
 ## Packages and Rust names
 

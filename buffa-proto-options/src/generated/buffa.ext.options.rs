@@ -2863,8 +2863,8 @@ pub struct NativeSelectorVariant {
         feature = "json",
         serde(
             rename = "aliases",
-            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
-            deserialize_with = "::buffa::json_helpers::null_as_default"
+            with = "::buffa::json_helpers::native_seq",
+            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
     #[cfg_attr(feature = "json", serde(default))]
@@ -3516,8 +3516,8 @@ pub struct NativeLegacySelector {
         feature = "json",
         serde(
             rename = "rejected",
-            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
-            deserialize_with = "::buffa::json_helpers::null_as_default"
+            with = "::buffa::json_helpers::native_seq",
+            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
     #[cfg_attr(feature = "json", serde(default))]
@@ -3904,6 +3904,7 @@ pub struct NativeClosedSelector {
         serde(
             rename = "nonExhaustive",
             alias = "non_exhaustive",
+            with = "::buffa::json_helpers::opt_bool",
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
@@ -3936,8 +3937,8 @@ pub struct NativeClosedSelector {
         feature = "json",
         serde(
             rename = "rejected",
-            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
-            deserialize_with = "::buffa::json_helpers::null_as_default"
+            with = "::buffa::json_helpers::native_seq",
+            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
     #[cfg_attr(feature = "json", serde(default))]
@@ -4577,8 +4578,8 @@ pub struct NativeFieldSource {
         feature = "json",
         serde(
             rename = "path",
-            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
-            deserialize_with = "::buffa::json_helpers::null_as_default"
+            with = "::buffa::json_helpers::native_seq",
+            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
     #[cfg_attr(feature = "json", serde(default))]
@@ -4875,7 +4876,11 @@ pub struct NativePayloadType {
     /// Field 2: `source`
     #[cfg_attr(
         feature = "json",
-        serde(rename = "source", skip_serializing_if = "::core::option::Option::is_none")
+        serde(
+            rename = "source",
+            with = "::buffa::json_helpers::opt_string",
+            skip_serializing_if = "::core::option::Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "json", serde(default))]
     pub source: ::core::option::Option<::buffa::alloc::string::String>,
@@ -4885,6 +4890,7 @@ pub struct NativePayloadType {
         serde(
             rename = "rustType",
             alias = "rust_type",
+            with = "::buffa::json_helpers::opt_string",
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
@@ -5626,7 +5632,11 @@ pub struct NativePayload {
     /// Field 3: `port`
     #[cfg_attr(
         feature = "json",
-        serde(rename = "port", skip_serializing_if = "::core::option::Option::is_none")
+        serde(
+            rename = "port",
+            with = "::buffa::json_helpers::opt_string",
+            skip_serializing_if = "::core::option::Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "json", serde(default))]
     pub port: ::core::option::Option<::buffa::alloc::string::String>,
@@ -6002,8 +6012,8 @@ pub struct NativePayloadVariant {
         feature = "json",
         serde(
             rename = "cases",
-            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
-            deserialize_with = "::buffa::json_helpers::null_as_default"
+            with = "::buffa::json_helpers::native_seq",
+            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
     #[cfg_attr(feature = "json", serde(default))]
@@ -6703,7 +6713,11 @@ pub struct NativeBorrowedSource {
     /// Field 2: `source`
     #[cfg_attr(
         feature = "json",
-        serde(rename = "source", skip_serializing_if = "::core::option::Option::is_none")
+        serde(
+            rename = "source",
+            with = "::buffa::json_helpers::opt_string",
+            skip_serializing_if = "::core::option::Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "json", serde(default))]
     pub source: ::core::option::Option<::buffa::alloc::string::String>,
@@ -6712,6 +6726,7 @@ pub struct NativeBorrowedSource {
         feature = "json",
         serde(
             rename = "message",
+            with = "::buffa::json_helpers::opt_string",
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
@@ -6720,7 +6735,11 @@ pub struct NativeBorrowedSource {
     /// Field 4: `name`
     #[cfg_attr(
         feature = "json",
-        serde(rename = "name", skip_serializing_if = "::core::option::Option::is_none")
+        serde(
+            rename = "name",
+            with = "::buffa::json_helpers::opt_string",
+            skip_serializing_if = "::core::option::Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,

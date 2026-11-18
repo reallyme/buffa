@@ -124,31 +124,21 @@ pub use self::__buffa::reflect::FILE_DESCRIPTOR_SET_BYTES;
 #[doc(inline)]
 pub use self::__buffa::view::TimestampView;
 #[doc(inline)]
-pub use self::__buffa::view::TimestampOwnedView;
-#[doc(inline)]
 pub use self::__buffa::lazy_view::TimestampLazyView;
 #[doc(inline)]
 pub use self::__buffa::view::DurationView;
-#[doc(inline)]
-pub use self::__buffa::view::DurationOwnedView;
 #[doc(inline)]
 pub use self::__buffa::lazy_view::DurationLazyView;
 #[doc(inline)]
 pub use self::__buffa::view::StructView;
 #[doc(inline)]
-pub use self::__buffa::view::StructOwnedView;
-#[doc(inline)]
 pub use self::__buffa::lazy_view::StructLazyView;
 #[doc(inline)]
 pub use self::__buffa::view::ValueView;
 #[doc(inline)]
-pub use self::__buffa::view::ValueOwnedView;
-#[doc(inline)]
 pub use self::__buffa::lazy_view::ValueLazyView;
 #[doc(inline)]
 pub use self::__buffa::view::ListValueView;
-#[doc(inline)]
-pub use self::__buffa::view::ListValueOwnedView;
 #[doc(inline)]
 pub use self::__buffa::lazy_view::ListValueLazyView;
 #[doc(inline)]

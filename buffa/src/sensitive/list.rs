@@ -12,6 +12,11 @@ use core::{fmt, ops::Deref};
 /// Growth follows the infallible allocation contract of `ProtoList`: capacity
 /// overflow or reservation failure invokes the global allocation-failure handler.
 ///
+/// Its serde `Deserialize` asks a human-readable deserializer for any kind, so
+/// a mismatched token is rejected by kind without echoing its value. Formats
+/// that coerce scalars only on a typed request, such as YAML, therefore no
+/// longer coerce here; other deserializers keep the typed request.
+///
 /// ```compile_fail
 /// let mut values: buffa::sensitive::List<u64> = [3, 1, 2].into_iter().collect();
 /// values.sort();
@@ -66,13 +71,10 @@ impl<T: Zeroize> List<T> {
     }
     /// Erase all elements and spare capacity, leaving the list empty.
     pub fn clear(&mut self) {
-        self.0.zeroize();
-        // zeroize 1.9 drops initialized elements after invoking their cleanup,
-        // but no longer overwrites their vacated representation. An enum can
-        // retain inactive payload bytes, so wipe those slots after every
-        // destructor has finished. At length zero the entire allocation is
-        // MaybeUninit storage, including padding and the original spare space.
-        self.0.spare_capacity_mut().zeroize();
+        // Element slots vacated by the destructors (discriminants, inactive
+        // payload bytes, buffer headers, padding) are wiped once every
+        // destructor has run.
+        super::zeroize_vec(&mut self.0);
     }
 }
 impl<T: Zeroize> Default for List<T> {
@@ -160,8 +162,17 @@ impl<'de, T: Zeroize + serde::Deserialize<'de>> serde::Deserialize<'de> for List
                 }
                 Ok(list)
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, map
+            );
         }
-        deserializer.deserialize_seq(V(core::marker::PhantomData))
+        // A typed request lets a self-describing parser report a mismatched
+        // token, value included, without consulting the visitor.
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_any(V(core::marker::PhantomData))
+        } else {
+            deserializer.deserialize_seq(V(core::marker::PhantomData))
+        }
     }
 }
 

@@ -81,6 +81,11 @@ impl Config {
     /// Native files are written beside the portable output and included
     /// explicitly in their API modules. No native adapter enters the portable
     /// module tree. Missing or incomplete mappings fail before output is written.
+    /// Without an explicit [`Self::adapters`] configuration, at least one
+    /// requested file must declare the options, otherwise `compile()` fails
+    /// with [`adapters::ErrorReason::MissingSchemaAdapters`]. This setting
+    /// only controls the schema options: it does not suppress an explicit
+    /// [`Self::adapters`] configuration.
     #[must_use]
     pub fn generate_adapters(mut self, enabled: bool) -> Self {
         self.codegen_config.generate_adapters = enabled;
@@ -335,6 +340,8 @@ impl Config {
     /// Omit standard owned-view wrappers and `HasMessageView` for matching
     /// messages and their containers. Borrowed views remain available.
     /// Use `.` to select every message. Rules must match a known message.
+    /// Messages selected for cleanup, and their containers, are always
+    /// treated as selected.
     ///
     /// This controls what code is generated. It does not disable explicit
     /// use of the public `buffa::OwnedView` runtime with a borrowed view type.
@@ -820,6 +827,8 @@ impl Config {
 
     /// Generate recursive cleanup for every owned message.
     /// Requires `buffa/zeroize` and guarded field representations; see the guarded-fields guide.
+    /// No owned-view wrapper or `HasMessageView` impl is generated, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
     #[must_use]
     pub fn generate_zeroize(mut self, enabled: bool) -> Self {
         self.codegen_config.generate_zeroize = enabled;
@@ -829,6 +838,9 @@ impl Config {
     /// Generate recursive cleanup for messages under these proto path prefixes.
     /// `.` matches every message. Calls accumulate. Empty or unmatched paths
     /// are errors; scoped requests can explicitly allow unmatched rules.
+    /// Selected messages and their containers get no owned-view wrapper or
+    /// `HasMessageView` impl, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
     #[must_use]
     pub fn zeroize_in(mut self, paths: &[impl AsRef<str>]) -> Self {
         self.codegen_config.zeroize_messages.extend(
@@ -1263,8 +1275,11 @@ impl Config {
     /// ([`bytes_type_custom`](Self::bytes_type_custom)) is honored for
     /// `map<K, bytes>` values too, the same as the built-in `Bytes` — but a
     /// custom map value (like a custom `repeated` element) must be a crate-local
-    /// type, since codegen emits its `ReflectElement` / `ProtoElemJson` impls
-    /// (the orphan rule forbids them for a foreign type).
+    /// type, since codegen emits its `ReflectElement` / `InspectElement` /
+    /// `ProtoElemJson` impls (the orphan rule forbids them for a foreign type).
+    /// A type listed with [`json_policy_type`](Self::json_policy_type) gets no
+    /// `ProtoElemJson` impl, so only vtable reflection or reflection with
+    /// message cleanup requires it to be local.
     ///
     /// [`strict_utf8_mapping`]: Self::strict_utf8_mapping
     ///
@@ -1350,17 +1365,22 @@ impl Config {
     /// # Limitations
     ///
     /// - A **foreign** custom type used as a `repeated` element — or a
-    ///   `map<K, bytes>` value — fails to compile: codegen emits
-    ///   `ReflectElement` / `ProtoElemJson` impls for it, which the orphan rule
-    ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
+    ///   `map<K, bytes>` value — fails to compile under JSON, vtable reflection
+    ///   or reflection with message cleanup: codegen emits `ProtoElemJson` /
+    ///   `ReflectElement` / `InspectElement` impls for it, which the orphan
+    ///   rule forbids for a foreign type. Wrap it in a crate-local newtype, or use
     ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
     ///   the defining crate supplies those integrations. Singular / optional /
-    ///   oneof uses work directly.
+    ///   oneof uses work directly. A type listed with
+    ///   [`json_policy_type`](Self::json_policy_type) gets no `ProtoElemJson`
+    ///   impl, so only vtable reflection or reflection with message cleanup
+    ///   requires it to be local.
     /// - A `Custom` rule **does** apply to `map<K, bytes>` values (honored like
     ///   the built-in [`BytesRepr::Bytes`]); only the `map<bytes, bytes>`
     ///   carve-out keeps `Vec<u8>` values.
-    /// - A `path` that does not parse as a Rust type is reported as a codegen
-    ///   error from [`compile`](Self::compile).
+    /// - A `path` that is not a plain type path like `crate::Name` (for
+    ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
+    ///   from [`compile`](Self::compile).
     /// - A custom bytes type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`).
     #[must_use]
@@ -1490,9 +1510,10 @@ impl Config {
     /// # Limitations
     ///
     /// - Under vtable reflection ([`reflect_mode`](Self::reflect_mode) with
-    ///   `ReflectMode::VTable`), a **foreign** custom type used as a `repeated`
-    ///   element or as a `map` key or value fails to compile: codegen emits a
-    ///   `ReflectElement` or `ReflectMapKey` impl for it, which the orphan rule
+    ///   `ReflectMode::VTable`), or any reflection with message cleanup, a
+    ///   **foreign** custom type used as a `repeated` element or as a `map` key
+    ///   or value fails to compile: codegen emits a `ReflectElement`,
+    ///   `InspectElement` or `ReflectMapKey` impl for it, which the orphan rule
     ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
     ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
     ///   the defining crate supplies those integrations. Singular / optional /
@@ -1505,11 +1526,14 @@ impl Config {
     ///   `#[buffa(remote = ..., serde)]`; any other type derives them (an
     ///   external type enables its `serde` feature). A singular field with
     ///   implicit presence, or a proto2 `required` field, uses the
-    ///   `proto_string` with-module and needs no `serde` impl.
+    ///   `proto_string` with-module and needs no `serde` impl, and so does a
+    ///   type listed with [`json_policy_type`](Self::json_policy_type), whose
+    ///   JSON goes through its policy in every generated JSON position.
     /// - A custom type used as a `map` key must implement `Hash + Eq` for the
     ///   default `HashMap` container, or `Ord` for `BTreeMap`.
-    /// - A `path` that does not parse as a Rust type is reported as a codegen
-    ///   error from [`compile`](Self::compile).
+    /// - A `path` that is not a plain type path like `crate::Name` (for
+    ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
+    ///   from [`compile`](Self::compile).
     /// - A custom string type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`, as a `map` key
     ///   or value too).
@@ -1526,11 +1550,32 @@ impl Config {
     /// [`bytes_type_custom_in`](Self::bytes_type_custom_in) or
     /// [`string_type_custom_in`](Self::string_type_custom_in) rule does
     /// (whitespace aside). Every field of that type then serializes and
-    /// deserializes through the policy: singular, optional, repeated and oneof
-    /// fields, `map` keys and values, and the matching fields of generated
-    /// views and owned views. The type's own `serde` impls are not consulted.
-    /// Call it once per type; unlisted custom types keep their existing JSON
-    /// behavior.
+    /// deserializes through the policy in the generated `serde` impls:
+    /// singular, optional, repeated and oneof fields, `map` keys and values,
+    /// and the matching fields of generated views, lazy views and owned views.
+    /// The type's own `serde` impls are not consulted.
+    /// Generated code implements no JSON trait for the type (repeated elements
+    /// and `map` values go through buffa's policy with-modules). With JSON
+    /// alone, the type may therefore be defined, together with its
+    /// representation and policy impls, in another crate, and separate
+    /// `compile()` runs into one crate may share it. With vtable reflection,
+    /// or reflection with message cleanup, its `repeated` and `map` uses still
+    /// get per-run element impls, so there it must be crate-local and
+    /// generated in one run (or use
+    /// [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls)). Call
+    /// it once per type, in every `Config` that generates a field of the type:
+    /// a run that does not list it never calls the policy (bytes fields become
+    /// plain base64; string fields use the type's own `serde` impls). Unlisted
+    /// custom types keep their existing JSON behavior.
+    ///
+    /// A policy shapes only the generated JSON and is not a confidentiality
+    /// boundary. Binary encoding, generated text format and descriptor-driven
+    /// reflection never call it: JSON produced or read through `DynamicMessage`
+    /// (including a message converted with `ReflectMessage::to_dynamic`, or with
+    /// `DynamicMessage::try_from_message`, which works whether or not
+    /// reflection is generated) encodes the field as standard base64 or a
+    /// plain string, so a policy that refuses export does not stop it and its
+    /// import checks do not run.
     ///
     /// # Limitations
     ///
@@ -1538,10 +1583,19 @@ impl Config {
     ///   compile error in the generated code, naming the trait.
     /// - A listed `string` type used as the key of a `map` with enum values
     ///   is a codegen error from [`compile`](Self::compile).
+    /// - A listed `string` type used as a `map` key must have a policy that
+    ///   round-trips, and so is injective (see the `ProtoStringJson` contract):
+    ///   otherwise import loses or alters entries. This is not checked.
     /// - A type that no effective representation rule selects is an error.
     ///   Binding and spelling errors remain errors with JSON disabled. A valid
     ///   listed type while [`generate_json`](Self::generate_json) is off
     ///   produces a `cargo:warning` because its policy is inactive.
+    /// - With JSON and reflection both on
+    ///   ([`generate_reflection`](Self::generate_reflection), or any
+    ///   [`reflect_mode`](Self::reflect_mode) other than off), listing any type
+    ///   produces one `cargo:warning` per `compile()` that reflective JSON
+    ///   bypasses the policy. It is a standing reminder, not a check of your
+    ///   schema, and buffa-build always prints it.
     #[must_use]
     pub fn json_policy_type(mut self, path: &str) -> Self {
         self.codegen_config
@@ -1554,8 +1608,10 @@ impl Config {
     ///
     /// Set this to `false` when shared representation types provide their
     /// `ProtoElemJson`, `ReflectElement`, `ReflectMapKey` and `InspectElement` implementations in
-    /// their defining crate. This permits foreign types and multiple generation
-    /// calls without orphan-rule or duplicate-impl errors. Missing traits fail
+    /// their defining crate. A type listed with
+    /// [`json_policy_type`](Self::json_policy_type) needs no `ProtoElemJson`.
+    /// This permits foreign types and multiple generation calls without
+    /// orphan-rule or duplicate-impl errors. Missing traits fail
     /// compilation; JSON policy selection is still required separately.
     #[must_use]
     pub fn emit_custom_type_impls(mut self, enabled: bool) -> Self {
@@ -1921,7 +1977,7 @@ impl Config {
     /// # Limitations
     ///
     /// - The template must contain at least one `*`; a template that omits it,
-    ///   or whose substitution does not parse as a Rust type, is reported as a
+    ///   or whose substitution is not a Rust type path, is reported as a
     ///   codegen error from [`compile`](Self::compile).
     /// - The template must name a **crate-local newtype** — a foreign collection
     ///   cannot implement the buffa-owned `ProtoList` (orphan rule). This applies
@@ -2689,16 +2745,31 @@ impl Config {
             &self.codegen_config,
         )?;
 
-        // An include tree is written after content files. Reject a native
-        // filename collision first so it cannot overwrite an adapter.
-        if let Some(include) = &self.include_file {
-            if generated.iter().any(|file| {
-                file.kind == buffa_codegen::GeneratedFileKind::Adapter
-                    && file.name.eq_ignore_ascii_case(include)
-            }) {
-                return Err(
-                    adapters::AdapterError::from(adapters::ErrorReason::DuplicateOutput).into(),
-                );
+        // An include tree is written after content files. Compare destinations
+        // before any writes: relative components, absolute paths, and existing
+        // directory symlinks may name an adapter despite different spellings.
+        // Runs without native adapters retain their existing include behavior.
+        if let Some(include) = self.include_file.as_deref().filter(|_| {
+            generated
+                .iter()
+                .any(|file| file.kind == buffa_codegen::GeneratedFileKind::Adapter)
+        }) {
+            let include_path = normalize_output_destination(&out_dir.join(include))?;
+            for file in generated
+                .iter()
+                .filter(|file| file.kind == buffa_codegen::GeneratedFileKind::Adapter)
+            {
+                let adapter_path = normalize_output_destination(&out_dir.join(&file.name))?;
+                if adapter_path
+                    .as_os_str()
+                    .as_encoded_bytes()
+                    .eq_ignore_ascii_case(include_path.as_os_str().as_encoded_bytes())
+                {
+                    return Err(adapters::AdapterError::from(
+                        adapters::ErrorReason::DuplicateOutput,
+                    )
+                    .into());
+                }
             }
         }
 
@@ -2822,6 +2893,46 @@ impl Config {
 
 /// The reason given when an include file name contains a NUL byte.
 const NUL_IN_FILE_NAME: &str = "a file name cannot contain a NUL byte";
+
+/// Resolve an output's existing components without creating its missing ones.
+/// Resolve symlinks before processing `..`, matching filesystem traversal;
+/// reducing all `..` components first would misidentify symlinked parents.
+fn normalize_output_destination(path: &Path) -> Result<PathBuf, adapters::AdapterError> {
+    let invalid = || adapters::AdapterError::from(adapters::ErrorReason::InvalidOutput);
+    let absolute = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir().map_err(|_| invalid())?.join(path)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Normal(name) => {
+                normalized.push(name);
+                match normalized.canonicalize() {
+                    Ok(existing) => normalized = existing,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        // A dangling link can become live when an earlier output
+                        // is written. Do not treat that link as a new file: its
+                        // eventual destination cannot be compared safely yet.
+                        match normalized.symlink_metadata() {
+                            Ok(metadata) if !metadata.file_type().is_symlink() => {}
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                            _ => return Err(invalid()),
+                        }
+                    }
+                    Err(_) => return Err(invalid()),
+                }
+            }
+        }
+    }
+    Ok(normalized)
+}
 
 /// Whether `name` places a file directly in the directory it is joined to. A
 /// leading `./` is accepted; a backslash and a drive prefix are rejected on
@@ -3227,18 +3338,31 @@ mod tests {
 
     #[test]
     fn native_include_collisions_fail_before_writing_any_output() {
+        for include in ["native.rs", "NATIVE.rs", "./native.rs", "./NATIVE.rs"] {
+            assert_native_include_collision(include, true);
+        }
+    }
+
+    fn assert_native_include_collision(include: &str, explicit_out_dir: bool) {
         let (bytes, adapters) = native_adapter_input();
-        let directory = tempfile::tempdir().unwrap();
-        let preserved = directory.path().join("sentinel");
-        std::fs::write(&preserved, b"preserved").unwrap();
-        let error = Config::new()
+        let directory = explicit_out_dir.then(|| tempfile::tempdir().unwrap());
+        let path = directory.as_ref().map_or_else(
+            || PathBuf::from(std::env::var_os("OUT_DIR").unwrap()),
+            |dir| dir.path().to_owned(),
+        );
+        std::fs::create_dir_all(&path).unwrap();
+        let preserved = path.join("native.rs");
+        std::fs::write(&preserved, b"preserved adapter").unwrap();
+        std::fs::write(path.join("p.rs"), b"preserved portable").unwrap();
+        let mut config = Config::new()
             .descriptor_set_bytes(bytes)
             .files(&["mode.proto"])
             .adapters(adapters)
-            .out_dir(directory.path())
-            .include_file("NATIVE.rs")
-            .compile()
-            .unwrap_err();
+            .include_file(include);
+        if explicit_out_dir {
+            config = config.out_dir(&path);
+        }
+        let error = config.compile().unwrap_err();
         assert_eq!(
             error
                 .downcast_ref::<adapters::AdapterError>()
@@ -3246,8 +3370,158 @@ mod tests {
                 .reason,
             adapters::ErrorReason::DuplicateOutput
         );
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
-        assert_eq!(std::fs::read(preserved).unwrap(), b"preserved");
+        assert_eq!(std::fs::read(preserved).unwrap(), b"preserved adapter");
+        assert_eq!(
+            std::fs::read(path.join("p.rs")).unwrap(),
+            b"preserved portable"
+        );
+        assert!(!path.join("p.mod.rs").exists());
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn native_include_out_dir_collision_child() {
+        // OUT_DIR belongs to the child process so parallel tests never observe
+        // a temporary change to their build environment.
+        let Some(include) = std::env::var_os("NATIVE_COLLISION_INCLUDE") else {
+            return;
+        };
+        assert_native_include_collision(include.to_str().unwrap(), false);
+    }
+
+    #[test]
+    fn native_include_out_dir_aliases_fail_before_writing() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("out");
+        for include in [
+            "././native.rs".to_owned(),
+            "unused/../native.rs".to_owned(),
+            "../out/NATIVE.rs".to_owned(),
+            output.join("native.rs").to_str().unwrap().to_owned(),
+        ] {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "tests::native_include_out_dir_collision_child"])
+                .env("OUT_DIR", &output)
+                .env("NATIVE_COLLISION_INCLUDE", &include)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{include}: {}",
+                String::from_utf8_lossy(&result.stdout)
+            );
+        }
+    }
+
+    #[test]
+    fn native_noncolliding_out_dir_include_child() {
+        let Some(include) = std::env::var_os("NATIVE_VALID_INCLUDE") else {
+            return;
+        };
+        let (bytes, adapters) = native_adapter_input();
+        Config::new()
+            .descriptor_set_bytes(bytes)
+            .files(&["mode.proto"])
+            .adapters(adapters)
+            .include_file(include.to_str().unwrap())
+            .compile()
+            .unwrap();
+        let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+        assert!(std::fs::read_to_string(output.join("native.rs"))
+            .unwrap()
+            .contains("pub enum NativeMode"));
+        assert!(std::fs::read_to_string(output.join(include))
+            .unwrap()
+            .contains("p.mod.rs"));
+    }
+
+    #[test]
+    fn native_out_dir_includes_keep_distinct_destinations() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("out");
+        let includes = vec![
+            PathBuf::from("nested/tree.rs"),
+            directory.path().join("separate/native.rs"),
+        ];
+        #[cfg(unix)]
+        let includes = {
+            let mut includes = includes;
+            // `link/..` is the symlink target's parent, not the output
+            // directory. A lexical reduction alone would reject this valid case.
+            std::fs::create_dir_all(directory.path().join("target/child")).unwrap();
+            std::fs::create_dir(&output).unwrap();
+            std::os::unix::fs::symlink(directory.path().join("target/child"), output.join("link"))
+                .unwrap();
+            includes.push(PathBuf::from("link/../native.rs"));
+            includes
+        };
+        for include in includes {
+            let result = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "tests::native_noncolliding_out_dir_include_child",
+                ])
+                .env("OUT_DIR", &output)
+                .env("NATIVE_VALID_INCLUDE", &include)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{include:?}: {}",
+                String::from_utf8_lossy(&result.stdout)
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_include_directory_symlink_alias_is_a_collision() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("out");
+        std::fs::create_dir(&output).unwrap();
+        let alias = directory.path().join("alias");
+        std::os::unix::fs::symlink(&output, &alias).unwrap();
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::native_include_out_dir_collision_child"])
+            .env("OUT_DIR", &output)
+            .env("NATIVE_COLLISION_INCLUDE", alias.join("native.rs"))
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stdout)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_include_dangling_symlink_is_rejected_before_any_writes() {
+        let (bytes, adapters) = native_adapter_input();
+        let directory = tempfile::tempdir().unwrap();
+        let include = directory.path().join("tree.rs");
+        std::os::unix::fs::symlink("native.rs", &include).unwrap();
+        let portable = directory.path().join("p.rs");
+        std::fs::write(&portable, b"preserved portable").unwrap();
+        let error = Config::new()
+            .descriptor_set_bytes(bytes)
+            .files(&["mode.proto"])
+            .adapters(adapters)
+            .out_dir(directory.path())
+            .include_file("tree.rs")
+            .compile()
+            .unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<adapters::AdapterError>()
+                .unwrap()
+                .reason,
+            adapters::ErrorReason::InvalidOutput
+        );
+        assert_eq!(std::fs::read(portable).unwrap(), b"preserved portable");
+        assert_eq!(std::fs::read_link(include).unwrap(), Path::new("native.rs"));
+        assert!(!directory.path().join("native.rs").exists());
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
     }
 
     #[test]

@@ -1,0 +1,4 @@
+kind: Breaking changes
+body: |-
+    **Cleanup selection fails closed when it leaves a container behind.** A message that contains a `zeroize_in` message, directly or through other messages, must now be selected too, whether or not reflection is enabled; generation reports `ZeroizeConfigurationErrorReason::ContainingMessage` otherwise (with reflection on, `ReflectionParent` as before). An explicit `repeated_fields` or `map_fields` rule, including a prefix rule such as `.`, can no longer give a selected message a plain `Vec`, `HashMap` or `BTreeMap` (`CollectionRepresentation`). Both configurations let an ordinary collection move guarded messages as it grew and release the old allocation without wiping it. To migrate, add the containing messages to `zeroize_in`, and drop the collection rule for selected messages or add a later rule selecting `::buffa::sensitive::List<*>` or `::buffa::sensitive::Map` for their fields.
+time: 2026-11-17T12:00:00+01:00

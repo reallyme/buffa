@@ -3,11 +3,19 @@ use crate::bytes::{buf::Take, Buf, Bytes};
 
 /// A read-only window over exactly one validated length-delimited field.
 ///
-/// Buffa constructs this buffer after checking the field's length against the
-/// input. Overrides of [`super::ProtoBytes::decode_length_delimited`] and
-/// [`super::ProtoString::decode_length_delimited`] can use every [`Buf`] reader,
-/// but cannot widen the window or access the following field. Unread bytes are
-/// skipped by the caller when an override returns successfully.
+/// Buffa constructs this buffer after checking the field's length. Generated
+/// code decodes through [`super::decode_string_to_ctx`] and
+/// [`super::decode_bytes_to_ctx`], which check it against the end of the
+/// message that holds the field, so the window never extends into the
+/// following field or past the enclosing message, and a length that would is
+/// rejected before any override runs. The context-free
+/// [`super::decode_string_to`] and [`super::decode_bytes_to`] check it only
+/// against the bytes left in their input. Overrides of
+/// [`super::ProtoBytes::decode_length_delimited`] and
+/// [`super::ProtoString::decode_length_delimited`] can use every [`Buf`]
+/// reader, but cannot widen the window, even after a delegated decoder returns
+/// an error. Unread bytes are skipped by the caller
+/// when an override returns successfully.
 ///
 /// The underlying buffer and limit are deliberately private. A `Take` would
 /// expose both controls, making the field boundary depend on each override.

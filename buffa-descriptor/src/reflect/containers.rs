@@ -27,7 +27,7 @@
 //! for i32` included — because the compiler cannot prove `i32: !ReflectMessage`.
 //! So the closed set of element types (scalars, `&str`, `&[u8]`,
 //! [`EnumValue`](buffa::EnumValue)) gets concrete impls here, and the
-//! open-ended cases — message views and bare closed enums — get a one-line
+//! open-ended cases — message views and generated enums — get a one-line
 //! `impl ReflectElement` emitted by codegen (a foreign-trait-for-local-type
 //! impl, which the orphan rule permits in the consumer crate). That impl is per
 //! *type*, not per *field*: a message used in ten repeated fields gets one impl.
@@ -50,7 +50,8 @@ use super::value::{MapKey, MapKeyRef, ReflectList, ReflectMap, Value, ValueRef};
 /// [`Bytes`](buffa::bytes::Bytes) (owned storage), [`EnumValue`], and
 /// [`Value`](super::Value) (bridge storage). Codegen emits a one-line impl for
 /// each generated message type (view and owned, yielding [`ValueRef::Message`])
-/// and each bare closed enum (yielding [`ValueRef::EnumNumber`]) — these cannot
+/// and each generated enum (yielding [`ValueRef::EnumNumber`]; a field types an
+/// enum bare when it resolves the enum as closed) — these cannot
 /// be covered by a blanket impl without colliding with the scalar impls under
 /// Rust's coherence rules.
 ///
@@ -75,7 +76,7 @@ use super::value::{MapKey, MapKeyRef, ReflectList, ReflectMap, Value, ValueRef};
     diagnostic::on_unimplemented(
         message = "`{Self}` does not implement `ReflectElement`, which vtable-mode reflection requires on repeated-field and map-value element types",
         note = "if `{Self}` comes from another buffa-generated crate via an extern path (well-known types resolve to `buffa-types` by default), enable that crate's reflection feature, e.g. `buffa-types = {{ package = \"reallyme-buffa-types\", version = \"=0.1.3\", features = [\"reflect\"] }}`",
-        note = "if `{Self}` is a message generated in this crate, enable reflection in its `build.rs` config — either reflection mode emits this impl",
+        note = "if `{Self}` is a message or enum generated in this crate, enable reflection in its `build.rs` config — either reflection mode emits this impl",
         note = "if `{Self}` is a custom `string_type`/`bytes_type` used as a `repeated` element, it must be a crate-local type (e.g. a newtype) so codegen can emit `impl ReflectElement` for it"
     )
 )]

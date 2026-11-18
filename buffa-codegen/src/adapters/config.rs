@@ -167,18 +167,44 @@ pub struct FieldSource {
 
 /// Restricted representation of a payload field.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", deny_unknown_fields)]
+#[serde(from = "PayloadTypeJson")]
 pub enum PayloadType {
     /// Borrow the original bytes without copying or exposing `Debug` output.
     Bytes,
-    /// An explicitly validated native enum or value representing this field.
-    /// The generated Copy/Eq/Hash bounds also apply to owning payload enums.
+    /// An application-supplied representation of this descriptor field.
+    ///
+    /// The generator checks the descriptor shape, path syntax and generated
+    /// `Copy` bound. It cannot resolve Rust type identity or inspect an opaque
+    /// value's fields; the application must preserve the declared native-type,
+    /// validation and ownership invariants. `Copy` alone permits references.
+    /// The generated Eq/Hash/Debug bounds also apply to owning payload enums.
     Value {
         /// Fully-qualified descriptor enum or message represented by the type.
         source: String,
         /// Plain Rust path; generic arguments and reference syntax are rejected.
+        /// For an enum field, the terminal identifier must match a configured
+        /// selector's name for `source`; renamed aliases are not resolved.
         rust_type: String,
     },
+}
+
+// serde ignores `deny_unknown_fields` on internally tagged unit variants, so
+// the JSON forms use empty struct variants: a members-free kind then rejects
+// any member other than `kind`, as the protobuf option front end does.
+#[derive(Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum PayloadTypeJson {
+    Bytes {},
+    Value { source: String, rust_type: String },
+}
+
+impl From<PayloadTypeJson> for PayloadType {
+    fn from(value: PayloadTypeJson) -> Self {
+        match value {
+            PayloadTypeJson::Bytes {} => Self::Bytes,
+            PayloadTypeJson::Value { source, rust_type } => Self::Value { source, rust_type },
+        }
+    }
 }
 
 /// One payload field and its checked representation.
@@ -195,7 +221,7 @@ pub struct PayloadField {
 
 /// Shape of one native enum alternative.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "kind", deny_unknown_fields)]
+#[serde(from = "PayloadJson")]
 pub enum Payload {
     /// No payload.
     Unit,
@@ -205,6 +231,27 @@ pub enum Payload {
     Struct { fields: Vec<PayloadField> },
     /// A borrowed provider capability; never a portable field.
     Port { name: String },
+}
+
+// JSON form of `Payload`; see `PayloadTypeJson`.
+#[derive(Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum PayloadJson {
+    Unit {},
+    Tuple { field: PayloadField },
+    Struct { fields: Vec<PayloadField> },
+    Port { name: String },
+}
+
+impl From<PayloadJson> for Payload {
+    fn from(value: PayloadJson) -> Self {
+        match value {
+            PayloadJson::Unit {} => Self::Unit,
+            PayloadJson::Tuple { field } => Self::Tuple { field },
+            PayloadJson::Struct { fields } => Self::Struct { fields },
+            PayloadJson::Port { name } => Self::Port { name },
+        }
+    }
 }
 
 /// Native case covering one or more authoritative descriptor alternatives.

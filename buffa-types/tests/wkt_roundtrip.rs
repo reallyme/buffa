@@ -450,4 +450,31 @@ fn temporal_json_errors_omit_the_rejected_value() {
     let duration =
         serde_json::from_value::<wkt::Duration>(serde_json::json!("temporal-marker")).unwrap_err();
     assert_eq!(duration.to_string(), "invalid Duration string");
+
+    for path in ["marker_x", "Marker..x", "a,marker_secret", "marker-secret"] {
+        let field_mask =
+            serde_json::from_value::<wkt::FieldMask>(serde_json::json!(path)).unwrap_err();
+        assert_eq!(
+            field_mask.to_string(),
+            "invalid FieldMask path, expected comma-separated lowerCamelCase paths"
+        );
+    }
+
+    // Encoding a path with no JSON form also omits the path, for the owned
+    // message and its view.
+    let mask = wkt::FieldMask {
+        paths: vec!["marker_X".into()],
+        ..Default::default()
+    };
+    let expected = "invalid FieldMask path, it has no proto3 JSON representation";
+    assert_eq!(
+        serde_json::to_string(&mask).unwrap_err().to_string(),
+        expected
+    );
+    let bytes = mask.encode_to_vec();
+    let view = wkt_view::FieldMaskView::decode_view(&bytes).unwrap();
+    assert_eq!(
+        serde_json::to_string(&view).unwrap_err().to_string(),
+        expected
+    );
 }

@@ -46,7 +46,11 @@ pub struct Version {
     /// Field 4: `suffix`
     #[cfg_attr(
         feature = "json",
-        serde(rename = "suffix", skip_serializing_if = "::core::option::Option::is_none")
+        serde(
+            rename = "suffix",
+            with = "::buffa::json_helpers::opt_string",
+            skip_serializing_if = "::core::option::Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "json", serde(default))]
     pub suffix: ::core::option::Option<::buffa::alloc::string::String>,
@@ -325,8 +329,8 @@ pub struct CodeGeneratorRequest {
         serde(
             rename = "fileToGenerate",
             alias = "file_to_generate",
-            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec",
-            deserialize_with = "::buffa::json_helpers::null_as_default"
+            with = "::buffa::json_helpers::native_seq",
+            skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
     #[cfg_attr(feature = "json", serde(default))]
@@ -338,6 +342,7 @@ pub struct CodeGeneratorRequest {
         feature = "json",
         serde(
             rename = "parameter",
+            with = "::buffa::json_helpers::opt_string",
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
@@ -749,7 +754,11 @@ pub struct CodeGeneratorResponse {
     /// Field 1: `error`
     #[cfg_attr(
         feature = "json",
-        serde(rename = "error", skip_serializing_if = "::core::option::Option::is_none")
+        serde(
+            rename = "error",
+            with = "::buffa::json_helpers::opt_string",
+            skip_serializing_if = "::core::option::Option::is_none"
+        )
     )]
     #[cfg_attr(feature = "json", serde(default))]
     pub error: ::core::option::Option<::buffa::alloc::string::String>,
@@ -1246,6 +1255,7 @@ pub mod code_generator_response {
             feature = "json",
             serde(
                 rename = "name",
+                with = "::buffa::json_helpers::opt_string",
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
@@ -1295,6 +1305,7 @@ pub mod code_generator_response {
             serde(
                 rename = "insertionPoint",
                 alias = "insertion_point",
+                with = "::buffa::json_helpers::opt_string",
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
@@ -1307,6 +1318,7 @@ pub mod code_generator_response {
             feature = "json",
             serde(
                 rename = "content",
+                with = "::buffa::json_helpers::opt_string",
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
