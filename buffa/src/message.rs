@@ -211,7 +211,12 @@ impl<'a> DecodeContext<'a> {
     /// the enclosing message or of the buffer.
     #[inline]
     pub(crate) fn check_len(&self, remaining: usize, len: usize) -> Result<(), DecodeError> {
-        if len > remaining.saturating_sub(self.message_end) {
+        // A prefix may already have crossed the boundary. Saturation would
+        // turn that invalid state into a valid zero-length payload.
+        let available = remaining
+            .checked_sub(self.message_end)
+            .ok_or(DecodeError::UnexpectedEof)?;
+        if len > available {
             return Err(DecodeError::UnexpectedEof);
         }
         Ok(())

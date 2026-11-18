@@ -1319,30 +1319,31 @@ fn read_payload_len(buf: &mut impl Buf) -> Result<usize, DecodeError> {
     Ok(len)
 }
 
-/// Pass the next `len` bytes of `buf` to `f` as a [`WirePayload`], advancing
-/// `buf` past them. The caller guarantees `buf.remaining() >= len`.
+/// Pass the whole field bounded by `payload` to `f`, consuming it on success.
 ///
 /// When `prefer_owned` is false, the payload is `Borrowed` if the whole field
 /// is contiguous in the current chunk (zero-copy), and `Owned` otherwise. When
 /// it is true, the payload is always `Owned`. An `Owned` payload comes from
 /// [`Buf::copy_to_bytes`], which shares the allocation of a `Bytes` input. `f`
-/// returns an owned value, so its borrow of `buf` ends with the call.
+/// returns an owned value, so its borrow of `payload` ends with the call.
 ///
-/// On any error the `buf` cursor position is unspecified: a decode error aborts
-/// the whole decode, so the buffer is not left in a recoverable state.
+/// Consumption goes through the window even when conversion fails. A hook
+/// catching that error must never inherit a stale limit over the next field.
 #[inline]
-fn read_payload_of_len<R>(
-    buf: &mut impl Buf,
-    len: usize,
+fn read_bounded_payload<B: Buf, R>(
+    payload: &mut FieldPayload<B>,
     prefer_owned: bool,
     f: impl FnOnce(WirePayload<'_>) -> Result<R, DecodeError>,
 ) -> Result<R, DecodeError> {
-    let chunk = buf.chunk();
+    let len = payload.remaining();
+    let chunk = payload.inner.get_ref().chunk();
     if chunk.len() >= len && !prefer_owned {
         // Whole field is contiguous: hand over a borrowed payload carrying the
         // full remaining chunk (so `to_str` can take the slack-aware path).
         let r = f(WirePayload::borrowed_in(chunk, len))?;
-        buf.advance(len);
+        // On a borrowed conversion error the field remains unread. Advance
+        // through the window only after success, preserving that behavior.
+        payload.advance(len);
         Ok(r)
     } else {
         // The field spans chunks, or the caller prefers an owned payload. An
@@ -1351,26 +1352,13 @@ fn read_payload_of_len<R>(
         let bytes = if len == 0 {
             Bytes::new()
         } else {
-            buf.copy_to_bytes(len)
+            // Update the window before calling fallible representation code.
+            // Reading the underlying buffer directly would leave a stale
+            // limit exposing the next field if conversion returned an error.
+            payload.copy_to_bytes(len)
         };
         f(WirePayload::owned(bytes))
     }
-}
-
-/// Pass the whole of a field payload bounded by `payload` to `f`, consuming it.
-///
-/// Reads through the underlying buffer so that a borrowed payload keeps the
-/// surrounding chunk tail.
-#[inline]
-fn read_bounded_payload<B: Buf, R>(
-    payload: &mut FieldPayload<B>,
-    prefer_owned: bool,
-    f: impl FnOnce(WirePayload<'_>) -> Result<R, DecodeError>,
-) -> Result<R, DecodeError> {
-    let len = payload.remaining();
-    let r = read_payload_of_len(payload.inner.get_mut(), len, prefer_owned, f)?;
-    payload.inner.set_limit(0);
-    Ok(r)
 }
 
 /// Read a field's length prefix, then hand exactly that many bytes to
@@ -1388,7 +1376,11 @@ fn decode_length_delimited_with<T, B: Buf>(
 ) -> Result<T, DecodeError> {
     let len = read_payload_len(buf)?;
     // As `DecodeContext::check_len`.
-    if len > buf.remaining().saturating_sub(message_end) {
+    let available = buf
+        .remaining()
+        .checked_sub(message_end)
+        .ok_or(DecodeError::UnexpectedEof)?;
+    if len > available {
         return Err(DecodeError::UnexpectedEof);
     }
     let mut payload = FieldPayload::new(buf, len);
@@ -1576,8 +1568,9 @@ pub trait ProtoString:
     /// # Errors
     ///
     /// Returns the representation's error for a rejected payload. On error
-    /// the input position is unspecified: a decode error aborts the whole
-    /// decode.
+    /// the input position within the payload is unspecified, but its window
+    /// remains bounded to the same field. Propagating the error aborts the
+    /// enclosing decode.
     fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
         read_bounded_payload(payload, false, Self::from_wire)
     }
@@ -1938,8 +1931,9 @@ pub trait ProtoBytes:
     /// # Errors
     ///
     /// Returns the representation's error for a rejected payload. On error
-    /// the input position is unspecified: a decode error aborts the whole
-    /// decode.
+    /// the input position within the payload is unspecified, but its window
+    /// remains bounded to the same field. Propagating the error aborts the
+    /// enclosing decode.
     ///
     /// # Example
     ///

@@ -1274,6 +1274,11 @@ pub struct CodeGenConfig {
     /// unchanged. Outputs are separate [`GeneratedFileKind::Adapter`] files.
     pub adapters: Option<adapters::AdapterConfig>,
     /// Read typed adapter options from requested files. Disabled by default.
+    ///
+    /// Combined with [`Self::adapters`] when both are set, in which case the
+    /// schema options are optional. Without an explicit configuration, at
+    /// least one requested file must declare them
+    /// ([`adapters::ErrorReason::MissingSchemaAdapters`] otherwise).
     pub generate_adapters: bool,
     /// Generate recursive `Zeroize`, `ZeroizeOnDrop` and `Drop` for messages,
     /// oneofs and the owned storage of their views. Borrowed input is not wiped.
@@ -4263,14 +4268,22 @@ pub fn generate_with_diagnostics(
 
     let mut native_config = config.adapters.clone();
     if config.generate_adapters {
-        let mut from_schema = adapters::descriptor_options(file_descriptors, files_to_generate)?;
-        if let Some(explicit) = &mut native_config {
-            explicit.selectors.append(&mut from_schema.selectors);
-            explicit.payloads.append(&mut from_schema.payloads);
-            explicit.borrowed.append(&mut from_schema.borrowed);
-            explicit.ports.append(&mut from_schema.ports);
-        } else {
-            native_config = Some(from_schema);
+        // Schema options are optional when an explicit configuration exists.
+        let from_schema = adapters::descriptor_options(file_descriptors, files_to_generate)?;
+        native_config = match (from_schema, native_config) {
+            (Some(mut from_schema), Some(mut explicit)) => {
+                explicit.selectors.append(&mut from_schema.selectors);
+                explicit.payloads.append(&mut from_schema.payloads);
+                explicit.borrowed.append(&mut from_schema.borrowed);
+                explicit.ports.append(&mut from_schema.ports);
+                Some(explicit)
+            }
+            (from_schema, explicit) => from_schema.or(explicit),
+        };
+        if native_config.is_none() {
+            return Err(
+                adapters::AdapterError::from(adapters::ErrorReason::MissingSchemaAdapters).into(),
+            );
         }
     }
     if let Some(adapters) = &native_config {

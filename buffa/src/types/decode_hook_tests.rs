@@ -269,6 +269,145 @@ fn default_hook_propagates_from_wire_errors() {
     );
 }
 
+/// A second decoding strategy may reject without rejecting this representation.
+/// Recovering here must retain the same value as `from_wire`, including when
+/// the first strategy consumed the payload before it rejected it.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct RecoverDefault<const OWNED: bool, const PREFIX: bool>(Vec<u8>);
+
+impl<const O: bool, const P: bool> From<Vec<u8>> for RecoverDefault<O, P> {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+impl<const O: bool, const P: bool> core::ops::Deref for RecoverDefault<O, P> {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl<const O: bool, const P: bool> AsRef<[u8]> for RecoverDefault<O, P> {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl<const O: bool, const P: bool> ProtoBytes for RecoverDefault<O, P> {
+    fn from_wire(payload: WirePayload<'_>) -> Result<Self, DecodeError> {
+        Ok(Self(payload.as_slice().to_vec()))
+    }
+
+    fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
+        let mut value = Vec::new();
+        if P && payload.has_remaining() {
+            value.push(payload.get_u8());
+        }
+        match ViaDefault::<O>::decode_length_delimited(payload) {
+            Ok(decoded) => value.extend_from_slice(&decoded),
+            Err(error) => {
+                assert_eq!(error, DecodeError::Custom("rejected"));
+                assert_rejected_window(payload);
+                // Only the exact payload `bad` is rejected by ViaDefault.
+                // A borrowed rejection leaves it unread; an owned rejection
+                // has consumed it. A retry must preserve either state.
+                if payload.has_remaining() {
+                    assert_eq!(
+                        ViaDefault::<O>::decode_length_delimited(payload),
+                        Err(DecodeError::Custom("rejected"))
+                    );
+                } else {
+                    assert!(ViaDefault::<O>::decode_length_delimited(payload)?.is_empty());
+                }
+                assert_rejected_window(payload);
+                value.extend_from_slice(b"bad");
+            }
+        }
+        // Deliberately leave a borrowed rejection unread: the caller must
+        // skip exactly those bytes after this successful fallback.
+        Ok(Self(value))
+    }
+}
+
+fn assert_rejected_window(payload: &FieldPayload<impl Buf>) {
+    match payload.remaining() {
+        0 => assert!(payload.chunk().is_empty()),
+        3 => assert_eq!(payload.chunk(), b"bad"),
+        remaining => panic!("rejected field exposes {remaining} bytes"),
+    }
+    #[cfg(feature = "std")]
+    {
+        let mut slices = [std::io::IoSlice::new(&[]); 4];
+        let count = payload.chunks_vectored(&mut slices);
+        let visible: Vec<u8> = slices[..count]
+            .iter()
+            .flat_map(|slice| slice.iter().copied())
+            .collect();
+        assert_eq!(visible.as_slice(), payload.chunk());
+    }
+}
+
+#[test]
+fn recovering_hooks_keep_following_fields_and_frames_intact() {
+    fn check<const O: bool, const P: bool>() {
+        for contents in [b"bad".as_slice(), b"xbad", b"good", b""] {
+            let mut wire = vec![u8::try_from(contents.len()).unwrap()];
+            wire.extend_from_slice(contents);
+            wire.extend_from_slice(&[0x10, 7]);
+            for split in 0..=wire.len() {
+                let (head, tail) = wire.split_at(split);
+                let mut input = head.chain(tail);
+                let value = decode_bytes_to_ctx::<RecoverDefault<O, P>>(
+                    &mut input,
+                    crate::test_ctx(crate::RECURSION_LIMIT).with_message_end(2),
+                )
+                .unwrap();
+                assert_eq!(&*value, contents, "owned {O}, prefix {P}, split {split}");
+                assert_eq!(input.copy_to_bytes(input.remaining()).as_ref(), [0x10, 7]);
+            }
+        }
+    }
+    check::<false, false>();
+    check::<true, false>();
+    check::<false, true>();
+    check::<true, true>();
+}
+
+#[test]
+fn rejected_default_conversions_remain_bounded_when_the_error_is_propagated() {
+    let wire = [b'b', b'a', b'd', 0x10, 7];
+    for split in 0..=wire.len() {
+        for owned in [false, true] {
+            let (head, tail) = wire.split_at(split);
+            let mut input = head.chain(tail);
+            let mut payload = FieldPayload::new(&mut input, 3);
+            let result = if owned {
+                ViaDefault::<true>::decode_length_delimited(&mut payload).map(|_| ())
+            } else {
+                ViaDefault::<false>::decode_length_delimited(&mut payload).map(|_| ())
+            };
+            assert_eq!(result, Err(DecodeError::Custom("rejected")));
+            assert_rejected_window(&payload);
+            let unread = drain(&mut payload);
+            assert!(unread.is_empty() || unread == b"bad");
+            assert_eq!(input.copy_to_bytes(input.remaining()).as_ref(), [0x10, 7]);
+        }
+    }
+    // Invalid UTF-8 follows the same borrowed/fragmented default path for
+    // strings. Its error may move the cursor within the field, never beyond it.
+    let wire = [0xff, 0xff, 0xff, 0x10, 7];
+    for split in 0..=wire.len() {
+        let (head, tail) = wire.split_at(split);
+        let mut input = head.chain(tail);
+        let mut payload = FieldPayload::new(&mut input, 3);
+        assert_eq!(
+            String::decode_length_delimited(&mut payload),
+            Err(DecodeError::InvalidUtf8)
+        );
+        let unread = drain(&mut payload);
+        assert!(unread.is_empty() || unread == [0xff; 3]);
+        assert_eq!(input.copy_to_bytes(input.remaining()).as_ref(), [0x10, 7]);
+    }
+}
+
 /// A representation whose override must never run.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Unreachable<T>(T);
@@ -349,6 +488,44 @@ fn bounded_entry_points_stop_at_the_end_of_the_enclosing_message() {
                 Err(DecodeError::UnexpectedEof),
                 "split {split}, frame end {message_end}"
             );
+        }
+    }
+}
+
+#[test]
+fn a_length_prefix_cannot_cross_the_enclosing_message_even_when_it_decodes_to_zero() {
+    let ctx = crate::test_ctx(crate::RECURSION_LIMIT).with_message_end(1);
+    for wire in [b"\x00".as_slice(), b"\x80\x00"] {
+        for split in 0..=wire.len() {
+            let (head, tail) = wire.split_at(split);
+            assert_eq!(
+                decode_bytes_to_ctx::<Unreachable<Vec<u8>>>(&mut head.chain(tail), ctx),
+                Err(DecodeError::UnexpectedEof)
+            );
+            assert_eq!(
+                decode_string_to_ctx::<Unreachable<String>>(&mut head.chain(tail), ctx),
+                Err(DecodeError::UnexpectedEof)
+            );
+        }
+    }
+}
+
+#[test]
+fn empty_payloads_at_the_enclosing_end_keep_canonical_and_noncanonical_prefixes() {
+    let ctx = crate::test_ctx(crate::RECURSION_LIMIT).with_message_end(1);
+    for wire in [b"\x00\xff".as_slice(), b"\x80\x00\xff"] {
+        for split in 0..=wire.len() {
+            let (head, tail) = wire.split_at(split);
+            let mut input = head.chain(tail);
+            assert!(decode_bytes_to_ctx::<Override<Vec<u8>>>(&mut input, ctx)
+                .unwrap()
+                .is_empty());
+            assert_eq!(input.get_u8(), 0xff);
+            let mut input = head.chain(tail);
+            assert!(decode_string_to_ctx::<Override<String>>(&mut input, ctx)
+                .unwrap()
+                .is_empty());
+            assert_eq!(input.get_u8(), 0xff);
         }
     }
 }
@@ -438,5 +615,26 @@ fn merge_length_delimited_rejects_a_sub_message_past_the_enclosing_one() {
             "split {split}"
         );
         assert_eq!(leaf, Leaf::default(), "split {split}");
+    }
+}
+
+#[test]
+fn an_empty_sub_message_still_requires_its_length_prefix_within_the_enclosing_one() {
+    use crate::Message;
+    let ctx = crate::test_ctx(crate::RECURSION_LIMIT).with_message_end(1);
+    for split in 0..=2 {
+        let (head, tail) = b"\x80\x00".split_at(split);
+        assert_eq!(
+            Leaf::default().merge_length_delimited(&mut head.chain(tail), ctx),
+            Err(DecodeError::UnexpectedEof)
+        );
+    }
+    for split in 0..=3 {
+        let (head, tail) = b"\x80\x00\xff".split_at(split);
+        let mut input = head.chain(tail);
+        Leaf::default()
+            .merge_length_delimited(&mut input, ctx)
+            .unwrap();
+        assert_eq!(input.get_u8(), 0xff);
     }
 }

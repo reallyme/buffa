@@ -63,7 +63,10 @@ mod secret {
 
 mod generated {
     use super::secret::Secret;
-    use std::collections::{BTreeMap, HashMap};
+    // Match the runtime's map when std is disabled; the test executable's
+    // own std prelude does not change the runtime's feature selection.
+    use buffa::Map;
+    use std::collections::BTreeMap;
 
     #[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq)]
     pub struct Message {
@@ -75,9 +78,9 @@ mod generated {
         #[serde(with = "::buffa::json_helpers::map_bytes_policy", default)]
         pub by_name: BTreeMap<String, Secret>,
         #[serde(with = "::buffa::json_helpers::map_bytes_policy", default)]
-        pub by_id: HashMap<u32, Secret>,
+        pub by_id: Map<u32, Secret>,
         #[serde(with = "::buffa::json_helpers::map_bytes_policy_serde_key", default)]
-        pub by_tag: HashMap<Tag, Secret>,
+        pub by_tag: Map<Tag, Secret>,
     }
 
     /// A custom string key type without a JSON policy, also from another

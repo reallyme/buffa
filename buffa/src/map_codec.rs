@@ -1282,6 +1282,33 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_entry_cannot_read_its_length_prefix_from_the_following_frame() {
+        type K = ProtoStringMap<String>;
+        type V = ProtoStringMap<String>;
+        let limit = core::cell::Cell::new(crate::DEFAULT_UNKNOWN_FIELD_LIMIT);
+        let ctx = DecodeContext::new(crate::RECURSION_LIMIT, &limit).with_message_end(1);
+        for split in 0..=2 {
+            let (head, tail) = b"\x80\x00".split_at(split);
+            let mut map: Map<String, String> = Map::default();
+            assert_eq!(
+                merge_entry::<K, V, _>(&mut map, &mut head.chain(tail), ctx),
+                Err(DecodeError::UnexpectedEof)
+            );
+            assert!(map.is_empty());
+        }
+        // Omitting both key and value is a valid empty entry when its prefix
+        // is wholly inside the message, including a noncanonical zero varint.
+        for split in 0..=3 {
+            let (head, tail) = b"\x80\x00\xff".split_at(split);
+            let mut input = head.chain(tail);
+            let mut map: Map<String, String> = Map::default();
+            merge_entry::<K, V, _>(&mut map, &mut input, ctx).unwrap();
+            assert_eq!(map.get("").map(String::as_str), Some(""));
+            assert_eq!(input.get_u8(), 0xff);
+        }
+    }
+
+    #[test]
     fn buffered_entries_are_bounded_by_themselves() {
         // An entry that may turn out unknown is decoded from a copy of its
         // own bytes, so the end of the enclosing message recorded for the

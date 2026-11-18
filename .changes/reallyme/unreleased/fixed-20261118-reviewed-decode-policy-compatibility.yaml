@@ -1,0 +1,3 @@
+kind: Fixed
+body: Keep custom string and bytes decode windows bounded after a delegated conversion fails, so recovery cannot expose following fields. Reject length prefixes that cross the enclosing message boundary even for empty payloads, while retaining valid in-frame empty values and supported noncanonical prefixes. JSON policy container tests use the runtime-selected map type with default features disabled, preserving custom-list coverage.
+time: 2026-11-18T00:00:00Z

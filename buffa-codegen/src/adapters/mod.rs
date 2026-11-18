@@ -13,6 +13,8 @@ pub(crate) use options::descriptor_options;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorReason {
+    /// An adapter-specific plugin option has an invalid or repeated value.
+    InvalidPluginOption,
     /// JSON has unknown/duplicate members, invalid types or excessive nesting.
     InvalidManifest,
     /// The manifest version is not supported.
@@ -25,7 +27,8 @@ pub enum ErrorReason {
     InvalidIdentifier,
     /// A Rust path contains unsupported syntax.
     InvalidRustPath,
-    /// An output filename is not a bare `.rs` sibling.
+    /// An output filename is not a bare `.rs` sibling, or its destination
+    /// cannot be resolved safely.
     InvalidOutput,
     /// Two outputs have the same filename.
     DuplicateOutput,
@@ -59,6 +62,9 @@ pub enum ErrorReason {
     UnexpectedField,
     /// Generated tokens did not form a Rust file.
     InvalidSyntax,
+    /// Schema adapter options are enabled, but no requested file declares
+    /// them and no explicit configuration was supplied.
+    MissingSchemaAdapters,
 }
 
 /// Fixed adapter failure. Input names, paths and bytes are never retained.

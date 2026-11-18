@@ -17,10 +17,14 @@ macro_rules! known {
     };
 }
 
+/// Combine the `(buffa.ext.file).adapters` options of the requested files.
+///
+/// Returns `None` when no requested file declares them, so the caller can
+/// decide whether an explicit configuration makes them optional.
 pub(crate) fn descriptor_options(
     files: &[FileDescriptorProto],
     requested: &[String],
-) -> Result<AdapterConfig, AdapterError> {
+) -> Result<Option<AdapterConfig>, AdapterError> {
     let mut combined = AdapterConfig {
         version: 1,
         selectors: Vec::new(),
@@ -61,10 +65,7 @@ pub(crate) fn descriptor_options(
         combined.borrowed.extend(config.borrowed);
         combined.ports.extend(config.ports);
     }
-    if !found {
-        return Err(ErrorReason::MissingDescriptor.into());
-    }
-    Ok(combined)
+    Ok(found.then_some(combined))
 }
 
 impl TryFrom<&pb::NativeAdapters> for AdapterConfig {

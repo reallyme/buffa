@@ -13,7 +13,8 @@ use crate::bytes::{buf::Take, Buf, Bytes};
 /// against the bytes left in their input. Overrides of
 /// [`super::ProtoBytes::decode_length_delimited`] and
 /// [`super::ProtoString::decode_length_delimited`] can use every [`Buf`]
-/// reader, but cannot widen the window. Unread bytes are skipped by the caller
+/// reader, but cannot widen the window, even after a delegated decoder returns
+/// an error. Unread bytes are skipped by the caller
 /// when an override returns successfully.
 ///
 /// The underlying buffer and limit are deliberately private. A `Take` would

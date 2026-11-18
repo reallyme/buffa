@@ -596,7 +596,7 @@ Passed to the local codegen plugin via `opt:`:
 | Option | Description |
 |--------|-------------|
 | `views=true` | Generate zero-copy view types (default: true) |
-| `adapters=true` | Generate standalone native adapters from typed protobuf options (default: false); see [Native adapters](native-adapters.md) |
+| `adapters=true` | Generate standalone native adapters from typed protobuf options (default: false); without `adapter_manifest`, a requested file must declare them; see [Native adapters](native-adapters.md) |
 | `adapter_manifest=<path>` | Read a bounded typed adapter manifest; output stays outside the portable module tree |
 | `json=true` | Generate serde Serialize/Deserialize for proto3 JSON |
 | `deny_view_json=<path>` | Reject JSON serialization of selected eager, lazy and owned views, propagating through containing messages. Repeatable message prefixes; `.` selects all. Owned-message JSON is unchanged |

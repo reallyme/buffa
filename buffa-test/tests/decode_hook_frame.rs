@@ -220,3 +220,58 @@ fn every_field_shape_still_decodes_inside_a_nested_message() {
     assert!(input.is_empty());
     take_windows();
 }
+
+#[test]
+fn incomplete_prefixes_do_not_invoke_hooks_after_the_nested_message_ends() {
+    // Each inner message ends during its field's length prefix. The following
+    // byte completes it as zero, but belongs to the enclosing input instead.
+    for tag in [0x0a, 0x12, 0x1a, 0x2a, 0x32, 0x3a] {
+        for inner in [vec![tag], vec![tag, 0x80]] {
+            let mut wire = ld(1, &inner);
+            wire.push(0);
+            for split in 0..=wire.len() {
+                let (head, tail) = wire.split_at(split);
+                take_windows();
+                assert_eq!(
+                    Outer::decode(&mut head.chain(tail)),
+                    Err(DecodeError::UnexpectedEof)
+                );
+                assert!(take_windows().is_empty(), "tag {tag}, split {split}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_truncated_prefix_cannot_be_completed_by_the_next_stream_frame() {
+    for tag in [0x0a, 0x12] {
+        let wire = [2, tag, 0x80, 0];
+        for split in 0..=wire.len() {
+            let (head, tail) = wire.split_at(split);
+            take_windows();
+            assert_eq!(
+                DecodeOptions::new().decode_length_delimited::<Inner>(&mut head.chain(tail)),
+                Err(DecodeError::UnexpectedEof)
+            );
+            assert!(take_windows().is_empty(), "tag {tag}, split {split}");
+        }
+        // The same noncanonical zero prefix is valid when both bytes belong
+        // to this frame. The following empty frame must remain untouched.
+        let wire = [3, tag, 0x80, 0, 0];
+        for split in 0..=wire.len() {
+            let (head, tail) = wire.split_at(split);
+            let mut input = head.chain(tail);
+            take_windows();
+            DecodeOptions::new()
+                .decode_length_delimited::<Inner>(&mut input)
+                .unwrap();
+            assert_eq!(take_windows(), vec![Vec::<u8>::new()]);
+            assert_eq!(input.remaining(), 1);
+            DecodeOptions::new()
+                .decode_length_delimited::<Inner>(&mut input)
+                .unwrap();
+            assert!(!input.has_remaining());
+            assert!(take_windows().is_empty());
+        }
+    }
+}

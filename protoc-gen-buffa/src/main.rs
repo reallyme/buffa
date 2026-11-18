@@ -51,7 +51,8 @@ The proto side of extern_path is a dotted protobuf package or type name
 is an error.
 
 To emit native adapters from typed protobuf options, pass adapters=true.
-Alternatively, adapter_manifest=path reads a bounded typed JSON manifest.
+Additionally or instead, adapter_manifest=path reads a bounded typed JSON
+manifest; with a manifest, files without adapter options are allowed.
 Native adapter files are included explicitly by their API owner.
 
 To reject JSON serialization of a message's views and containing views while
@@ -201,10 +202,16 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             .split_once('=')
             .ok_or_else(|| format!("plugin option '{param}' must use key=value syntax"))?;
         match key.trim() {
-            "adapters" => codegen.generate_adapters = parse_bool("adapters", value)?,
+            "adapters" => {
+                codegen.generate_adapters =
+                    parse_adapter_bool(value).map_err(|error| error.to_string())?;
+            }
             "adapter_manifest" => {
                 if codegen.adapters.is_some() {
-                    return Err("adapter_manifest may only be specified once".into());
+                    return Err(buffa_codegen::adapters::AdapterError::from(
+                        buffa_codegen::adapters::ErrorReason::InvalidPluginOption,
+                    )
+                    .to_string());
                 }
                 codegen.adapters = Some(buffa_codegen::adapters::AdapterConfig::read_json(value)
                     .map_err(|error| error.to_string())?);
@@ -590,6 +597,16 @@ fn parse_codec_strategy(value: &str) -> Result<CodecStrategy, String> {
     }
 }
 
+// Adapter diagnostics must not format rejected values even transiently. Other
+// plugin options retain their existing diagnostics through parse_bool below.
+fn parse_adapter_bool(value: &str) -> Result<bool, buffa_codegen::adapters::AdapterError> {
+    match value.trim() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(buffa_codegen::adapters::ErrorReason::InvalidPluginOption.into()),
+    }
+}
+
 fn parse_bool(key: &str, value: &str) -> Result<bool, String> {
     match value.trim() {
         "true" => Ok(true),
@@ -704,7 +721,32 @@ mod tests {
                 .codegen
                 .generate_adapters
         );
-        assert!(parse_err("adapters=invalid").contains("adapters"));
+        assert!(
+            parse_config("adapters= true ")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+    }
+
+    #[test]
+    fn native_adapter_option_errors_never_echo_values() {
+        for value in ["invalid", "private-token", "", "1", "TRUE"] {
+            let error = parse_err(&format!("adapters={value}"));
+            assert_eq!(error, "adapter generation failed: InvalidPluginOption");
+        }
+    }
+
+    #[test]
+    fn native_manifest_duplicates_have_a_fixed_typed_reason() {
+        let manifest = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/empty_adapters.json"
+        );
+        let error = parse_err(&format!(
+            "adapter_manifest={manifest},adapter_manifest=private-path"
+        ));
+        assert_eq!(error, "adapter generation failed: InvalidPluginOption");
     }
 
     #[test]
