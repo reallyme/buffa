@@ -149,6 +149,7 @@ pub(crate) fn generate_lazy_view_with_nesting(
         msg,
         preserve_unknown_fields,
         features,
+        ctx.zeroizes_message(proto_fqn),
         &oneof_idents,
         &view_oneof_prefix,
         Some(&is_lazy),

@@ -1090,6 +1090,56 @@ fn streaming_enum_collections_reject_null_elements() {
     );
 }
 
+#[cfg(feature = "std")]
+#[test]
+fn streaming_closed_enum_null_marker_requires_a_known_zero() {
+    // Handwritten enums can claim the NullValue marker without declaring zero.
+    // Lenient parsing must not turn that inconsistent marker into a lost element.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    struct MissingZero;
+    impl crate::Enumeration for MissingZero {
+        const IS_NULL_VALUE: bool = true;
+        fn from_i32(value: i32) -> Option<Self> {
+            (value == 1).then_some(Self)
+        }
+        fn to_i32(&self) -> i32 {
+            1
+        }
+        fn proto_name(&self) -> &'static str {
+            "ONE"
+        }
+        fn from_proto_name(value: &str) -> Option<Self> {
+            (value == "ONE").then_some(Self)
+        }
+    }
+
+    for ignore_unknown in [false, true] {
+        let options =
+            crate::json::JsonParseOptions::new().ignore_unknown_enum_values(ignore_unknown);
+        crate::json::with_json_parse_options(&options, || {
+            for source in ["[null]", "[1,null]"] {
+                let ordinary: Result<Vec<MissingZero>, _> = repeated_closed_enum::deserialize(
+                    &mut serde_json::Deserializer::from_str(source),
+                );
+                let streaming: Result<Vec<MissingZero>, _> =
+                    enum_list::closed::deserialize(&mut serde_json::Deserializer::from_str(source));
+                assert!(ordinary.is_err());
+                assert!(streaming.is_err());
+            }
+            for source in ["null", "[]", "[1]"] {
+                let ordinary: Vec<MissingZero> = repeated_closed_enum::deserialize(
+                    &mut serde_json::Deserializer::from_str(source),
+                )
+                .unwrap();
+                let streaming: Vec<MissingZero> =
+                    enum_list::closed::deserialize(&mut serde_json::Deserializer::from_str(source))
+                        .unwrap();
+                assert_eq!(ordinary, streaming);
+            }
+        });
+    }
+}
+
 #[test]
 fn map_enum_deserializes_known_values() {
     let json = r#"{"a":"RED","b":"GREEN"}"#;

@@ -459,7 +459,7 @@ impl Value {
     #[must_use]
     pub fn with_kind(mut self, value: __buffa::oneof::value::Kind) -> Self {
         ::buffa::sensitive::Zeroize::zeroize(&mut self.kind);
-        self.kind = Some(value);
+        self.kind = ::core::option::Option::Some(value);
         self
     }
 }

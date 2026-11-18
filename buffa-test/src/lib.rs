@@ -1544,3 +1544,10 @@ pub mod cleanup_json_hygiene {
     pub struct Err;
     pub struct Some;
 }
+
+/// Consumer helpers must not capture cleanup oneof setter constructors.
+#[allow(clippy::derivable_impls)]
+pub mod cleanup_setter_hygiene {
+    buffa::include_proto!("cleanup_setter_hygiene");
+    pub struct Some;
+}

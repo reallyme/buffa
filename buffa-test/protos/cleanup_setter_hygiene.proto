@@ -1,0 +1,8 @@
+syntax = "proto3";
+package cleanup_setter_hygiene;
+message Record {
+  oneof selection {
+    uint32 number = 1;
+  }
+  optional uint32 optional_number = 2;
+}

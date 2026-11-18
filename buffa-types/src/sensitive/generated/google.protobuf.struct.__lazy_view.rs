@@ -495,7 +495,7 @@ impl<'a> ValueLazyView<'a> {
                         tag,
                         ::buffa::encoding::WireType::Varint,
                     )?;
-                    view.kind = Some(
+                    view.kind = ::core::option::Option::Some(
                         super::super::__buffa::view::oneof::value::Kind::NullValue(
                             ::buffa::EnumValue::from(
                                 ::buffa::types::decode_int32(&mut cur)?,
@@ -508,7 +508,7 @@ impl<'a> ValueLazyView<'a> {
                         tag,
                         ::buffa::encoding::WireType::Fixed64,
                     )?;
-                    view.kind = Some(
+                    view.kind = ::core::option::Option::Some(
                         super::super::__buffa::view::oneof::value::Kind::NumberValue(
                             ::buffa::types::decode_double(&mut cur)?,
                         ),
@@ -519,7 +519,7 @@ impl<'a> ValueLazyView<'a> {
                         tag,
                         ::buffa::encoding::WireType::LengthDelimited,
                     )?;
-                    view.kind = Some(
+                    view.kind = ::core::option::Option::Some(
                         super::super::__buffa::view::oneof::value::Kind::StringValue(
                             ::buffa::types::borrow_str(&mut cur)?,
                         ),
@@ -530,7 +530,7 @@ impl<'a> ValueLazyView<'a> {
                         tag,
                         ::buffa::encoding::WireType::Varint,
                     )?;
-                    view.kind = Some(
+                    view.kind = ::core::option::Option::Some(
                         super::super::__buffa::view::oneof::value::Kind::BoolValue(
                             ::buffa::types::decode_bool(&mut cur)?,
                         ),
@@ -543,7 +543,7 @@ impl<'a> ValueLazyView<'a> {
                     )?;
                     let __sub_ctx = ctx.descend()?;
                     let sub = ::buffa::types::borrow_bytes(&mut cur)?;
-                    if let Some(
+                    if let ::core::option::Option::Some(
                         super::super::__buffa::view::oneof::value::Kind::StructValue(
                             ref mut existing,
                         ),
@@ -555,7 +555,7 @@ impl<'a> ValueLazyView<'a> {
                             __sub_ctx,
                         )?;
                     } else {
-                        view.kind = Some(
+                        view.kind = ::core::option::Option::Some(
                             super::super::__buffa::view::oneof::value::Kind::StructValue(
                                 ::buffa::alloc::boxed::Box::new(
                                     <super::super::__buffa::view::StructView as ::buffa::MessageView>::decode_view_ctx(
@@ -574,7 +574,7 @@ impl<'a> ValueLazyView<'a> {
                     )?;
                     let __sub_ctx = ctx.descend()?;
                     let sub = ::buffa::types::borrow_bytes(&mut cur)?;
-                    if let Some(
+                    if let ::core::option::Option::Some(
                         super::super::__buffa::view::oneof::value::Kind::ListValue(
                             ref mut existing,
                         ),
@@ -586,7 +586,7 @@ impl<'a> ValueLazyView<'a> {
                             __sub_ctx,
                         )?;
                     } else {
-                        view.kind = Some(
+                        view.kind = ::core::option::Option::Some(
                             super::super::__buffa::view::oneof::value::Kind::ListValue(
                                 ::buffa::alloc::boxed::Box::new(
                                     <super::super::__buffa::view::ListValueView as ::buffa::MessageView>::decode_view_ctx(

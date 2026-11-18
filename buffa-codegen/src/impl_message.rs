@@ -431,8 +431,18 @@ pub fn generate_message_impl(
     for kind in per_field {
         match kind {
             FieldKind::Scalar(f) => {
-                compute_stmts.push(scalar_compute_size_stmt(ctx, f, features)?);
-                write_stmts.push(scalar_write_to_stmt(ctx, f, features)?);
+                compute_stmts.push(scalar_compute_size_stmt(
+                    ctx,
+                    f,
+                    features,
+                    ctx.zeroizes_message(proto_fqn),
+                )?);
+                write_stmts.push(scalar_write_to_stmt(
+                    ctx,
+                    f,
+                    features,
+                    ctx.zeroizes_message(proto_fqn),
+                )?);
                 merge_arms.push(scalar_merge_arm(
                     ctx,
                     f,
@@ -812,6 +822,7 @@ pub(crate) fn build_view_encode_methods(
     msg: &DescriptorProto,
     preserve_unknown_fields: bool,
     features: &ResolvedFeatures,
+    cleanup: bool,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
     view_oneof_prefix: &TokenStream,
     is_lazy: Option<&dyn Fn(&FieldDescriptorProto) -> bool>,
@@ -841,8 +852,8 @@ pub(crate) fn build_view_encode_methods(
                 write_stmts.push(write);
             }
             FieldKind::Scalar(f) => {
-                compute_stmts.push(scalar_compute_size_stmt(ctx, f, features)?);
-                write_stmts.push(scalar_write_to_stmt(ctx, f, features)?);
+                compute_stmts.push(scalar_compute_size_stmt(ctx, f, features, cleanup)?);
+                write_stmts.push(scalar_write_to_stmt(ctx, f, features, cleanup)?);
             }
             FieldKind::Repeated(f) => {
                 // The view's repeated fields are always borrowed `RepeatedView`s,
@@ -1598,6 +1609,7 @@ fn scalar_compute_size_stmt(
     ctx: &CodeGenContext,
     field: &FieldDescriptorProto,
     features: &ResolvedFeatures,
+    cleanup: bool,
 ) -> Result<TokenStream, CodeGenError> {
     let field_name = field
         .name
@@ -1615,19 +1627,26 @@ fn scalar_compute_size_stmt(
     // Explicit-presence field (proto3 `optional` or proto2 `optional`): encoded as
     // Option<T>; always encode when Some regardless of the field value.
     if is_explicit_presence_scalar(field, ty, features) {
+        // Cleanup adds constructors in the consumer's module; its binary
+        // codec must use the same unambiguous Option path as its setters.
+        let some = if cleanup {
+            quote! { ::core::option::Option::Some }
+        } else {
+            quote! { Some }
+        };
         return match ty {
             Type::TYPE_STRING => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     size += #tag_len + ::buffa::types::string_encoded_len(v) as u64;
                 }
             }),
             Type::TYPE_BYTES => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     size += #tag_len + ::buffa::types::bytes_encoded_len(v) as u64;
                 }
             }),
             Type::TYPE_ENUM => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     size += #tag_len + ::buffa::types::int32_encoded_len(v.to_i32()) as u64;
                 }
             }),
@@ -1654,7 +1673,7 @@ fn scalar_compute_size_stmt(
                     })
                 } else {
                     Ok(quote! {
-                        if let Some(v) = self.#ident {
+                        if let #some(v) = self.#ident {
                             size += #tag_len + #size_expr;
                         }
                     })
@@ -1753,6 +1772,7 @@ fn scalar_write_to_stmt(
     ctx: &CodeGenContext,
     field: &FieldDescriptorProto,
     features: &ResolvedFeatures,
+    cleanup: bool,
 ) -> Result<TokenStream, CodeGenError> {
     let field_name = field
         .name
@@ -1765,26 +1785,31 @@ fn scalar_write_to_stmt(
 
     // Explicit-presence field: encoded as Option<T>; always encode when Some.
     if is_explicit_presence_scalar(field, ty, features) {
+        let some = if cleanup {
+            quote! { ::core::option::Option::Some }
+        } else {
+            quote! { Some }
+        };
         return match ty {
             Type::TYPE_STRING => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     ::buffa::types::put_string_field(#field_number, v, buf);
                 }
             }),
             Type::TYPE_BYTES => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     ::buffa::types::put_shared_bytes_field(#field_number, v, buf);
                 }
             }),
             Type::TYPE_ENUM => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     ::buffa::types::put_int32_field(#field_number, v.to_i32(), buf);
                 }
             }),
             _ => {
                 let put_fn = put_field_fn_token(ty);
                 Ok(quote! {
-                    if let Some(v) = self.#ident {
+                    if let #some(v) = self.#ident {
                         #put_fn(#field_number, v, buf);
                     }
                 })

@@ -234,7 +234,11 @@ fn generate_message_with_nesting(
                 quote! { value }
             };
             let body = if s.wrap_optional {
-                quote! {Some(#value)}
+                if ctx.zeroizes_message(proto_fqn) {
+                    quote! { ::core::option::Option::Some(#value) }
+                } else {
+                    quote! { Some(#value) }
+                }
             } else {
                 value
             };
@@ -899,7 +903,7 @@ fn generate_message_with_nesting(
                 #[must_use]
                 pub fn #setter(mut self,value:#oneof_prefix #enum_ident)->Self {
                     ::buffa::sensitive::Zeroize::zeroize(&mut self.#field);
-                    self.#field=Some(value);
+                    self.#field = ::core::option::Option::Some(value);
                     self
                 }
             });

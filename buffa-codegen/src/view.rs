@@ -217,6 +217,7 @@ pub(crate) fn generate_view_with_nesting(
         msg,
         preserve_unknown_fields,
         features,
+        ctx.zeroizes_message(proto_fqn),
         &oneof_idents,
         &view_oneof_prefix,
         None,
@@ -1512,6 +1513,11 @@ pub(crate) fn scalar_decode_arm(
         ..
     } = scope;
     let preserve_unknown_fields = scope.preserve_unknown_fields();
+    let some = if ctx.zeroizes_message(scope.proto_fqn) {
+        quote! { ::core::option::Option::Some }
+    } else {
+        quote! { Some }
+    };
     let features = &crate::features::resolve_field(ctx, field, parent_features);
     let field_name = field
         .name
@@ -1527,28 +1533,28 @@ pub(crate) fn scalar_decode_arm(
     if is_explicit_presence_scalar(field, ty, features) {
         let assign = match ty {
             Type::TYPE_STRING => {
-                quote! { view.#ident = Some(::buffa::types::borrow_str(&mut cur)?); }
+                quote! { view.#ident = #some(::buffa::types::borrow_str(&mut cur)?); }
             }
             Type::TYPE_BYTES => {
-                quote! { view.#ident = Some(::buffa::types::borrow_bytes(&mut cur)?); }
+                quote! { view.#ident = #some(::buffa::types::borrow_bytes(&mut cur)?); }
             }
             Type::TYPE_ENUM => {
                 if is_closed_enum(features) {
                     let unknown_route = closed_enum_view_unknown_route(preserve_unknown_fields);
                     closed_enum_decode_with_unknown(
                         &quote! { &mut cur },
-                        quote! { view.#ident = Some(__v); },
+                        quote! { view.#ident = #some(__v); },
                         unknown_route,
                     )
                 } else {
                     quote! {
-                        view.#ident = Some(::buffa::EnumValue::from(::buffa::types::decode_int32(&mut cur)?));
+                        view.#ident = #some(::buffa::EnumValue::from(::buffa::types::decode_int32(&mut cur)?));
                     }
                 }
             }
             _ => {
                 let dfn = decode_fn_token(ty);
-                quote! { view.#ident = Some(#dfn(&mut cur)?); }
+                quote! { view.#ident = #some(#dfn(&mut cur)?); }
             }
         };
         return Ok(quote! { #field_number => { #wire_check #assign } });
@@ -1582,7 +1588,7 @@ pub(crate) fn scalar_decode_arm(
                 // Proto merge semantics: if this field appeared before,
                 // merge the new bytes into the existing view.
                 match view.#ident.as_mut() {
-                    Some(existing) => {
+                    #some(existing) => {
                         ::buffa::MessageView::merge_into_view(existing, sub, __sub_ctx)?
                     }
                     None => view.#ident = ::buffa::MessageFieldView::set(
@@ -1597,7 +1603,7 @@ pub(crate) fn scalar_decode_arm(
                 let __sub_ctx = ctx.descend()?;
                 let sub = ::buffa::types::borrow_group(&mut cur, #field_number, __sub_ctx.depth())?;
                 match view.#ident.as_mut() {
-                    Some(existing) => {
+                    #some(existing) => {
                         ::buffa::MessageView::merge_into_view(existing, sub, __sub_ctx)?
                     }
                     None => view.#ident = ::buffa::MessageFieldView::set(
@@ -2024,6 +2030,11 @@ pub(crate) fn oneof_decode_arms(
 ) -> Result<Vec<TokenStream>, CodeGenError> {
     let MessageScope { ctx, features, .. } = scope;
     let preserve_unknown_fields = scope.preserve_unknown_fields();
+    let some = if ctx.zeroizes_message(scope.proto_fqn) {
+        quote! { ::core::option::Option::Some }
+    } else {
+        quote! { Some }
+    };
     let field_ident = ctx.oneof_ident(oneof_name);
     let view_enum: TokenStream = quote! { #view_oneof_prefix #base_ident };
 
@@ -2055,14 +2066,14 @@ pub(crate) fn oneof_decode_arms(
                             #wire_check
                             let __sub_ctx = ctx.descend()?;
                             let sub = ::buffa::types::borrow_bytes(&mut cur)?;
-                            if let Some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
+                            if let #some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
                                 ::buffa::MessageView::merge_into_view(
                                     &mut **existing,
                                     sub,
                                     __sub_ctx,
                                 )?;
                             } else {
-                                view.#field_ident = Some(#view_enum::#variant(
+                                view.#field_ident = #some(#view_enum::#variant(
                                     ::buffa::alloc::boxed::Box::new(
                                         <#vt as ::buffa::MessageView>::decode_view_ctx(sub, __sub_ctx)?
                                     )
@@ -2078,14 +2089,14 @@ pub(crate) fn oneof_decode_arms(
                             #wire_check
                             let __sub_ctx = ctx.descend()?;
                             let sub = ::buffa::types::borrow_group(&mut cur, #field_number, __sub_ctx.depth())?;
-                            if let Some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
+                            if let #some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
                                 ::buffa::MessageView::merge_into_view(
                                     &mut **existing,
                                     sub,
                                     __sub_ctx,
                                 )?;
                             } else {
-                                view.#field_ident = Some(#view_enum::#variant(
+                                view.#field_ident = #some(#view_enum::#variant(
                                     ::buffa::alloc::boxed::Box::new(
                                         <#vt as ::buffa::MessageView>::decode_view_ctx(sub, __sub_ctx)?
                                     )
@@ -2100,7 +2111,7 @@ pub(crate) fn oneof_decode_arms(
                             closed_enum_view_unknown_route(preserve_unknown_fields);
                         let decode = closed_enum_decode_with_unknown(
                             &quote! { &mut cur },
-                            quote! { view.#field_ident = Some(#view_enum::#variant(__v)); },
+                            quote! { view.#field_ident = #some(#view_enum::#variant(__v)); },
                             unknown_route,
                         );
                         return Ok(quote! {
@@ -2121,7 +2132,7 @@ pub(crate) fn oneof_decode_arms(
             Ok(quote! {
                 #field_number => {
                     #wire_check
-                    view.#field_ident = Some(#view_enum::#variant(#value));
+                    view.#field_ident = #some(#view_enum::#variant(#value));
                 }
             })
         })

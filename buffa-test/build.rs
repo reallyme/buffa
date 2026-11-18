@@ -254,6 +254,7 @@ fn rustc_minor() -> u32 {
 fn main() {
     compile_cleanup_hygiene();
     compile_cleanup_json_hygiene();
+    compile_cleanup_setter_hygiene();
     // Compile ordinary vtable collections over an enum-local CLOSED override,
     // independently of the guarded inspection path.
     buffa_build::Config::new()
@@ -1825,4 +1826,20 @@ fn compile_cleanup_json_hygiene() {
         .deny_unknown_json_fields(true)
         .compile()
         .expect("cleanup JSON hygiene fixture generation failed");
+}
+
+fn compile_cleanup_setter_hygiene() {
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_setter_hygiene.proto"])
+        .includes(&["protos/"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .generate_with_setters(true)
+        .lazy_views(true)
+        .generate_reflection(false)
+        .generate_json(false)
+        .generate_text(false)
+        .generate_arbitrary(false)
+        .compile()
+        .expect("cleanup setter hygiene fixture generation failed");
 }

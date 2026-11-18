@@ -101,6 +101,11 @@ impl<'de, E: crate::Enumeration> DeserializeSeed<'de> for EnumSeed<E> {
             }
             fn visit_unit<Error: serde::de::Error>(self) -> Result<Self::Value, Error> {
                 match self.0.null_policy {
+                    // A handwritten NullValue marker must actually declare zero.
+                    // Lenient parsing cannot silently discard an invalid marker.
+                    NullPolicy::Zero if self.0.closed => E::from_i32(0)
+                        .map(|value| Some(crate::EnumValue::Known(value)))
+                        .ok_or_else(|| Error::custom(ErrorReason::Unknown)),
                     NullPolicy::Zero => Ok(Some(crate::EnumValue::from(0))),
                     #[cfg(feature = "zeroize")]
                     NullPolicy::Absent => Ok(None),
