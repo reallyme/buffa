@@ -327,10 +327,19 @@ fn wipe_owning_collection(
 
 /// Whether a custom collection template names the standard `Vec` itself.
 fn names_std_vec(template: &str) -> bool {
-    let Ok(syn::Type::Path(path)) = syn::parse_str::<syn::Type>(&template.replace('*', "()"))
+    // Validation and emission must agree on equivalent type syntax. Otherwise
+    // parentheses or raw identifiers can disguise a standard Vec, whose
+    // cleanup traits do not protect allocations released during growth.
+    let Ok(syn::Type::Path(path)) =
+        crate::context::normalized_rust_type(&template.replace('*', "()"))
     else {
         return false;
     };
+    // Associated types are opaque without the consumer's type checker, just
+    // like aliases; their storage contract remains the defining crate's duty.
+    if path.qself.is_some() {
+        return false;
+    }
     let names: Vec<String> = path
         .path
         .segments
@@ -344,6 +353,12 @@ fn names_std_vec(template: &str) -> bool {
             | ["vec", "Vec"]
             | ["std" | "alloc", "vec", "Vec"]
             | ["buffa", "alloc", "vec", "Vec"]
+            | [
+                "std",
+                "prelude",
+                "v1" | "rust_2015" | "rust_2018" | "rust_2021" | "rust_2024",
+                "Vec"
+            ]
     )
 }
 

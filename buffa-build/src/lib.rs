@@ -1378,9 +1378,10 @@ impl Config {
     /// - A `Custom` rule **does** apply to `map<K, bytes>` values (honored like
     ///   the built-in [`BytesRepr::Bytes`]); only the `map<bytes, bytes>`
     ///   carve-out keeps `Vec<u8>` values.
-    /// - A `path` that is not a plain type path like `crate::Name` (for
+    /// - A `path` that is not a Rust type path like `crate::Name` (for
     ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
-    ///   from [`compile`](Self::compile).
+    ///   from [`compile`](Self::compile). Associated-type projections and
+    ///   parenthesized type paths are supported.
     /// - A custom bytes type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`).
     #[must_use]
@@ -1531,9 +1532,10 @@ impl Config {
     ///   JSON goes through its policy in every generated JSON position.
     /// - A custom type used as a `map` key must implement `Hash + Eq` for the
     ///   default `HashMap` container, or `Ord` for `BTreeMap`.
-    /// - A `path` that is not a plain type path like `crate::Name` (for
+    /// - A `path` that is not a Rust type path like `crate::Name` (for
     ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
-    ///   from [`compile`](Self::compile).
+    ///   from [`compile`](Self::compile). Associated-type projections and
+    ///   parenthesized type paths are supported.
     /// - A custom string type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`, as a `map` key
     ///   or value too).
@@ -1926,9 +1928,11 @@ impl Config {
     /// For [`RepeatedRepr::Custom`], the collection must implement
     /// `buffa::ProtoList<T>`. Unlike the scalar `string_type_custom` /
     /// `bytes_type_custom` knobs (which take a *complete* type path), this path
-    /// is a **template** with a `*` placeholder for the element type, and it must
-    /// name a **crate-local newtype** (a foreign collection cannot implement the
-    /// buffa-owned `ProtoList`).
+    /// is a **template** with a `*` placeholder for the element type. Existing
+    /// `ProtoList` implementations work through aliases and associated types.
+    /// If the defining crate provides no implementation, use a crate-local
+    /// newtype to satisfy the orphan rule. See [`RepeatedRepr::Custom`] for
+    /// the bounds required by JSON, reflection and arbitrary generation.
     ///
     /// Only the owned collection changes: the wire format is unchanged and view
     /// types still borrow `&[T]`.
@@ -1979,15 +1983,18 @@ impl Config {
     /// - The template must contain at least one `*`; a template that omits it,
     ///   or whose substitution is not a Rust type path, is reported as a
     ///   codegen error from [`compile`](Self::compile).
-    /// - The template must name a **crate-local newtype** — a foreign collection
-    ///   cannot implement the buffa-owned `ProtoList` (orphan rule). This applies
-    ///   to *every* build, not just reflection: the generated decode and clear
-    ///   code require `Field: ProtoList`.
-    /// - Under reflection / vtable the newtype must also implement
-    ///   `buffa_descriptor`'s `ReflectList` (not derivable, but a `Vec`-backed
-    ///   newtype can delegate to the inner `Vec<T>`). Under JSON it must
-    ///   implement `serde::Serialize` / `Deserialize`; under `generate_arbitrary`,
-    ///   `arbitrary::Arbitrary` (derivable on a newtype). See `buffa::ProtoList`
+    /// - The resolved collection must implement `buffa::ProtoList<T>`. An
+    ///   associated type resolving to `Vec<T>` already satisfies this; a
+    ///   foreign collection without an implementation needs a crate-local
+    ///   newtype to satisfy the orphan rule.
+    /// - Vtable reflection requires `ReflectList`; cleanup-profile borrowed
+    ///   inspection requires `InspectList`. Ordinary bridge reflection needs
+    ///   neither on the owned collection.
+    /// - JSON scalar, enum and policy helpers decode through `ProtoList<T>`
+    ///   and the element's JSON traits, without requiring the collection's
+    ///   `Deserialize`. Positions using ordinary serde instead require the
+    ///   collection's `Serialize` / `Deserialize`. See [`RepeatedRepr::Custom`]
+    ///   for the complete representation requirements and `buffa::ProtoList`
     ///   for a worked newtype example.
     #[must_use]
     pub fn repeated_type_custom_in(self, template: &str, paths: &[impl AsRef<str>]) -> Self {

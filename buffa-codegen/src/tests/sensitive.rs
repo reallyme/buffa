@@ -345,6 +345,52 @@ fn ordinary_collections_cannot_relocate_a_guarded_descendant() {
             None,
         ),
         (Some(RepeatedRepr::Custom("Vec<*>".into())), None),
+        (
+            Some(RepeatedRepr::Custom("::r#alloc::r#vec::r#Vec<*>".into())),
+            None,
+        ),
+        (
+            Some(RepeatedRepr::Custom("std::prelude::v1::Vec<*>".into())),
+            None,
+        ),
+        (
+            Some(RepeatedRepr::Custom(
+                "std::prelude::rust_2015::Vec<*>".into(),
+            )),
+            None,
+        ),
+        (
+            Some(RepeatedRepr::Custom(
+                "std::prelude::rust_2018::Vec<*>".into(),
+            )),
+            None,
+        ),
+        (
+            Some(RepeatedRepr::Custom(
+                "std::prelude::rust_2021::Vec<*>".into(),
+            )),
+            None,
+        ),
+        (
+            Some(RepeatedRepr::Custom(
+                "((::std::prelude::rust_2024::r#Vec::<*>))".into(),
+            )),
+            None,
+        ),
+        (Some(RepeatedRepr::Custom("(Vec<*>)".into())), None),
+        (
+            Some(RepeatedRepr::Custom("((::alloc::vec::Vec<*>))".into())),
+            None,
+        ),
+        (Some(RepeatedRepr::Custom("r#Vec<*>".into())), None),
+        (
+            Some(RepeatedRepr::Custom("(::std::vec::r#Vec::<*>)".into())),
+            None,
+        ),
+        (
+            Some(RepeatedRepr::Custom("(::buffa::alloc::vec::Vec<*>)".into())),
+            None,
+        ),
         (None, Some(MapRepr::HashMap)),
         (None, Some(MapRepr::BTreeMap)),
     ] {

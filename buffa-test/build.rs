@@ -397,6 +397,10 @@ fn main() {
         .lazy_views(true)
         .deny_unknown_json_fields(true)
         .zeroize_in(&[".sensitive_test", ".sensitive_editions"])
+        .skip_debug(&[
+            ".sensitive_test.NoDebugChild",
+            ".sensitive_test.NoDebugParent",
+        ])
         .deny_view_json(&[".sensitive_test.ViewPrivate"])
         .compile()
         .expect("sensitive fixture generation failed");

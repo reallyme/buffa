@@ -43,6 +43,8 @@ Release 0.1.3 is an explicit exception to patch compatibility: it raises the MSR
 
 - Serialize guarded dynamic WKT views without constructing another owned payload tree. Preserve sorted object keys, last-duplicate semantics, representation JSON policies, diagnostics, and partial output on failure. Lazy lists validate all deferred wire children before writing and re-decode one child at a time to preserve error priority without retaining an aggregate decoded tree. Focused compatibility and allocation regressions cover eager, lazy, and owned view export.
 
+- Advance compatible dependency patches for bytes 1.12.2, Jiff 1.0.1, smallvec 1.16.6, zeroize 1.9.2 and the regex family across workspace and standalone lockfiles. Remove the unused normal fuzz dependency on the build-time generator, retaining its build dependency. Keep feature selections, the 0.1.3 crate family and Rust 1.100 support unchanged; retain the explicit full-capacity vector cleanup around the upgraded zeroization backend.
+
 ### Fixed
 
 - `buffa_descriptor::reflect::DynamicMessage::merge_with_options` now honours `DecodeOptions::clear_on_merge_error`. Previously the option was silently ignored, so a failed merge, including an input over the size limit, left old and partially merged fields behind; the message is now reset to empty and keeps its descriptor. The dropped values are not wiped. `DynamicMessage::merge` always uses the default options, so it never clears.
@@ -77,6 +79,10 @@ Release 0.1.3 is an explicit exception to patch compatibility: it raises the MSR
 
 - Enable std for the opt-in WKT and descriptor arbitrary features, as their generated derives require. Add isolated native and Wasm checks, including the guarded WKT combination, while retaining ordinary no_std coverage on bare-metal ARM. The feature-check script selects the repository's toolchain and configuration when called from another directory.
 
+- Reject reserved Windows device stems in native adapter output filenames on every host, using the existing InvalidOutput reason. Cover case variants and numbered COM/LPT ports across closed, payload and borrowed adapters while preserving ordinary filenames and default generation.
+
+- Allow guarded repeated children without Debug, including cleanup-selected messages with skip_debug. The list's own Debug implementation is always redacted and requires no element Debug; remove the unnecessary ProtoList bound without changing cloning, equality, ownership or cleanup. Verify owned, eager/lazy borrowed and JSON round trips, malformed input rejection and explicit cleanup, and synchronize custom-representation builder documentation.
+
 ### Security
 
 - Preserve full guarded-list allocation cleanup after upgrading zeroize: erase vacated element storage after destructors run, including inactive enum payloads. Verify both explicit clearing and destruction with allocator observations.
@@ -92,6 +98,8 @@ Release 0.1.3 is an explicit exception to patch compatibility: it raises the MSR
 - **Omit the path from `FieldMask` JSON diagnostics.** The generated `FieldMask` quoted a rejected path in its JSON errors. A malformed path in JSON input is now reported as `invalid FieldMask path, expected comma-separated lowerCamelCase paths`, and a path with no JSON form (for example one decoded from binary input) is reported on output as `invalid FieldMask path, it has no proto3 JSON representation`, by the generated `FieldMask`, its view and `DynamicMessage`'s JSON codec alike. Accepted paths are unchanged.
 
 - Integrate guarded-field and owned-view cleanup hardening with fixed JSON diagnostics. Preserve reviewed custom Serde, binary-format, and legal JSON-name compatibility; guarded messages with the reserved arbitrary-precision JSON name redact failures at their typed parser boundary.
+
+- Apply the same Rust type-syntax normalization to guarded collection validation and emission. Parentheses, raw identifiers, turbofish and standard prelude paths can no longer disguise an ordinary Vec that releases unwiped element slots during growth. Opaque aliases and associated types remain subject to the defining crate's documented wipe-owning storage contract.
 
 ### Known maintenance limitation
 

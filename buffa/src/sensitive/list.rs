@@ -129,7 +129,7 @@ impl<T: Zeroize> FromIterator<T> for List<T> {
         list
     }
 }
-impl<T: Zeroize + Clone + PartialEq + fmt::Debug + Send + Sync> crate::ProtoList<T> for List<T> {
+impl<T: Zeroize + Clone + PartialEq + Send + Sync> crate::ProtoList<T> for List<T> {
     fn push(&mut self, value: T) {
         self.push(value);
     }

@@ -17,7 +17,7 @@ serde_json = "1.0.154"
 # types an integrator would bring; the newtypes in src/types/ wrap them
 # to satisfy buffa's owned-type traits without an orphan-rule conflict.
 flexstr = { version = "0.11.7", features = ["serde"] }
-smallvec = { version = "1.16.5", features = ["serde", "const_generics"] }
+smallvec = { version = "1.16.6", features = ["serde", "const_generics"] }
 smallbox = "0.8.9"
 indexmap = { version = "2.14.2", features = ["serde"] }
 

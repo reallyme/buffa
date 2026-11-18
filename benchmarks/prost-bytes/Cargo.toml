@@ -10,7 +10,7 @@ bench = false
 
 [dependencies]
 prost = "0.14.6"
-bytes = "1.12.1"
+bytes = "1.12.2"
 
 [build-dependencies]
 prost-build = "0.14.6"

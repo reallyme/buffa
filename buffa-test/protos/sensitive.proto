@@ -70,3 +70,10 @@ message ViewPrivateParent {
 message ViewPrivateMap {
  map<string, ViewPrivate> values = 1;
 }
+
+// Wipe ownership must not require exposing a child's Debug implementation.
+message NoDebugChild { uint64 token = 1; }
+message NoDebugParent {
+  repeated NoDebugChild children = 1;
+  map<uint32, NoDebugChild> by_id = 2;
+}
