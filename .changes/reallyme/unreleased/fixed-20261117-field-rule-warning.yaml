@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    The warning for a custom field-type rule that matched no field reads the same from the plugin and from `buffa-build`: it names the rule's kind and the option names instead of the internal `CodeGenConfig` list, and says that only the files of the current run are checked. For a rule that names an extension field it now says that custom field-type rules do not apply to extensions, which keep their default Rust type, through the new `names_extension` field of `CodeGenWarning::FieldTypeRuleMatchedNothing`.
+time: 2026-11-17T15:20:00+01:00

@@ -1,5 +1,6 @@
 // Modified by ReallyMe Technologies Limited.
 //! Parse borrowed protobuf map-key text without staging an ordinary String.
+//! With the `zeroize` feature, an owned key token is wiped after parsing.
 use core::{fmt, marker::PhantomData, str::FromStr};
 use serde::{de::DeserializeSeed, Deserializer};
 
@@ -25,6 +26,9 @@ impl<'de, K: FromStr> DeserializeSeed<'de> for KeySeed<K> {
                 // signed zero, leading zeroes and an explicit positive sign.
                 K::from_str(text).map_err(|_| E::custom(ErrorReason::Invalid))
             }
+            // Without the `zeroize` feature, serde's default forwards an
+            // owned token to `visit_str` and drops it.
+            #[cfg(feature = "zeroize")]
             fn visit_string<E: serde::de::Error>(
                 self,
                 text: alloc::string::String,

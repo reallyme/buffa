@@ -1,0 +1,15 @@
+syntax = "proto2";
+
+package test.guardedextenum.owner;
+
+// Compiled in build.rs with cleanup selected and an enum-level
+// `open_enums_in` rule that opens Tier in this generation only.
+enum Tier {
+  TIER_LOW = 0;
+  TIER_HIGH = 1;
+}
+
+// Shows the rule took effect here: this field is typed `EnumValue<Tier>`.
+message OwnerTiers {
+  repeated Tier tiers = 1;
+}

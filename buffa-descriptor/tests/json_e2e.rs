@@ -37,10 +37,16 @@ fn json_field_mask_round_trip_and_rejects_invalid_paths() {
         r#"{"fFieldMask":".foo"}"#,
         r#"{"fFieldMask":"foo."}"#,
         r#"{"fFieldMask":"foo..bar"}"#,
+        r#"{"fFieldMask":"a,marker_secret"}"#,
     ] {
+        let err = DynamicMessage::from_json(Arc::clone(&p), idx, input).unwrap_err();
+        assert!(!err.to_string().contains("marker"), "JSON {input}: {err}");
+        // The same fixed text as the generated `FieldMask`, without the path.
         assert!(
-            DynamicMessage::from_json(Arc::clone(&p), idx, input).is_err(),
-            "JSON {input} must be rejected"
+            err.to_string().starts_with(
+                "invalid FieldMask path, expected comma-separated lowerCamelCase paths"
+            ),
+            "JSON {input}: {err}"
         );
     }
 
@@ -48,7 +54,7 @@ fn json_field_mask_round_trip_and_rejects_invalid_paths() {
     let field_mask_md = p.message_by_name("google.protobuf.FieldMask").unwrap();
     let scalars_md = p.message_by_name("reflect.test.Scalars").unwrap();
     for path in [
-        " ", "foo bar", "foo-bar", "foo/bar", "3d", "", ".foo", "foo.", "foo..bar",
+        " ", "foo bar", "foo-bar", "foo/bar", "3d", "", ".foo", "foo.", "foo..bar", "marker_X",
     ] {
         let mut mask = DynamicMessage::new(Arc::clone(&p), field_mask_idx);
         mask.set(
@@ -57,7 +63,12 @@ fn json_field_mask_round_trip_and_rejects_invalid_paths() {
         );
         let mut msg = DynamicMessage::new(Arc::clone(&p), idx);
         msg.set(scalars_md.field(17).unwrap(), Value::Message(mask));
-        assert!(msg.to_json().is_err(), "path {path:?} must be rejected");
+        let err = msg.to_json().unwrap_err().to_string();
+        // The same fixed text as the generated `FieldMask`, without the path.
+        assert_eq!(
+            err, "invalid FieldMask path, it has no proto3 JSON representation",
+            "path {path:?}"
+        );
     }
 }
 
@@ -712,6 +723,51 @@ fn json_unknown_enum_name_error_omits_the_value() {
     let err = DynamicMessage::from_json(p, idx, r#"{"color": "PURPLE"}"#).unwrap_err();
     assert!(err.to_string().contains("unknown enum name"), "got: {err}");
     assert!(!err.to_string().contains("PURPLE"));
+}
+
+/// A deserializer can hand integers outside the 64-bit range to
+/// `visit_i128` / `visit_u128`; the reflective enum visitor must report the
+/// fixed out-of-range reason rather than serde's default, which echoes them.
+#[test]
+fn reflect_enum_128_bit_integer_error_omits_the_value() {
+    use buffa_descriptor::reflect::DynamicMessageSeed;
+    use serde::de::value::{
+        Error, I128Deserializer, MapDeserializer, SeqDeserializer, U128Deserializer,
+    };
+    use serde::de::{DeserializeSeed, IntoDeserializer};
+
+    let p = pool();
+    let idx = p.message_index("reflect.test.Containers").unwrap();
+    let check = |err: Error| {
+        let msg = err.to_string();
+        assert_eq!(msg, "enum number out of i32 range");
+        assert!(!msg.contains(&u128::MAX.to_string()), "{msg}");
+        assert!(!msg.contains(&i128::MIN.to_string()), "{msg}");
+    };
+
+    let singular = |d: U128Deserializer<Error>| {
+        let fields = [("color", d)].into_iter();
+        DynamicMessageSeed::new(Arc::clone(&p), idx)
+            .deserialize(MapDeserializer::<_, Error>::new(fields))
+            .unwrap_err()
+    };
+    check(singular(u128::MAX.into_deserializer()));
+
+    let repeated = |d: I128Deserializer<Error>| {
+        let seq = SeqDeserializer::<_, Error>::new([d].into_iter());
+        let fields = [("colors", seq)].into_iter();
+        DynamicMessageSeed::new(Arc::clone(&p), idx)
+            .deserialize(MapDeserializer::<_, Error>::new(fields))
+            .unwrap_err()
+    };
+    check(repeated(i128::MIN.into_deserializer()));
+
+    // An in-range number delivered as a 128-bit integer takes the usual path.
+    let fields = [("color", 1u128.into_deserializer())].into_iter();
+    let msg = DynamicMessageSeed::new(Arc::clone(&p), idx)
+        .deserialize(MapDeserializer::<_, Error>::new(fields))
+        .unwrap();
+    assert_eq!(msg.to_json().unwrap(), r#"{"color":"RED"}"#);
 }
 
 #[test]

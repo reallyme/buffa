@@ -268,3 +268,175 @@ fn default_hook_propagates_from_wire_errors() {
         Err(DecodeError::Custom("rejected"))
     );
 }
+
+/// A representation whose override must never run.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Unreachable<T>(T);
+impl<T> From<T> for Unreachable<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+impl<T: core::ops::Deref> core::ops::Deref for Unreachable<T> {
+    type Target = T::Target;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl AsRef<[u8]> for Unreachable<Vec<u8>> {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl AsRef<str> for Unreachable<String> {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+impl ProtoBytes for Unreachable<Vec<u8>> {
+    fn from_wire(_: WirePayload<'_>) -> Result<Self, DecodeError> {
+        unreachable!("from_wire must not be called")
+    }
+    fn decode_length_delimited(_: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
+        unreachable!("the override must not run")
+    }
+}
+impl ProtoString for Unreachable<String> {
+    fn from_wire(_: WirePayload<'_>) -> Result<Self, DecodeError> {
+        unreachable!("from_wire must not be called")
+    }
+    fn decode_length_delimited(_: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
+        unreachable!("the override must not run")
+    }
+}
+
+#[test]
+fn bounded_entry_points_stop_at_the_end_of_the_enclosing_message() {
+    let ctx = crate::test_ctx(crate::RECURSION_LIMIT);
+    for split in 0..=FIELD_THEN_NEXT.len() {
+        let (head, tail) = FIELD_THEN_NEXT.split_at(split);
+
+        // The message holding the field ends one byte before the input does:
+        // the field fits.
+        let mut input = head.chain(tail);
+        let value =
+            decode_bytes_to_ctx::<Override<Vec<u8>>>(&mut input, ctx.with_message_end(1)).unwrap();
+        assert_eq!(&*value, b"abc", "split {split}");
+        assert_eq!(input.remaining(), 1, "split {split}");
+        let mut input = head.chain(tail);
+        let value =
+            decode_string_to_ctx::<Override<String>>(&mut input, ctx.with_message_end(1)).unwrap();
+        assert_eq!(&*value, "abc", "split {split}");
+        assert_eq!(input.remaining(), 1, "split {split}");
+
+        // The message ends two bytes before the input does, so the field
+        // would reach past it: rejected before the override runs. A frame end
+        // beyond the whole input is rejected the same way.
+        for message_end in [2, 5] {
+            assert_eq!(
+                decode_bytes_to_ctx::<Unreachable<Vec<u8>>>(
+                    &mut head.chain(tail),
+                    ctx.with_message_end(message_end)
+                ),
+                Err(DecodeError::UnexpectedEof),
+                "split {split}, frame end {message_end}"
+            );
+            assert_eq!(
+                decode_string_to_ctx::<Unreachable<String>>(
+                    &mut head.chain(tail),
+                    ctx.with_message_end(message_end)
+                ),
+                Err(DecodeError::UnexpectedEof),
+                "split {split}, frame end {message_end}"
+            );
+        }
+    }
+}
+
+/// A message with one custom string field, 1, decoded through the bounded
+/// entry point as generated code does.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Leaf {
+    s: Override<String>,
+}
+
+impl crate::DefaultInstance for Leaf {
+    fn default_instance() -> &'static Self {
+        static INST: crate::__private::OnceBox<Leaf> = crate::__private::OnceBox::new();
+        INST.get_or_init(|| crate::alloc::boxed::Box::new(Leaf::default()))
+    }
+}
+
+impl crate::Message for Leaf {
+    fn compute_size(&self, _: &mut crate::SizeCache) -> u32 {
+        unreachable!("only decoded")
+    }
+    fn write_to(&self, _: &mut crate::SizeCache, _: &mut impl EncodeSink) {
+        unreachable!("only decoded")
+    }
+    fn merge_field(
+        &mut self,
+        tag: Tag,
+        buf: &mut impl Buf,
+        ctx: DecodeContext<'_>,
+    ) -> Result<(), DecodeError> {
+        match tag.field_number() {
+            1 => self.s = decode_string_to_ctx(buf, ctx)?,
+            _ => crate::encoding::skip_field_depth(tag, buf, ctx.depth())?,
+        }
+        Ok(())
+    }
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+#[test]
+fn merge_to_limit_bounds_the_fields_of_the_message() {
+    use crate::Message;
+    let ctx = crate::test_ctx(crate::RECURSION_LIMIT);
+    // Field 1 declares three bytes; the message ends one byte before them.
+    let wire = [0x0a, 3, b'a', b'b', b'c'];
+    let mut leaf = Leaf::default();
+    assert_eq!(
+        leaf.merge_to_limit(&mut &wire[..], ctx, 1),
+        Err(DecodeError::UnexpectedEof)
+    );
+    assert_eq!(leaf, Leaf::default());
+    leaf.merge_to_limit(&mut &wire[..], ctx, 0).unwrap();
+    assert_eq!(&*leaf.s, "abc");
+
+    // `merge` decodes a buffer of its own, so a context recording the end of
+    // a message in another buffer does not limit it.
+    let mut leaf = Leaf::default();
+    leaf.merge(&mut &wire[..], ctx.with_message_end(4)).unwrap();
+    assert_eq!(&*leaf.s, "abc");
+}
+
+#[test]
+fn merge_length_delimited_rejects_a_sub_message_past_the_enclosing_one() {
+    use crate::Message;
+    let ctx = crate::test_ctx(crate::RECURSION_LIMIT);
+    // A three-byte `Leaf` holding `s = "x"`, then one byte of something else.
+    let wire = [3, 0x0a, 1, b'x', 0xff];
+    for split in 0..=wire.len() {
+        let (head, tail) = wire.split_at(split);
+
+        let mut leaf = Leaf::default();
+        let mut input = head.chain(tail);
+        leaf.merge_length_delimited(&mut input, ctx.with_message_end(1))
+            .unwrap();
+        assert_eq!(&*leaf.s, "x", "split {split}");
+        assert_eq!(input.remaining(), 1, "split {split}");
+
+        // The enclosing message ends two bytes before the input does, so the
+        // `Leaf` reaches past it and none of it is decoded.
+        let mut leaf = Leaf::default();
+        assert_eq!(
+            leaf.merge_length_delimited(&mut head.chain(tail), ctx.with_message_end(2)),
+            Err(DecodeError::UnexpectedEof),
+            "split {split}"
+        );
+        assert_eq!(leaf, Leaf::default(), "split {split}");
+    }
+}

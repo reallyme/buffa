@@ -1,0 +1,3 @@
+kind: Fixed
+body: '`buffa_descriptor::reflect::DynamicMessage::merge_with_options` now honours `DecodeOptions::clear_on_merge_error`. Previously the option was silently ignored, so a failed merge, including an input over the size limit, left old and partially merged fields behind; the message is now reset to empty and keeps its descriptor. The dropped values are not wiped. `DynamicMessage::merge` always uses the default options, so it never clears.'
+time: 2026-11-17T13:00:00+01:00

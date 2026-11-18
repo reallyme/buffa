@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    `DecodeOptions::reject_unknown_fields()` now reaches `DynamicMessage` map entries: an unknown field inside a map entry, and an unknown closed-enum map value that a later known value replaces, are rejected as the generated decoders reject them. Under the default options these entries still decode, and an entry that ends with an unknown closed-enum value is still preserved as an unknown field.
+time: 2026-11-17T14:00:00+01:00

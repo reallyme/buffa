@@ -82,7 +82,7 @@ impl<'de, E: crate::Enumeration> DeserializeSeed<'de> for EnumSeed<E> {
                 }
             }
         }
-        impl<E: crate::Enumeration> Visitor<'_> for Token<E> {
+        impl<'de, E: crate::Enumeration> Visitor<'de> for Token<E> {
             type Value = Option<crate::EnumValue<E>>;
             fn expecting(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 formatter.write_str("a protobuf enum name or integer")
@@ -128,6 +128,7 @@ impl<'de, E: crate::Enumeration> DeserializeSeed<'de> for EnumSeed<E> {
                 let name = zeroize::Zeroizing::new(name);
                 self.visit_str(&name)
             }
+            crate::reject_other_json_kinds!(i128, u128, bytes, byte_buf, seq, map);
         }
         deserializer.deserialize_any(Token(self))
     }
@@ -170,6 +171,9 @@ pub mod open {
                 }
                 Ok(out)
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, map
+            );
         }
         deserializer.deserialize_any(Sequence::<E, C>(PhantomData))
     }
@@ -203,6 +207,9 @@ pub mod closed {
                 }
                 Ok(out)
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, map
+            );
         }
         deserializer.deserialize_any(Sequence::<E, C>(PhantomData))
     }

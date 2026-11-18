@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+  **`buffa-yaml` decodes string and container positions by the kind of the YAML scalar.** Following the wrong-kind diagnostics change, these positions now read the input kind as ProtoJSON does. A YAML number or bool is no longer read as text in an `optional`, repeated, map or oneof string position or as a `Timestamp`, `Duration` or `FieldMask`, matching singular string fields; quote such scalars (`"1.0"`). An empty item or map value (`- ` or `key:`) is now null, so it is rejected as a repeated string, a `FieldMask`, `Struct`, `ListValue` or `Empty`, or a message with a custom `Deserialize` (a oneof or extension range) in an element or map-value position, where it previously decoded as an empty value. An empty YAML document still decodes as the default message, `Struct`, `ListValue` or `Empty`, through generated types and through `DynamicMessageSeed`.
+time: 2026-11-17T16:01:00Z

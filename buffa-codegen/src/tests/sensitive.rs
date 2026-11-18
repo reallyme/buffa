@@ -259,3 +259,119 @@ fn inactive_view_export_restrictions_warn_instead_of_disappearing() {
             .any(|warning| matches!(warning, CodeGenWarning::ViewJsonRulesRequireJsonAndViews)));
     }
 }
+
+#[test]
+fn ordinary_collections_cannot_relocate_a_guarded_descendant() {
+    // message Secret { uint64 pin = 1; }
+    // message Envelope { repeated Secret items = 1; map<int64, Secret> by_id = 2; }
+    let mut file = proto3_file("partial.proto");
+    file.package = Some("p".into());
+    file.message_type.push(DescriptorProto {
+        name: Some("Secret".into()),
+        field: vec![make_field(
+            "pin",
+            1,
+            Label::LABEL_OPTIONAL,
+            Type::TYPE_UINT64,
+        )],
+        ..Default::default()
+    });
+    let mut items = make_field("items", 1, Label::LABEL_REPEATED, Type::TYPE_MESSAGE);
+    items.type_name = Some(".p.Secret".into());
+    let mut by_id = make_field("by_id", 2, Label::LABEL_REPEATED, Type::TYPE_MESSAGE);
+    by_id.type_name = Some(".p.Envelope.ByIdEntry".into());
+    let mut value = make_field("value", 2, Label::LABEL_OPTIONAL, Type::TYPE_MESSAGE);
+    value.type_name = Some(".p.Secret".into());
+    file.message_type.push(DescriptorProto {
+        name: Some("Envelope".into()),
+        field: vec![items, by_id],
+        nested_type: vec![DescriptorProto {
+            name: Some("ByIdEntry".into()),
+            field: vec![
+                make_field("key", 1, Label::LABEL_OPTIONAL, Type::TYPE_INT64),
+                value,
+            ],
+            options: (MessageOptions {
+                map_entry: Some(true),
+                ..Default::default()
+            })
+            .into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    let mut config = CodeGenConfig {
+        preserve_unknown_fields: false,
+        zeroize_messages: vec![".p.Secret".into()],
+        generate_reflection: false,
+        ..Default::default()
+    };
+    let error = generate(
+        core::slice::from_ref(&file),
+        &["partial.proto".into()],
+        &config,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            CodeGenError::InvalidZeroizeConfiguration {
+                message,
+                reason: ZeroizeConfigurationErrorReason::ContainingMessage,
+            } if message.as_str() == "p.Envelope"
+        ),
+        "{error:?}"
+    );
+
+    // Selecting the container too gives it wipe-owning collections.
+    config.zeroize_messages.push(".p.Envelope".into());
+    let generated = joined(
+        &generate(
+            core::slice::from_ref(&file),
+            &["partial.proto".into()],
+            &config,
+        )
+        .unwrap(),
+    );
+    assert!(generated.contains("::buffa::sensitive::List<Secret>"));
+    assert!(generated.contains("::buffa::sensitive::Map<i64, Secret>"));
+
+    // An explicit rule cannot put a plain standard collection back: it would
+    // relocate the guarded elements just the same.
+    for (repeated, map) in [
+        (Some(RepeatedRepr::Vec), None),
+        (
+            Some(RepeatedRepr::Custom("::buffa::alloc::vec::Vec<*>".into())),
+            None,
+        ),
+        (Some(RepeatedRepr::Custom("Vec<*>".into())), None),
+        (None, Some(MapRepr::HashMap)),
+        (None, Some(MapRepr::BTreeMap)),
+    ] {
+        let mut config = config.clone();
+        config.repeated_fields = repeated
+            .into_iter()
+            .map(|repr| (".p.Envelope.items".to_owned(), repr))
+            .collect();
+        config.map_fields = map
+            .into_iter()
+            .map(|repr| (".p.Envelope.by_id".to_owned(), repr))
+            .collect();
+        let error = generate(
+            core::slice::from_ref(&file),
+            &["partial.proto".into()],
+            &config,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                &error,
+                CodeGenError::InvalidZeroizeConfiguration {
+                    reason: ZeroizeConfigurationErrorReason::CollectionRepresentation,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+    }
+}

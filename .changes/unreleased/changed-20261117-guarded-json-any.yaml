@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+    `sensitive::SecretString`, the guarded `Timestamp` and `Duration`, `sensitive::Map`, `sensitive::List` and the generated deserializer of a cleanup-selected message now ask a human-readable deserializer for any kind instead of a typed request, so that a mismatched token reaches their visitor and is rejected without its value. A format that coerces scalars only on a typed request, such as YAML, no longer reads an unquoted number as text for these types. Non-human-readable deserializers keep the typed request.
+time: 2026-11-17T12:00:03+01:00

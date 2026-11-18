@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+    **`json_helpers::bytes` streams base64 output and decodes URL-safe input once.** `bytes::serialize` writes the encoding through `Serializer::collect_str` instead of building a heap `String` of the encoded length first; the output is unchanged for `serde_json` and for any serializer whose `collect_str` matches its `serialize_str`. Decoding picks the standard or URL-safe alphabet from the first symbol only one of them has and decodes once, where URL-safe input was previously decoded with the standard alphabet first and then decoded again. Accepted inputs and decoded bytes are unchanged; the error text for invalid input that contains `-` or `_` can differ.
+time: 2026-11-17T16:00:00+01:00

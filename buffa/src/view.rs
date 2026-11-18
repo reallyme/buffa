@@ -695,8 +695,12 @@ macro_rules! unsafe_impl_view_lifetime_parametric {
 /// # Implementing
 ///
 /// Implementations are generated alongside the view and owned-view wrapper
-/// (and are therefore gated with them). Hand-written implementations are only
-/// needed for hand-written view types and must follow the same shape.
+/// (and are therefore gated with them). Neither is generated for messages
+/// selected by `borrowed_views_only_in` or for cleanup (`zeroize_in`,
+/// `generate_zeroize`), nor for messages that contain them; own their views
+/// with `buffa::sensitive::GuardedOwnedView` instead. Hand-written
+/// implementations are only needed for hand-written view types and must
+/// follow the same shape.
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(
@@ -707,8 +711,10 @@ macro_rules! unsafe_impl_view_lifetime_parametric {
                 buffa-codegen config, or `views=true` for protoc-gen-reallyme-buffa",
         note = "if the defining crate feature-gates its generated impls, enabling its views \
                 feature is enough — no regeneration needed",
-        note = "if the generator uses `borrowed_views_only_in`, use the generated borrowed view \
-                directly or the clearing `buffa::sensitive::GuardedOwnedView` owner"
+        note = "messages selected by `borrowed_views_only_in`, `zeroize_in` or \
+                `generate_zeroize` (`zeroize=true`), and messages containing them, intentionally \
+                have no owned-view API: use the generated borrowed view directly or the clearing \
+                `buffa::sensitive::GuardedOwnedView` owner"
     )
 )]
 pub trait HasMessageView: crate::Message + Sized {

@@ -45,6 +45,14 @@
 //! mapping on output (`NaN`/`Infinity`/`-Infinity` as quoted strings); on
 //! input, both those strings and YAML-native `.nan`/`.inf` forms are accepted.
 //!
+//! Decoding follows the JSON kind of each scalar, as ProtoJSON does: quote a
+//! number- or boolean-looking scalar (`"1.0"`, `"true"`) in a string field,
+//! including `optional`, repeated, map and oneof string positions and
+//! `Timestamp`, `Duration` and `FieldMask` values. An empty item or map value
+//! (`- ` or `key:`) is null, so it is rejected where a repeated element or
+//! map value is a string, a message with a oneof or extension range,
+//! `Struct`, `ListValue`, `Empty` or `FieldMask`.
+//!
 //! # Security
 //!
 //! The YAML carrier expands anchors and aliases during parsing, so a small,
@@ -288,6 +296,59 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(round_trip(&msg), msg);
+    }
+
+    #[test]
+    fn empty_ignores_tagged_and_structural_keys() {
+        for input in [
+            "? !Tag label\n: value\n",
+            "? [one, two]\n: value\n",
+            "1: value\n",
+        ] {
+            let _: buffa_types::Empty = from_str(input).unwrap();
+        }
+    }
+
+    #[test]
+    fn empty_document_decodes_as_default_for_object_and_list_types() {
+        // `WithOneof` (a custom `Deserialize`), `Struct`, `ListValue` and
+        // `Empty` read every JSON kind so that a wrong kind is rejected
+        // without echoing it. An empty YAML document still decodes as the
+        // default, as it does for a message with a derived `Deserialize`
+        // such as `Scalar`.
+        use buffa_test::json_types::{Scalar, WithOneof};
+        assert_eq!(from_str::<WithOneof>("").unwrap(), WithOneof::default());
+        assert_eq!(from_str::<Scalar>("").unwrap(), Scalar::default());
+        assert_eq!(
+            from_str::<buffa_types::Struct>("").unwrap(),
+            buffa_types::Struct::default()
+        );
+        assert_eq!(
+            from_str::<buffa_types::ListValue>("").unwrap(),
+            buffa_types::ListValue::default()
+        );
+        assert_eq!(
+            from_str::<buffa_types::Empty>("").unwrap(),
+            buffa_types::Empty::default()
+        );
+    }
+
+    #[test]
+    fn empty_items_are_null_in_kind_checked_positions() {
+        // An empty item reaches `deserialize_any` as null. Types that read
+        // every JSON kind reject it as an element, as ProtoJSON rejects a
+        // `null` element; a typed request used to read it as empty.
+        assert!(serde_norway::from_str::<Vec<buffa_types::Struct>>("- \n").is_err());
+        assert!(serde_norway::from_str::<Vec<buffa_types::FieldMask>>("- \n").is_err());
+        assert!(serde_norway::from_str::<Vec<buffa_test::json_types::WithOneof>>("- \n").is_err());
+        // A number-looking scalar in a string position must be quoted.
+        assert!(from_str::<buffa_types::FieldMask>("1.0\n").is_err());
+        assert_eq!(
+            from_str::<buffa_types::FieldMask>("\"fooBar\"\n")
+                .unwrap()
+                .paths,
+            ["foo_bar"]
+        );
     }
 
     // ── maps ──────────────────────────────────────────────────────────────────

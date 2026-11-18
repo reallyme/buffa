@@ -1,0 +1,3 @@
+kind: Fixed
+body: 'Keep shared JSON rejection visitors hygienic in downstream crates and accept 128-bit visits when the value fits the existing 64-bit integer boundary. Wider rejected integers remain redacted, and rejected owned strings and bytes retain their opt-in wiping behavior.'
+time: 2026-11-18T09:00:00+01:00

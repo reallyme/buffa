@@ -804,6 +804,19 @@ pub(crate) fn serde_helper_path(field_type: Type) -> Option<TokenStream> {
     }
 }
 
+/// Return the path to the serde helper `deserialize` function for a oneof
+/// variant, or `None` if the type uses its own `Deserialize`.
+///
+/// Bool and string variants serialize natively but deserialize through the
+/// helpers, so a wrong-kind value is rejected without echoing it.
+fn serde_deserialize_helper_path(field_type: Type, custom_string: bool) -> Option<TokenStream> {
+    match field_type {
+        Type::TYPE_BOOL => Some(quote! { ::buffa::json_helpers::proto_bool }),
+        Type::TYPE_STRING if !custom_string => Some(quote! { ::buffa::json_helpers::proto_string }),
+        _ => serde_helper_path(field_type),
+    }
+}
+
 fn generate_oneof_serialize(
     enum_ident: &proc_macro2::Ident,
     variants: &[VariantInfo],
@@ -902,6 +915,8 @@ pub(crate) struct OneofVariantDeserInput<'a> {
     pub json_name: &'a str,
     pub proto_name: &'a str,
     pub field_type: Type,
+    /// Preserve a non-default string representation's native Serde policy.
+    pub custom_string: bool,
     /// See [`null_is_valid_value`] — includes both NullValue and Value types.
     pub null_forward: bool,
     /// Whether the variant is stored in a `Box` in the owned enum (see
@@ -956,6 +971,7 @@ pub(crate) fn oneof_variant_deser_arm(
         variant_ident,
         variant_type,
         field_type,
+        custom_string,
         null_forward,
         is_boxed,
         pointer_repr,
@@ -1035,7 +1051,7 @@ pub(crate) fn oneof_variant_deser_arm(
                     ::buffa::json_helpers::NullableDeserializeSeed(#seed)
                 )?;
             }
-        } else if let Some(helper) = serde_helper_path(*field_type) {
+        } else if let Some(helper) = serde_deserialize_helper_path(*field_type, *custom_string) {
             // For bytes: json_helpers::bytes::deserialize is generic over
             // T: From<Vec<u8>>; the `-> Result<#variant_type, _>` return
             // type pins T to either Vec<u8> (default) or bytes::Bytes

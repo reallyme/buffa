@@ -49,6 +49,11 @@ impl<K: Zeroize + Borrow<[u8]>> Borrow<[u8]> for MapKey<K> {
 ///
 /// Tree balancing only moves pointers. Key order is deterministic and lookup
 /// has logarithmic worst-case cost, including in no_std without random seeds.
+///
+/// Its serde `Deserialize` asks a human-readable deserializer for any kind, so
+/// a mismatched token is rejected by kind without echoing its value. Formats
+/// that coerce scalars only on a typed request, such as YAML, therefore no
+/// longer coerce here; other deserializers keep the typed request.
 pub struct Map<K: Zeroize, V: Zeroize>(BTreeMap<MapKey<K>, Box<Zeroizing<V>>>);
 impl<K: Zeroize, V: Zeroize> Default for Map<K, V> {
     fn default() -> Self {
@@ -244,8 +249,17 @@ impl<'de, K: Zeroize + Ord + serde::Deserialize<'de>, V: Zeroize + serde::Deseri
                 }
                 Ok(map)
             }
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
-        deserializer.deserialize_map(Visitor(core::marker::PhantomData))
+        // A typed request lets a self-describing parser report a mismatched
+        // token, value included, without consulting the visitor.
+        if deserializer.is_human_readable() {
+            deserializer.deserialize_any(Visitor(core::marker::PhantomData))
+        } else {
+            deserializer.deserialize_map(Visitor(core::marker::PhantomData))
+        }
     }
 }
 

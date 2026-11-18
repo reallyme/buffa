@@ -335,6 +335,8 @@ impl Config {
     /// Omit standard owned-view wrappers and `HasMessageView` for matching
     /// messages and their containers. Borrowed views remain available.
     /// Use `.` to select every message. Rules must match a known message.
+    /// Messages selected for cleanup, and their containers, are always
+    /// treated as selected.
     ///
     /// This controls what code is generated. It does not disable explicit
     /// use of the public `buffa::OwnedView` runtime with a borrowed view type.
@@ -820,6 +822,8 @@ impl Config {
 
     /// Generate recursive cleanup for every owned message.
     /// Requires `buffa/zeroize` and guarded field representations; see the guarded-fields guide.
+    /// No owned-view wrapper or `HasMessageView` impl is generated, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
     #[must_use]
     pub fn generate_zeroize(mut self, enabled: bool) -> Self {
         self.codegen_config.generate_zeroize = enabled;
@@ -829,6 +833,9 @@ impl Config {
     /// Generate recursive cleanup for messages under these proto path prefixes.
     /// `.` matches every message. Calls accumulate. Empty or unmatched paths
     /// are errors; scoped requests can explicitly allow unmatched rules.
+    /// Selected messages and their containers get no owned-view wrapper or
+    /// `HasMessageView` impl, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
     #[must_use]
     pub fn zeroize_in(mut self, paths: &[impl AsRef<str>]) -> Self {
         self.codegen_config.zeroize_messages.extend(
@@ -1263,8 +1270,11 @@ impl Config {
     /// ([`bytes_type_custom`](Self::bytes_type_custom)) is honored for
     /// `map<K, bytes>` values too, the same as the built-in `Bytes` — but a
     /// custom map value (like a custom `repeated` element) must be a crate-local
-    /// type, since codegen emits its `ReflectElement` / `ProtoElemJson` impls
-    /// (the orphan rule forbids them for a foreign type).
+    /// type, since codegen emits its `ReflectElement` / `InspectElement` /
+    /// `ProtoElemJson` impls (the orphan rule forbids them for a foreign type).
+    /// A type listed with [`json_policy_type`](Self::json_policy_type) gets no
+    /// `ProtoElemJson` impl, so only vtable reflection or reflection with
+    /// message cleanup requires it to be local.
     ///
     /// [`strict_utf8_mapping`]: Self::strict_utf8_mapping
     ///
@@ -1350,17 +1360,22 @@ impl Config {
     /// # Limitations
     ///
     /// - A **foreign** custom type used as a `repeated` element — or a
-    ///   `map<K, bytes>` value — fails to compile: codegen emits
-    ///   `ReflectElement` / `ProtoElemJson` impls for it, which the orphan rule
-    ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
+    ///   `map<K, bytes>` value — fails to compile under JSON, vtable reflection
+    ///   or reflection with message cleanup: codegen emits `ProtoElemJson` /
+    ///   `ReflectElement` / `InspectElement` impls for it, which the orphan
+    ///   rule forbids for a foreign type. Wrap it in a crate-local newtype, or use
     ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
     ///   the defining crate supplies those integrations. Singular / optional /
-    ///   oneof uses work directly.
+    ///   oneof uses work directly. A type listed with
+    ///   [`json_policy_type`](Self::json_policy_type) gets no `ProtoElemJson`
+    ///   impl, so only vtable reflection or reflection with message cleanup
+    ///   requires it to be local.
     /// - A `Custom` rule **does** apply to `map<K, bytes>` values (honored like
     ///   the built-in [`BytesRepr::Bytes`]); only the `map<bytes, bytes>`
     ///   carve-out keeps `Vec<u8>` values.
-    /// - A `path` that does not parse as a Rust type is reported as a codegen
-    ///   error from [`compile`](Self::compile).
+    /// - A `path` that is not a plain type path like `crate::Name` (for
+    ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
+    ///   from [`compile`](Self::compile).
     /// - A custom bytes type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`).
     #[must_use]
@@ -1490,9 +1505,10 @@ impl Config {
     /// # Limitations
     ///
     /// - Under vtable reflection ([`reflect_mode`](Self::reflect_mode) with
-    ///   `ReflectMode::VTable`), a **foreign** custom type used as a `repeated`
-    ///   element or as a `map` key or value fails to compile: codegen emits a
-    ///   `ReflectElement` or `ReflectMapKey` impl for it, which the orphan rule
+    ///   `ReflectMode::VTable`), or any reflection with message cleanup, a
+    ///   **foreign** custom type used as a `repeated` element or as a `map` key
+    ///   or value fails to compile: codegen emits a `ReflectElement`,
+    ///   `InspectElement` or `ReflectMapKey` impl for it, which the orphan rule
     ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
     ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
     ///   the defining crate supplies those integrations. Singular / optional /
@@ -1505,11 +1521,14 @@ impl Config {
     ///   `#[buffa(remote = ..., serde)]`; any other type derives them (an
     ///   external type enables its `serde` feature). A singular field with
     ///   implicit presence, or a proto2 `required` field, uses the
-    ///   `proto_string` with-module and needs no `serde` impl.
+    ///   `proto_string` with-module and needs no `serde` impl, and so does a
+    ///   type listed with [`json_policy_type`](Self::json_policy_type), whose
+    ///   JSON goes through its policy in every generated JSON position.
     /// - A custom type used as a `map` key must implement `Hash + Eq` for the
     ///   default `HashMap` container, or `Ord` for `BTreeMap`.
-    /// - A `path` that does not parse as a Rust type is reported as a codegen
-    ///   error from [`compile`](Self::compile).
+    /// - A `path` that is not a plain type path like `crate::Name` (for
+    ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
+    ///   from [`compile`](Self::compile).
     /// - A custom string type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`, as a `map` key
     ///   or value too).
@@ -1526,11 +1545,32 @@ impl Config {
     /// [`bytes_type_custom_in`](Self::bytes_type_custom_in) or
     /// [`string_type_custom_in`](Self::string_type_custom_in) rule does
     /// (whitespace aside). Every field of that type then serializes and
-    /// deserializes through the policy: singular, optional, repeated and oneof
-    /// fields, `map` keys and values, and the matching fields of generated
-    /// views and owned views. The type's own `serde` impls are not consulted.
-    /// Call it once per type; unlisted custom types keep their existing JSON
-    /// behavior.
+    /// deserializes through the policy in the generated `serde` impls:
+    /// singular, optional, repeated and oneof fields, `map` keys and values,
+    /// and the matching fields of generated views, lazy views and owned views.
+    /// The type's own `serde` impls are not consulted.
+    /// Generated code implements no JSON trait for the type (repeated elements
+    /// and `map` values go through buffa's policy with-modules). With JSON
+    /// alone, the type may therefore be defined, together with its
+    /// representation and policy impls, in another crate, and separate
+    /// `compile()` runs into one crate may share it. With vtable reflection,
+    /// or reflection with message cleanup, its `repeated` and `map` uses still
+    /// get per-run element impls, so there it must be crate-local and
+    /// generated in one run (or use
+    /// [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls)). Call
+    /// it once per type, in every `Config` that generates a field of the type:
+    /// a run that does not list it never calls the policy (bytes fields become
+    /// plain base64; string fields use the type's own `serde` impls). Unlisted
+    /// custom types keep their existing JSON behavior.
+    ///
+    /// A policy shapes only the generated JSON and is not a confidentiality
+    /// boundary. Binary encoding, generated text format and descriptor-driven
+    /// reflection never call it: JSON produced or read through `DynamicMessage`
+    /// (including a message converted with `ReflectMessage::to_dynamic`, or with
+    /// `DynamicMessage::try_from_message`, which works whether or not
+    /// reflection is generated) encodes the field as standard base64 or a
+    /// plain string, so a policy that refuses export does not stop it and its
+    /// import checks do not run.
     ///
     /// # Limitations
     ///
@@ -1538,10 +1578,19 @@ impl Config {
     ///   compile error in the generated code, naming the trait.
     /// - A listed `string` type used as the key of a `map` with enum values
     ///   is a codegen error from [`compile`](Self::compile).
+    /// - A listed `string` type used as a `map` key must have a policy that
+    ///   round-trips, and so is injective (see the `ProtoStringJson` contract):
+    ///   otherwise import loses or alters entries. This is not checked.
     /// - A type that no effective representation rule selects is an error.
     ///   Binding and spelling errors remain errors with JSON disabled. A valid
     ///   listed type while [`generate_json`](Self::generate_json) is off
     ///   produces a `cargo:warning` because its policy is inactive.
+    /// - With JSON and reflection both on
+    ///   ([`generate_reflection`](Self::generate_reflection), or any
+    ///   [`reflect_mode`](Self::reflect_mode) other than off), listing any type
+    ///   produces one `cargo:warning` per `compile()` that reflective JSON
+    ///   bypasses the policy. It is a standing reminder, not a check of your
+    ///   schema, and buffa-build always prints it.
     #[must_use]
     pub fn json_policy_type(mut self, path: &str) -> Self {
         self.codegen_config
@@ -1554,8 +1603,10 @@ impl Config {
     ///
     /// Set this to `false` when shared representation types provide their
     /// `ProtoElemJson`, `ReflectElement`, `ReflectMapKey` and `InspectElement` implementations in
-    /// their defining crate. This permits foreign types and multiple generation
-    /// calls without orphan-rule or duplicate-impl errors. Missing traits fail
+    /// their defining crate. A type listed with
+    /// [`json_policy_type`](Self::json_policy_type) needs no `ProtoElemJson`.
+    /// This permits foreign types and multiple generation calls without
+    /// orphan-rule or duplicate-impl errors. Missing traits fail
     /// compilation; JSON policy selection is still required separately.
     #[must_use]
     pub fn emit_custom_type_impls(mut self, enabled: bool) -> Self {
@@ -1921,7 +1972,7 @@ impl Config {
     /// # Limitations
     ///
     /// - The template must contain at least one `*`; a template that omits it,
-    ///   or whose substitution does not parse as a Rust type, is reported as a
+    ///   or whose substitution is not a Rust type path, is reported as a
     ///   codegen error from [`compile`](Self::compile).
     /// - The template must name a **crate-local newtype** — a foreign collection
     ///   cannot implement the buffa-owned `ProtoList` (orphan rule). This applies

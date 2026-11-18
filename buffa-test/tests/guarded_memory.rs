@@ -1,9 +1,25 @@
 // Modified by ReallyMe Technologies Limited.
-//! Inspect selected allocations immediately before the system allocator frees
-//! them. Reading freed pointers would be undefined behavior; observing in
-//! dealloc instead verifies the actual release path, including spare capacity.
+//! Inspect allocations immediately before the system allocator frees them.
+//! Reading freed pointers would be undefined behavior; observing in dealloc
+//! instead verifies the actual release path, including spare capacity.
+//!
+//! Two observers run in this binary, and the test proves only what they see:
+//!
+//! - Watched blocks must be all zero when released. A block selected by exact
+//!   size and alignment starts from a nonzero sentinel, so a block that never
+//!   received data fails instead of passing; an explicitly registered buffer
+//!   is filled with nonzero data by its caller.
+//! - During a canary window, every byte-aligned block the test thread
+//!   releases, including the old block of a reallocation, must not contain the
+//!   canary secret in raw or base64 form (at any byte offset), whatever its
+//!   size.
+//!
+//! Neither observer sees stack or register copies, typed (non-byte) blocks for
+//! the canary scan, blocks released by other threads, fragments shorter than
+//! one canary period, or copies that are still live when a window closes.
 
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
 use buffa::{bytes::Buf, DecodeError, DecodeOptions, Message};
@@ -53,26 +69,72 @@ static RELEASED: AtomicUsize = AtomicUsize::new(0);
 static ALL_WIPED: AtomicBool = AtomicBool::new(true);
 static OVERFLOWED: AtomicBool = AtomicBool::new(false);
 static REALLOCATED: AtomicBool = AtomicBool::new(false);
+static CANARY_RELEASES: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    // Scan only the test thread's releases: other threads (the test harness)
+    // may free byte-aligned blocks whose contents this test does not control.
+    // A const-initialized Cell has no destructor and needs no allocation.
+    static CANARY_SCAN: Cell<bool> = const { Cell::new(false) };
+}
 
-// SAFETY: layouts and releases are forwarded unchanged to System. This
-// observer is specific to the u8/str and f32 buffers in these fixtures; no typed
-// values with padding are moved into watched blocks. Matched allocations are fully
-// initialized, including spare capacity, and explicit watches cover buffers
-// initialized beforehand. Reallocations involving a watched block or target
-// size fail the observation without inspecting potentially uninitialized
-// copied capacity. No allocation occurs in these hooks.
+// A nonzero fill, so only an actual wipe leaves an observed block all zero.
+const SENTINEL: u8 = 0xA5;
+// The canary is a multiple of three bytes long, so every repetition of it in a
+// secret encodes to the same base64 text. A secret that starts one or two bytes
+// into a base64 quantum encodes as the canary rotated by two or one bytes.
+const CANARY: &[u8; 15] = b"Qz7vK2mW9pR4xJ8";
+const CANARY_BASE64: [&[u8; 20]; 3] = [
+    b"UXo3dksybVc5cFI0eEo4",
+    b"ejd2SzJtVzlwUjR4SjhR",
+    b"N3ZLMm1XOXBSNHhKOFF6",
+];
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// Initialize a fresh byte-aligned block, or a block the next watch may
+/// select, so a later inspection reads only initialized bytes.
+///
+/// # Safety
+/// `pointer` must be null or own at least `layout.size()` writable bytes.
+unsafe fn initialize(pointer: *mut u8, layout: Layout) {
+    let watched = layout.align() == ALLOCATION_ALIGNMENT.load(Ordering::SeqCst)
+        && layout.size() == ALLOCATION_SIZE.load(Ordering::SeqCst);
+    if !pointer.is_null() && (layout.align() == 1 || watched) {
+        // SAFETY: guaranteed by the caller.
+        unsafe { pointer.write_bytes(SENTINEL, layout.size()) };
+    }
+}
+
+// SAFETY: layouts and releases are forwarded unchanged to System, and a
+// reallocation is an allocation, a copy of the old contents and a release, as
+// GlobalAlloc's default realloc is. Every byte-aligned block is initialized
+// when allocated. The canary scan assumes that the byte-aligned blocks the test
+// thread releases during a window hold u8/str data, which is never
+// uninitialized after that; an align-1 type with uninitialized bytes, such as
+// Option<u8> or MaybeUninit<u8>, must not be released in a window. The watched
+// observer is specific to the u8/str, f32, f64 and u64 slots in these
+// fixtures; no typed values with padding are moved into watched blocks.
+// Matched allocations are fully initialized, including spare capacity, and
+// explicit watches cover buffers initialized beforehand. Reallocations
+// involving a watched block or target size fail the observation without
+// inspecting potentially uninitialized copied capacity. No allocation occurs
+// in these hooks.
 unsafe impl GlobalAlloc for ObservedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: this forwards the caller's valid allocation layout.
         let pointer = unsafe { System.alloc(layout) };
+        // SAFETY: a non-null pointer owns layout.size() bytes. Initializing
+        // them does not change GlobalAlloc's contract and avoids reading
+        // undefined spare capacity when this allocation is later inspected.
+        unsafe { initialize(pointer, layout) };
         if layout.align() == ALLOCATION_ALIGNMENT.load(Ordering::SeqCst)
             && layout.size() == ALLOCATION_SIZE.load(Ordering::SeqCst)
             && !pointer.is_null()
         {
-            // SAFETY: pointer owns layout.size() bytes. Initializing them does
-            // not change GlobalAlloc's contract and avoids reading undefined
-            // spare capacity when this allocation is later inspected.
-            unsafe { pointer.write_bytes(0, layout.size()) };
             for slot in &WATCHED {
                 if slot
                     .pointer
@@ -99,7 +161,7 @@ unsafe impl GlobalAlloc for ObservedAllocator {
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        // System's realloc can copy uninitialized spare capacity from an
+        // A reallocation can copy uninitialized spare capacity from an
         // unobserved old block. Reject that topology instead of inspecting it.
         if layout.align() == ALLOCATION_ALIGNMENT.load(Ordering::SeqCst)
             && new_size == ALLOCATION_SIZE.load(Ordering::SeqCst)
@@ -121,11 +183,38 @@ unsafe impl GlobalAlloc for ObservedAllocator {
                 break;
             }
         }
-        // SAFETY: all arguments are forwarded from the allocator caller.
-        unsafe { System.realloc(pointer, layout, new_size) }
+        // Never let System grow or move a block in place: the old block must
+        // pass through dealloc, so a stale copy left by growth is scanned.
+        // SAFETY: the caller guarantees new_size is valid for layout's alignment.
+        let new_layout = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
+        // SAFETY: new_layout has a nonzero size, as GlobalAlloc requires.
+        let moved = unsafe { System.alloc(new_layout) };
+        if moved.is_null() {
+            return moved;
+        }
+        // SAFETY: moved owns new_size bytes; the old block owns layout.size()
+        // bytes and remains live until released below. The blocks are distinct.
+        unsafe {
+            initialize(moved, new_layout);
+            std::ptr::copy_nonoverlapping(pointer, moved, layout.size().min(new_size));
+            self.dealloc(pointer, layout);
+        }
+        moved
     }
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        if layout.align() == 1 && CANARY_SCAN.try_with(Cell::get).unwrap_or(false) {
+            // SAFETY: the block is live, was initialized when allocated and
+            // holds byte data, as the impl-level comment requires.
+            let bytes = unsafe { std::slice::from_raw_parts(pointer, layout.size()) };
+            if contains(bytes, CANARY)
+                || CANARY_BASE64
+                    .iter()
+                    .any(|encoded| contains(bytes, *encoded))
+            {
+                CANARY_RELEASES.fetch_add(1, Ordering::SeqCst);
+            }
+        }
         for slot in &WATCHED {
             if slot.pointer.load(Ordering::SeqCst) != pointer {
                 continue;
@@ -247,10 +336,244 @@ fn length_delimited(field: u32, payload: &[u8], wire: &mut Vec<u8>) {
     buffa::types::encode_bytes(payload, wire);
 }
 
+/// Run `operation` in a canary window and count the byte-aligned blocks it
+/// released, through dealloc or reallocation, that still held the canary.
+fn canary_releases(operation: impl FnOnce()) -> usize {
+    CANARY_RELEASES.store(0, Ordering::SeqCst);
+    CANARY_SCAN.with(|scan| scan.set(true));
+    operation();
+    CANARY_SCAN.with(|scan| scan.set(false));
+    CANARY_RELEASES.load(Ordering::SeqCst)
+}
+
+#[track_caller]
+fn assert_no_canary_released(operation: impl FnOnce()) {
+    assert_eq!(
+        canary_releases(operation),
+        0,
+        "a released allocation still held the canary secret"
+    );
+}
+
+/// A secret made of whole canary periods, valid UTF-8 and JSON-safe.
+fn canary_secret() -> Vec<u8> {
+    CANARY.repeat(20)
+}
+
+/// The negative control: a deliberately leaky copy into a differently sized
+/// allocation, released without wiping. The canary scan must report it.
+fn leak_into_other_sized_vec(secret: &SecretBytes) {
+    let mut copy = Vec::with_capacity(secret.len() + 7);
+    copy.extend_from_slice(secret);
+    std::hint::black_box(&copy);
+}
+
+/// Grow a buffer in place-sized steps, then wipe only the final allocation.
+/// Stale copies remain in the blocks released by reallocation.
+fn leak_through_growth(secret: &[u8]) {
+    let mut grown = Vec::with_capacity(CANARY.len() * 2);
+    for period in secret.chunks(CANARY.len()) {
+        grown.extend_from_slice(period);
+    }
+    std::hint::black_box(&grown);
+    zeroize::Zeroize::zeroize(&mut grown);
+}
+
+// Canary windows over the guarded representations' lifecycle paths. Inputs
+// and caller-owned outputs are created before and released after a window,
+// because they are not guarded allocations.
+fn canary_is_released_only_after_wiping() {
+    use base64::Engine as _;
+    let secret = canary_secret();
+    for (rotation, expected) in CANARY_BASE64.iter().enumerate() {
+        let mut rotated = *CANARY;
+        rotated.rotate_left(rotation);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .encode(rotated)
+                .as_bytes(),
+            *expected
+        );
+    }
+
+    // Negative controls: the scan detects a copy in another size, a copy
+    // left behind by reallocation, and an unwiped base64 rendering.
+    let guarded = SecretBytes::from(secret.clone());
+    assert!(canary_releases(|| leak_into_other_sized_vec(&guarded)) > 0);
+    assert!(canary_releases(|| leak_through_growth(&secret)) > 0);
+    for offset in 0..3 {
+        let mut shifted = vec![b'#'; offset];
+        shifted.extend_from_slice(&guarded);
+        assert!(
+            canary_releases(|| {
+                std::hint::black_box(base64::engine::general_purpose::STANDARD.encode(&shifted));
+            }) > 0
+        );
+        zeroize::Zeroize::zeroize(&mut shifted);
+    }
+    assert_no_canary_released(|| drop(guarded));
+
+    let text = String::from_utf8(secret.clone()).unwrap();
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&secret);
+
+    // Binary decode of every guarded buffer shape, each followed by a
+    // replacement of the same field, from contiguous and fragmented input.
+    // Map entries (8, 9) carry the secret as their value.
+    for field in [1, 2, 3, 4, 5, 8, 9, 11, 12] {
+        let mut wire = Vec::new();
+        for value in [&secret[..], b"replacement"] {
+            if matches!(field, 8 | 9) {
+                let mut entry = Vec::new();
+                length_delimited(1, b"same", &mut entry);
+                length_delimited(2, value, &mut entry);
+                length_delimited(field, &entry, &mut wire);
+            } else {
+                length_delimited(field, value, &mut wire);
+            }
+        }
+        let (first, rest) = wire.split_at(7);
+        let mut truncated = wire.clone();
+        truncated.push(0);
+        assert_no_canary_released(|| {
+            drop(Credentials::decode_from_slice(&wire).unwrap());
+            drop(Credentials::decode(&mut first.chain(rest)).unwrap());
+            assert!(Credentials::decode_from_slice(&truncated).is_err());
+        });
+    }
+
+    // JSON decode, accepted and rejected after the secret field was parsed.
+    // serde_json borrows unescaped strings, so the parser makes no copy.
+    for json in [
+        format!(r#"{{"key":"{encoded}"}}"#),
+        format!(r#"{{"token":"{encoded}"}}"#),
+        format!(r#"{{"chain":["{encoded}"]}}"#),
+        format!(r#"{{"keys":{{"name":"{encoded}"}}}}"#),
+        format!(r#"{{"raw":"{encoded}"}}"#),
+        format!(r#"{{"identity":"{text}"}}"#),
+        format!(r#"{{"labels":["{text}"]}}"#),
+        format!(r#"{{"identities":{{"name":"{text}"}}}}"#),
+        format!(r#"{{"text":"{text}"}}"#),
+    ] {
+        let rejected = format!(r#"{}, "enabled":[]}}"#, &json[..json.len() - 1]);
+        assert_no_canary_released(|| {
+            drop(serde_json::from_str::<Credentials>(&json).unwrap());
+            drop(serde_json::from_str::<Credentials>(&rejected).unwrap_err());
+        });
+    }
+
+    // Encoding, clearing and replacing. The caller-owned outputs are reserved
+    // up front, so they never grow, and they are wiped after the window.
+    for field in [1, 2, 3, 4, 5, 8, 9, 11, 12] {
+        let bytes = || SecretBytes::from(secret.clone());
+        let string = || buffa_test::guarded_repr::SecretString::from(text.clone());
+        let mut value = Credentials::default();
+        match field {
+            1 => value.key = bytes(),
+            2 => value.identity = string(),
+            3 => value.token = Some(bytes()),
+            4 => value.chain.push(bytes()),
+            5 => value.labels.push(string()),
+            8 => {
+                value.keys.insert("name".to_owned().into(), bytes());
+            }
+            9 => {
+                value.identities.insert("name".to_owned().into(), string());
+            }
+            11 => value.credential = Some(Credential::Raw(bytes())),
+            12 => value.credential = Some(Credential::Text(string())),
+            _ => unreachable!("fixed fixture fields"),
+        }
+        let mut json = Vec::with_capacity(4096);
+        let mut wire = Vec::with_capacity(4096);
+        assert_no_canary_released(|| {
+            serde_json::to_writer(&mut json, &value).unwrap();
+            value.encode(&mut wire);
+            let mut replaced = value.clone();
+            replaced.clear();
+            let mut replaced = value.clone();
+            replaced.key = b"new".to_vec().into();
+            replaced.identity = "new".to_owned().into();
+            drop(replaced);
+            drop(value);
+        });
+        assert!(json.capacity() == 4096 && wire.capacity() == 4096);
+        zeroize::Zeroize::zeroize(&mut json);
+        zeroize::Zeroize::zeroize(&mut wire);
+    }
+
+    // Policy elements and map values of a cleanup-selected message, through
+    // the policy with-modules into `sensitive::List` / `sensitive::Map`:
+    // accepted, rejected after the secret was decoded (including a secret key
+    // whose value then fails), and encoded into reserved caller outputs.
+    use buffa_test::sensitive_test::PolicyContainers;
+    for (accepted, rejected) in [
+        (
+            format!(r#"{{"keys":["AA==","{encoded}","AA==","AA==","AA=="]}}"#),
+            format!(r#"{{"keys":["{encoded}",5]}}"#),
+        ),
+        (
+            format!(r#"{{"labels":["{text}"]}}"#),
+            format!(r#"{{"labels":["{text}",5]}}"#),
+        ),
+        (
+            format!(r#"{{"byIndex":{{"7":"{encoded}"}}}}"#),
+            format!(r#"{{"byIndex":{{"7":"{encoded}","8":5}}}}"#),
+        ),
+        (
+            format!(r#"{{"byName":{{"name":"{text}"}}}}"#),
+            format!(r#"{{"byName":{{"name":"{text}","other":5}}}}"#),
+        ),
+        (
+            format!(r#"{{"byName":{{"{text}":"value"}}}}"#),
+            format!(r#"{{"byName":{{"{text}":5}}}}"#),
+        ),
+    ] {
+        assert_no_canary_released(|| {
+            drop(serde_json::from_str::<PolicyContainers>(&accepted).unwrap());
+            drop(serde_json::from_str::<PolicyContainers>(&rejected).unwrap_err());
+        });
+    }
+    let mut value = PolicyContainers::default();
+    value
+        .keys
+        .push(buffa_test::sensitive_repr::SecretBytes::from(
+            secret.clone(),
+        ));
+    value
+        .labels
+        .push(buffa_test::sensitive_repr::SecretString::from(text.clone()));
+    value.by_index.insert(
+        7,
+        buffa_test::sensitive_repr::SecretBytes::from(secret.clone()),
+    );
+    value.by_name.insert(
+        buffa_test::sensitive_repr::SecretString::from(text.clone()),
+        buffa_test::sensitive_repr::SecretString::from(text.clone()),
+    );
+    let mut json = Vec::with_capacity(4096);
+    assert_no_canary_released(|| {
+        serde_json::to_writer(&mut json, &value).unwrap();
+        drop(value);
+    });
+    assert_eq!(json.capacity(), 4096);
+    zeroize::Zeroize::zeroize(&mut json);
+}
+
 // Keep these observations in one test: the allocator's watch slot must never
 // be shared by concurrent test cases in this integration-test executable.
 #[test]
-fn guarded_allocations_are_wiped_before_release_on_every_lifecycle_path() {
+fn observed_guarded_allocations_are_wiped_and_canary_free_at_release() {
+    canary_is_released_only_after_wiping();
+
+    // Negative control for the sentinel: a watched block that never held data
+    // is not all zero at release, so it cannot pass as wiped.
+    watch_next_allocation(SECRET_LENGTH);
+    drop(std::hint::black_box(Vec::<u8>::with_capacity(
+        SECRET_LENGTH,
+    )));
+    assert!(!finish_observation(), "an unwritten block passed as wiped");
+    reset_observation();
+
     // Only element borrows are mutable. Neither List nor its iterator can
     // expose allocating mutable-slice algorithms; compile-fail docs freeze
     // those boundaries. Valid mutation keeps the one backing owner intact.

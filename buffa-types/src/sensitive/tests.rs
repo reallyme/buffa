@@ -43,7 +43,7 @@ fn guarded_dynamic_trees_preserve_json_and_wire_values() {
     assert_eq!(Value::decode_from_slice(&wire).unwrap(), value);
     let view = ValueView::decode_view(&wire).unwrap();
     let lazy = ValueLazyView::decode_lazy(&wire).unwrap();
-    let owned = ValueOwnedView::decode(wire.clone()).unwrap();
+    let owned = buffa::OwnedView::<ValueView<'static>>::decode(wire.clone()).unwrap();
     for json in [
         serde_json::to_string(&value).unwrap(),
         serde_json::to_string(&view).unwrap(),
@@ -74,10 +74,10 @@ fn unset_dynamic_values_fail_export_in_every_view_family() {
     assert!(serde_json::to_string(&crate::google::protobuf::Value::default()).is_err());
     assert!(serde_json::to_string(&ValueView::decode_view(&[]).unwrap()).is_err());
     assert!(serde_json::to_string(&ValueLazyView::decode_lazy(&[]).unwrap()).is_err());
-    assert!(
-        serde_json::to_string(&ValueOwnedView::decode(buffa::bytes::Bytes::new()).unwrap())
-            .is_err()
-    );
+    assert!(serde_json::to_string(
+        &buffa::OwnedView::<ValueView<'static>>::decode(buffa::bytes::Bytes::new()).unwrap()
+    )
+    .is_err());
     assert_eq!(serde_json::to_string(&Value::null()).unwrap(), "null");
     let mut object = Struct::default();
     object.insert("field", Value::default());
@@ -144,4 +144,88 @@ fn temporal_json_is_canonical_and_rejects_invalid_values() {
     assert!(serde_json::from_str::<Value>(r#"[1.25,2.5,"unterminated]"#).is_err());
     let nested = alloc::format!("{}0{}", "[".repeat(160), "]".repeat(160));
     assert!(serde_json::from_str::<Value>(&nested).is_err());
+}
+
+#[cfg(feature = "json")]
+#[test]
+fn guarded_json_rejections_never_echo_the_rejected_token() {
+    use alloc::string::String;
+    use serde::de::value::{
+        BytesDeserializer, Error, I128Deserializer, StringDeserializer, U128Deserializer,
+    };
+    const MARKERS: [&str; 6] = [
+        "123456789",
+        "1.5e",
+        "true",
+        "private-token",
+        "340282366920938463463374607431768211455",
+        "170141183460469231731687303715884105728",
+    ];
+    fn check(label: &str, error: Option<String>) {
+        let error = error.unwrap_or_else(|| panic!("{label} was accepted"));
+        for marker in MARKERS {
+            assert!(!error.contains(marker), "{label} echoed {marker}: {error}");
+        }
+    }
+    // Every probe a guarded entry point does not accept must be rejected
+    // without its value; `accepted` names the JSON probes it takes.
+    macro_rules! assert_rejections_redacted {
+        ($ty:ty, $accepted:expr) => {{
+            let accepted: &[&str] = &$accepted;
+            for source in [
+                "123456789",
+                "-1.5e300",
+                "true",
+                r#""private-token""#,
+                "[]",
+                "{}",
+            ] {
+                if !accepted.contains(&source) {
+                    let error = serde_json::from_str::<$ty>(source).err();
+                    check(source, error.map(|error| error.to_string()));
+                }
+            }
+            if !accepted.contains(&r#""private-token""#) {
+                let input = StringDeserializer::<Error>::new(String::from("private-token"));
+                let error = <$ty as serde::Deserialize>::deserialize(input).err();
+                check("owned string", error.map(|error| error.to_string()));
+            }
+            let input = BytesDeserializer::<Error>::new(b"private-token");
+            let error = <$ty as serde::Deserialize>::deserialize(input).err();
+            check("bytes", error.map(|error| error.to_string()));
+            let input = U128Deserializer::<Error>::new(u128::MAX);
+            let error = <$ty as serde::Deserialize>::deserialize(input).err();
+            check("u128", error.map(|error| error.to_string()));
+            let input = I128Deserializer::<Error>::new(i128::MIN);
+            let error = <$ty as serde::Deserialize>::deserialize(input).err();
+            check("i128", error.map(|error| error.to_string()));
+        }};
+    }
+    assert_rejections_redacted!(SecretString, [r#""private-token""#]);
+    assert_rejections_redacted!(Timestamp, []);
+    assert_rejections_redacted!(Duration, []);
+    assert_rejections_redacted!(Struct, ["{}"]);
+    assert_rejections_redacted!(ListValue, ["[]"]);
+    assert_rejections_redacted!(
+        Value,
+        [
+            "123456789",
+            "-1.5e300",
+            "true",
+            r#""private-token""#,
+            "[]",
+            "{}"
+        ]
+    );
+
+    // Accepted inputs are unchanged, including owned strings.
+    let text: SecretString = serde_json::from_str(r#""kept""#).unwrap();
+    assert_eq!(&*text, "kept");
+    let owned = StringDeserializer::<Error>::new(String::from("owned"));
+    assert_eq!(
+        &*<SecretString as serde::Deserialize>::deserialize(owned).unwrap(),
+        "owned"
+    );
+    let time: Timestamp = serde_json::from_str(r#""1970-01-01T00:00:01Z""#).unwrap();
+    assert_eq!(time.seconds, 1);
 }

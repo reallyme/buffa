@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    **The `ProtoBytesJson` docs no longer suggest that `json_helpers::bytes::deserialize` keeps decoded bytes under the policy's control.** It decodes into a `Vec<u8>` that buffa allocates, drops a partly decoded buffer without wiping it on invalid input, and its error text can quote a symbol and offset from the input. A policy whose `deserialize_json` calls `bytes::deserialize` and that must wipe its plaintext should switch to a visitor that decodes with the new `bytes::decode_into` into storage it wipes, as the guarded fixture in `buffa-test` does. The docs now also list the copies no policy controls: the caller's serializer output, `serde_json`'s scratch buffer for escaped strings and `from_reader`, and `google.protobuf.Any` buffering through `serde_json::Value`.
+time: 2026-11-17T16:00:02+01:00

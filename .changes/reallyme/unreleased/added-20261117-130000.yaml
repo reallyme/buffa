@@ -1,0 +1,3 @@
+kind: Added
+body: '`DecodeOptions::clears_on_merge_error` reports whether `clear_on_merge_error` is set. The additive `with_clear_on_merge_error(bool)` setter can enable or disable the policy, including on a cloned configuration. Documentation distinguishes logical clearing, memory wiping, and input-buffer consumption.'
+time: 2026-11-17T13:00:00+01:00

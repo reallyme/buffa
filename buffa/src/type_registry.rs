@@ -126,7 +126,7 @@ mod any_depth {
         // Balanced by RAII, so this cannot underflow; saturate rather than
         // wrap if it somehow does, since a wrapped counter would disable the
         // bound entirely.
-        let _ = DEPTH.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+        let _ = DEPTH.try_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
             Some(v.saturating_sub(1))
         });
     }

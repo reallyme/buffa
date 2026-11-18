@@ -113,6 +113,9 @@ where
         }
         Ok(out)
     }
+    crate::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, seq
+    );
 }
 
 /// Open-enum maps streamed directly into their owning container.
@@ -320,5 +323,103 @@ mod tests {
                 assert_eq!(map.len(), 1);
             },
         );
+    }
+
+    /// Values that must never appear in a rejection: each probe's token.
+    const MARKERS: [&str; 6] = [
+        "123456789",
+        "1.5e",
+        "true",
+        "private-token",
+        "340282366920938463463374607431768211455",
+        "170141183460469231731687303715884105728",
+    ];
+    const JSON_PROBES: [&str; 6] = [
+        "123456789",
+        "-1.5e300",
+        "true",
+        r#""private-token""#,
+        "[]",
+        "{}",
+    ];
+
+    /// Feed every probe a guarded entry point does not accept, and require a
+    /// rejection that names no probe value. `accepted` lists JSON probes the
+    /// entry point takes as valid input (for example `[]` for a list).
+    macro_rules! assert_rejections_redacted {
+        ($accepted:expr, |$input:ident| $decode:expr) => {{
+            use serde::de::value::{
+                BytesDeserializer, Error, I128Deserializer, StringDeserializer, U128Deserializer,
+            };
+            fn check(label: &str, error: Option<String>) {
+                let error = error.unwrap_or_else(|| panic!("{label} was accepted"));
+                for marker in MARKERS {
+                    assert!(!error.contains(marker), "{label} echoed {marker}: {error}");
+                }
+            }
+            for source in JSON_PROBES {
+                if !$accepted.contains(&source) {
+                    let $input = &mut serde_json::Deserializer::from_str(source);
+                    check(source, $decode.err().map(|error| error.to_string()));
+                }
+            }
+            if !$accepted.contains(&r#""private-token""#) {
+                let $input = StringDeserializer::<Error>::new(String::from("private-token"));
+                check("owned string", $decode.err().map(|error| error.to_string()));
+            }
+            let $input = BytesDeserializer::<Error>::new(b"private-token");
+            check("bytes", $decode.err().map(|error| error.to_string()));
+            let $input = U128Deserializer::<Error>::new(u128::MAX);
+            check("u128", $decode.err().map(|error| error.to_string()));
+            let $input = I128Deserializer::<Error>::new(i128::MIN);
+            check("i128", $decode.err().map(|error| error.to_string()));
+        }};
+    }
+
+    #[test]
+    fn guarded_visitors_never_echo_a_rejected_token() {
+        use crate::json_helpers::{enum_list, guarded_map, proto_list};
+        use crate::sensitive::{List, Map};
+        let none: [&str; 0] = [];
+        // An open enum keeps an in-range unknown number.
+        assert_rejections_redacted!(["123456789"], |input| open::deserialize::<State, _>(input));
+        assert_rejections_redacted!(none, |input| closed::deserialize::<State, _>(input));
+        assert_rejections_redacted!(
+            ["123456789"],
+            |input| optional_open::deserialize::<State, _>(input)
+        );
+        assert_rejections_redacted!(none, |input| optional_closed::deserialize::<State, _>(
+            input
+        ));
+        assert_rejections_redacted!(["{}"], |input| map_open::deserialize::<State, OpenMap, _>(
+            input
+        ));
+        assert_rejections_redacted!(["{}"], |input| map_closed::deserialize::<ClosedMap, _>(
+            input
+        ));
+        assert_rejections_redacted!(
+            ["{}"],
+            |input| guarded_map::deserialize::<Map<i64, u64>, _>(input)
+        );
+        assert_rejections_redacted!(
+            ["[]"],
+            |input| proto_list::deserialize::<i32, List<i32>, _>(input)
+        );
+        assert_rejections_redacted!(["[]"], |input| enum_list::open::deserialize::<
+            State,
+            List<EnumValue<State>>,
+            _,
+        >(input));
+        assert_rejections_redacted!(["[]"], |input| enum_list::closed::deserialize::<
+            State,
+            List<State>,
+            _,
+        >(input));
+        assert_rejections_redacted!(["{}"], |input| {
+            <Map<i64, u64> as serde::Deserialize>::deserialize(input)
+        });
+        assert_rejections_redacted!(["[]"], |input| {
+            <List<u64> as serde::Deserialize>::deserialize(input)
+        });
     }
 }

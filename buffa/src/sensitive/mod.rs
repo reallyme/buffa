@@ -24,6 +24,9 @@ pub use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum JsonErrorReason {
+    /// A typed parser may reject a value before the redacting visitor runs.
+    #[error("invalid JSON for guarded message")]
+    InvalidMessage,
     /// Unknown field names can contain caller-provided private data.
     #[error("unknown JSON field in guarded message")]
     UnknownField,

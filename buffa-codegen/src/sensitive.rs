@@ -20,8 +20,15 @@ pub(crate) fn message_impl(
         ..
     } = scope;
     if !ctx.zeroizes_message(proto_fqn) {
-        if ctx.contains_guarded_reflection(proto_fqn) {
-            return Err(invalid(proto_fqn, Reason::ReflectionParent));
+        // An ordinary container would relocate or snapshot a guarded
+        // descendant without wiping the stale copy, so it must be selected.
+        if ctx.contains_guarded_message(proto_fqn) {
+            let reason = if ctx.config.generate_reflection {
+                Reason::ReflectionParent
+            } else {
+                Reason::ContainingMessage
+            };
+            return Err(invalid(proto_fqn, reason));
         }
         return Ok(quote! {});
     }
@@ -38,6 +45,12 @@ pub(crate) fn message_impl(
         let ty = crate::impl_message::effective_type(ctx, field, features);
         let string_repr = crate::impl_message::field_string_repr(ctx, proto_fqn, field_name);
         let bytes_repr = crate::impl_message::field_bytes_repr(ctx, proto_fqn, field_name);
+        if field.label.unwrap_or_default()
+            == crate::generated::descriptor::field_descriptor_proto::Label::LABEL_REPEATED
+            && !wipe_owning_collection(ctx, msg, field, proto_fqn, field_name)
+        {
+            return Err(invalid(proto_fqn, Reason::CollectionRepresentation));
+        }
         let mut slot_types = vec![ty];
         if let Some(entry) = crate::message::find_map_entry(msg, field) {
             if crate::message::map_entry_key_type(ctx, entry, features) == Some(Type::TYPE_BYTES) {
@@ -284,6 +297,54 @@ pub(crate) fn view_oneof_impl(
             fn drop(&mut self) { ::buffa::sensitive::Zeroize::zeroize(self); }
         }
     })
+}
+
+/// Whether a repeated or map field's collection can own cleanup of its
+/// elements. A `Vec` implements the cleanup traits for wipe-owning elements,
+/// yet moves them on growth and releases the old allocation unwiped, so an
+/// explicit rule selecting one is rejected. `HashMap` and `BTreeMap` would
+/// fail the trait bounds at compile time; rejecting them here names the
+/// problem earlier. Other custom collections are checked by their trait
+/// bounds only, so a crate-local alias or newtype over `Vec` is not detected.
+fn wipe_owning_collection(
+    ctx: &CodeGenContext<'_>,
+    msg: &DescriptorProto,
+    field: &crate::generated::descriptor::FieldDescriptorProto,
+    proto_fqn: &str,
+    field_name: &str,
+) -> bool {
+    if crate::message::find_map_entry(msg, field).is_some() {
+        return matches!(
+            crate::impl_message::field_map_repr(ctx, proto_fqn, field_name),
+            crate::MapRepr::Custom(_)
+        );
+    }
+    match crate::impl_message::field_repeated_repr(ctx, proto_fqn, field_name) {
+        crate::RepeatedRepr::Custom(template) => !names_std_vec(&template),
+        _ => false,
+    }
+}
+
+/// Whether a custom collection template names the standard `Vec` itself.
+fn names_std_vec(template: &str) -> bool {
+    let Ok(syn::Type::Path(path)) = syn::parse_str::<syn::Type>(&template.replace('*', "()"))
+    else {
+        return false;
+    };
+    let names: Vec<String> = path
+        .path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    matches!(
+        names.as_slice(),
+        ["Vec"]
+            | ["vec", "Vec"]
+            | ["std" | "alloc", "vec", "Vec"]
+            | ["buffa", "alloc", "vec", "Vec"]
+    )
 }
 
 fn invalid(message: &str, reason: Reason) -> CodeGenError {

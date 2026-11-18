@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    A custom bytes, string or repeated field type that is not a Rust type path, such as `_`, `()`, `[u8; 4]`, `&'static [u8]`, `impl Trait`, `<A as Trait>::B` or a parenthesized type, is now rejected at generation time with `CodeGenError::InvalidTypePath`, which the plugin returns in its response. Previously it was spliced into the generated struct and failed only when the consumer crate compiled. Name any other type through a type alias.
+time: 2026-11-17T15:10:00+01:00

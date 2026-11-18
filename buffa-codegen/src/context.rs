@@ -54,7 +54,7 @@ pub struct CodeGenContext<'a> {
     pub config: &'a CodeGenConfig,
     denied_view_json: std::cell::OnceCell<HashSet<String>>,
     borrowed_views_only: std::cell::OnceCell<HashSet<String>>,
-    guarded_reflection_messages: std::cell::OnceCell<HashSet<String>>,
+    guarded_containing_messages: std::cell::OnceCell<HashSet<String>>,
     /// Map from fully-qualified protobuf name (e.g., ".my.package.MyMessage")
     /// to Rust type path (e.g., "my::package::MyMessage").
     ///
@@ -657,7 +657,7 @@ impl<'a> CodeGenContext<'a> {
             config,
             denied_view_json: std::cell::OnceCell::new(),
             borrowed_views_only: std::cell::OnceCell::new(),
-            guarded_reflection_messages: std::cell::OnceCell::new(),
+            guarded_containing_messages: std::cell::OnceCell::new(),
             type_map,
             package_of,
             enum_closedness,
@@ -1387,16 +1387,28 @@ impl<'a> CodeGenContext<'a> {
         denied
     }
 
+    /// Whether the standard owned-view wrapper and its `HasMessageView`
+    /// binding are omitted for this message.
+    ///
+    /// Cleanup messages are always selected: the wrapper's `from_owned`
+    /// would encode the guarded owner into ordinary, clonable `Bytes`.
+    /// Containers of a selected message are selected too, so their handles
+    /// do not retain the same wire bytes.
     pub(crate) fn borrowed_views_only(&self, msg_fqn: &str) -> bool {
-        if self.config.borrowed_views_only_in.is_empty() {
+        if self.config.borrowed_views_only_in.is_empty()
+            && !self.config.generate_zeroize
+            && self.config.zeroize_messages.is_empty()
+        {
             return false;
         }
         let selected = self.borrowed_views_only.get_or_init(|| {
             self.containing_messages(|name| {
-                self.config
-                    .borrowed_views_only_in
-                    .iter()
-                    .any(|rule| matches_proto_prefix(rule, name))
+                self.zeroizes_message(name)
+                    || self
+                        .config
+                        .borrowed_views_only_in
+                        .iter()
+                        .any(|rule| matches_proto_prefix(rule, name))
             })
         });
         if msg_fqn.starts_with('.') {
@@ -1426,14 +1438,15 @@ impl<'a> CodeGenContext<'a> {
         denied.contains(name.as_ref())
     }
 
-    pub(crate) fn contains_guarded_reflection(&self, msg_fqn: &str) -> bool {
-        if !self.config.generate_reflection
-            || (!self.config.generate_zeroize && self.config.zeroize_messages.is_empty())
-        {
+    /// Whether a message reaches a cleanup-selected message through its
+    /// message fields, directly or transitively. A selected message reports
+    /// itself, so callers check selection first.
+    pub(crate) fn contains_guarded_message(&self, msg_fqn: &str) -> bool {
+        if !self.config.generate_zeroize && self.config.zeroize_messages.is_empty() {
             return false;
         }
         let guarded = self
-            .guarded_reflection_messages
+            .guarded_containing_messages
             .get_or_init(|| self.containing_messages(|name| self.zeroizes_message(name)));
         let name = if msg_fqn.starts_with('.') {
             Cow::Borrowed(msg_fqn)

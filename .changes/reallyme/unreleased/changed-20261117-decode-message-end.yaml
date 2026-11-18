@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+    **`DecodeContext` records where the message being decoded ends.** The default `Message::merge_to_limit`, `Message::merge_length_delimited` and the length-delimited decode entry points record it through the new `DecodeContext::with_message_end`, whose argument is the number of bytes that follow the message (the same `limit` that `merge_to_limit` takes), not the message's length. Hand-written code that decodes a different buffer, such as a copy or a decompressed payload, with a context it was given must call `with_message_end(0)` for a buffer that holds exactly the message, or start that buffer with `Message::merge`; otherwise a valid nested field near its end can be rejected with `DecodeError::UnexpectedEof`. A `merge_to_limit` override should record its `limit` the same way. A direct `merge_to_limit` caller can now get `UnexpectedEof` where it previously got `Ok` with the buffer past its limit.
+time: 2026-11-17T15:30:01+01:00

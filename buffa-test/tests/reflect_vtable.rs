@@ -46,6 +46,47 @@ fn enum_local_closed_override_supports_owned_and_view_collection_reflection() {
     }
 }
 
+#[test]
+fn extern_enums_typed_closed_support_collection_reflection() {
+    use buffa_test::extern_bridge_enum_owner::Shade;
+    use buffa_test::extern_open_enum_owner::{Color, OwnerColors};
+    use buffa_test::extern_open_enum_user::{Palette, PaletteView};
+
+    // The owner's rule opens Color in its own generation only.
+    let mut opened = OwnerColors::default();
+    opened
+        .colors
+        .push(buffa::EnumValue::from(Color::COLOR_GREEN));
+    assert_eq!(opened.colors.len(), 1);
+
+    let mut owned = Palette::default();
+    owned.colors.push(Color::COLOR_GREEN);
+    owned.by_id.insert(7, Color::COLOR_GREEN);
+    owned.shades.push(Shade::SHADE_DARK);
+    owned.shade_by_id.insert(7, Shade::SHADE_DARK);
+    let wire = owned.encode_to_vec();
+    let view = PaletteView::decode_view(&wire).unwrap();
+
+    for reflected in [&owned as &dyn ReflectMessage, &view as &dyn ReflectMessage] {
+        let descriptor = reflected.message_descriptor();
+        for (list_field, map_field) in [(1, 2), (3, 4)] {
+            let ValueRef::List(list) = reflected.get(descriptor.field(list_field).unwrap()) else {
+                panic!("expected enum list in field {list_field}");
+            };
+            assert_eq!(list.len(), 1);
+            assert!(matches!(list.get(0), Some(ValueRef::EnumNumber(1))));
+            let ValueRef::Map(map) = reflected.get(descriptor.field(map_field).unwrap()) else {
+                panic!("expected enum map in field {map_field}");
+            };
+            assert_eq!(map.len(), 1);
+            assert!(matches!(
+                map.get(&MapKey::I32(7)),
+                Some(ValueRef::EnumNumber(1))
+            ));
+        }
+    }
+}
+
 /// A representative Person, encoded to wire bytes.
 fn person_bytes() -> Vec<u8> {
     let person = Person {

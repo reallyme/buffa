@@ -116,6 +116,89 @@ fn borrowed_only_views_do_not_expose_standard_owners() {
     assert!(content.contains("type ViewHandle = UnrelatedOwnedView"));
 }
 
+/// Cleanup messages and their containers never get a standard owned-view
+/// wrapper: its `from_owned` would encode the guarded owner into ordinary,
+/// clonable `Bytes`.
+#[test]
+fn cleanup_messages_do_not_expose_standard_owners() {
+    let mut file = proto3_file("cleanup.proto");
+    file.package = Some("cleanup".into());
+    let mut record = make_field("record", 1, Label::LABEL_OPTIONAL, Type::TYPE_MESSAGE);
+    record.type_name = Some(".cleanup.Record".into());
+    file.message_type.extend([
+        DescriptorProto {
+            name: Some("Record".into()),
+            field: vec![
+                make_field("handle", 1, Label::LABEL_OPTIONAL, Type::TYPE_UINT64),
+                make_field("values", 2, Label::LABEL_REPEATED, Type::TYPE_FLOAT),
+            ],
+            nested_type: vec![DescriptorProto {
+                name: Some("Inner".into()),
+                field: vec![make_field(
+                    "handle",
+                    1,
+                    Label::LABEL_OPTIONAL,
+                    Type::TYPE_UINT64,
+                )],
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        DescriptorProto {
+            name: Some("Container".into()),
+            field: vec![record],
+            ..Default::default()
+        },
+        DescriptorProto {
+            name: Some("Unrelated".into()),
+            ..Default::default()
+        },
+    ]);
+    let mut config = CodeGenConfig {
+        preserve_unknown_fields: false,
+        zeroize_messages: vec![".cleanup.Record".into()],
+        lazy_views: true,
+        ..Default::default()
+    };
+    // A container cannot bypass cleanup merely by wrapping a selected child.
+    let error = generate(
+        core::slice::from_ref(&file),
+        &["cleanup.proto".into()],
+        &config,
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        CodeGenError::InvalidZeroizeConfiguration {
+            reason: ZeroizeConfigurationErrorReason::ContainingMessage,
+            ..
+        }
+    ));
+    config.zeroize_messages.push(".cleanup.Container".into());
+    let content = joined(
+        &generate(
+            core::slice::from_ref(&file),
+            &["cleanup.proto".into()],
+            &config,
+        )
+        .unwrap(),
+    );
+    for name in ["Record", "Inner", "Container"] {
+        assert!(content.contains(&format!("pub struct {name}View<'a>")));
+        assert!(content.contains(&format!("pub struct {name}LazyView<'a>")));
+        assert!(!content.contains(&format!("{name}OwnedView")), "{name}");
+    }
+    assert!(!content.contains("type ViewHandle = RecordOwnedView"));
+    assert!(content.contains("type ViewHandle = UnrelatedOwnedView"));
+
+    config.zeroize_messages.clear();
+    config.generate_zeroize = true;
+    let content = joined(&generate(&[file], &["cleanup.proto".into()], &config).unwrap());
+    assert!(content.contains("pub struct UnrelatedView<'a>"));
+    assert!(!content.contains("OwnedView("));
+    assert!(!content.contains("type ViewHandle"));
+}
+
 #[test]
 fn borrowed_only_view_rule_fails_when_unmatched() {
     let config = CodeGenConfig {

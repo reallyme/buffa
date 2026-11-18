@@ -256,6 +256,20 @@ impl<'de, E: Enumeration> serde::Deserialize<'de> for EnumValue<E> {
                 Ok(EnumValue::from(n))
             }
 
+            // Deserializers delivering 128-bit integers, including JSON Values
+            // with arbitrary precision, use checked narrowing to avoid echoing input.
+            fn visit_i128<Err: serde::de::Error>(self, v: i128) -> Result<Self::Value, Err> {
+                let v =
+                    i64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_i64(v)
+            }
+
+            fn visit_u128<Err: serde::de::Error>(self, v: u128) -> Result<Self::Value, Err> {
+                let v =
+                    u64::try_from(v).map_err(|_| Err::custom(EnumJsonErrorReason::OutOfRange))?;
+                self.visit_u64(v)
+            }
+
             fn visit_f64<Err: serde::de::Error>(self, _: f64) -> Result<Self::Value, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
             }

@@ -29,6 +29,14 @@ impl ::buffa::sensitive::Zeroize for NullValue {
         ::buffa::sensitive::reset_copy(self);
     }
 }
+#[cfg(feature = "reflect")]
+impl ::buffa_descriptor::reflect::InspectElement for NullValue {
+    fn as_inspect_value(&self) -> ::buffa_descriptor::reflect::InspectValueRef<'_> {
+        ::buffa_descriptor::reflect::InspectValueRef::EnumNumber(
+            ::buffa::Enumeration::to_i32(self),
+        )
+    }
+}
 impl ::buffa::Enumeration for NullValue {
     fn from_i32(value: i32) -> ::core::option::Option<Self> {
         match value {
@@ -52,6 +60,14 @@ impl ::buffa::Enumeration for NullValue {
     }
     fn values() -> &'static [Self] {
         &[Self::NULL_VALUE]
+    }
+}
+#[cfg(feature = "reflect")]
+impl ::buffa_descriptor::reflect::ReflectElement for NullValue {
+    fn as_value_ref(&self) -> ::buffa_descriptor::reflect::ValueRef<'_> {
+        ::buffa_descriptor::reflect::ValueRef::EnumNumber(
+            ::buffa::Enumeration::to_i32(self),
+        )
     }
 }
 /// `Struct` represents a structured data value, consisting of fields
@@ -815,7 +831,7 @@ impl ::buffa::Message for Value {
                 )?;
                 self.kind = ::core::option::Option::Some(
                     __buffa::oneof::value::Kind::StringValue(
-                        ::buffa::types::decode_string_to(buf)?,
+                        ::buffa::types::decode_string_to_ctx(buf, ctx)?,
                     ),
                 );
             }

@@ -749,6 +749,62 @@ pub mod open_enums_enum_rule {
     buffa::include_proto!("test.openenums_enumrule");
 }
 
+/// Owner of an enum opened by an enum-level `open_enums_in` rule, referenced
+/// through extern_path by [`extern_open_enum_user`] without the rule.
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod extern_open_enum_owner {
+    buffa::include_proto!("test.extopenenum.owner");
+}
+
+/// Owner of an enum generated with bridge-mode reflection, referenced through
+/// extern_path by the vtable-mode [`extern_open_enum_user`].
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod extern_bridge_enum_owner {
+    buffa::include_proto!("test.extopenenum.bridge");
+}
+
+/// References the enums of [`extern_open_enum_owner`] and
+/// [`extern_bridge_enum_owner`] as closed in repeated and map-value position
+/// under vtable reflection.
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod extern_open_enum_user {
+    buffa::include_proto!("test.extopenenum.user");
+}
+
+/// Guarded owner of an enum opened by an enum-level `open_enums_in` rule,
+/// referenced through extern_path by [`guarded_extern_enum_user`].
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod guarded_extern_enum_owner {
+    buffa::include_proto!("test.guardedextenum.owner");
+}
+
+/// References the enum of [`guarded_extern_enum_owner`] as closed in guarded
+/// repeated and map-value position.
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod guarded_extern_enum_user {
+    buffa::include_proto!("test.guardedextenum.user");
+}
+
 /// `open_enums_in` fixture with unknown-field preservation disabled.
 #[allow(
     clippy::derivable_impls,
@@ -1150,6 +1206,7 @@ pub mod self_recursive_lazy {
 #[cfg(test)]
 mod tests;
 
+pub mod decode_hook_frame;
 pub mod string_copy;
 pub mod string_copy_counted;
 
@@ -1394,6 +1451,15 @@ pub mod guarded {
 }
 
 /// Messages exercising scalar cleanup and wipe-owning collections.
+///
+/// Cleanup messages do not expose a standard owned-view handle, whose backing
+/// `Bytes` would never be wiped.
+///
+/// ```compile_fail,E0277
+/// use buffa_test::sensitive_test::Record;
+/// type Raw = <Record as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
 #[allow(clippy::derivable_impls, clippy::match_single_binding)]
 pub mod sensitive_test {
     buffa::include_proto!("sensitive_test");
@@ -1423,6 +1489,12 @@ pub mod shared_guarded {
 /// A second generation using the same foreign representations.
 pub mod shared_guarded_second {
     buffa::include_proto!("shared_guarded_second");
+}
+
+/// The decode-hook frame shapes with guarded representations and cleanup.
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod guarded_hook_frame {
+    buffa::include_proto!("guarded_hook_frame");
 }
 
 /// Separate nominal guard types for the independent cleanup fixture generation.

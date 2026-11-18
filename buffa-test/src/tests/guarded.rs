@@ -273,6 +273,8 @@ fn sealed() -> crate::guarded::Sealed {
     value
         .by_name
         .insert("name".to_owned(), b"by-name".to_vec().into());
+    value.by_index.insert(-3, b"by-index".to_vec().into());
+    value.listed = vec![b"listed".to_vec().into()].into();
     value
 }
 
@@ -302,6 +304,15 @@ fn json_policy_governs_owned_eager_lazy_and_owned_view_export() {
         },
         Sealed {
             choice: Some(Choice::Chosen(b"chosen".to_vec().into())),
+            ..Default::default()
+        },
+        {
+            let mut value = Sealed::default();
+            value.by_index.insert(1, b"by-index".to_vec().into());
+            value
+        },
+        Sealed {
+            listed: vec![b"listed".to_vec().into()].into(),
             ..Default::default()
         },
         sealed(),
@@ -334,17 +345,35 @@ fn json_policy_governs_owned_eager_lazy_and_owned_view_export() {
 
 #[test]
 fn json_policy_still_accepts_import_of_sealed_fields() {
-    let value: crate::guarded::Sealed = serde_json::from_str(
-        r#"{"one":"b25l","maybe":"bWF5YmU=","many":["bWFueQ=="],"byName":{"name":"YnktbmFtZQ=="}}"#,
-    )
+    let value: crate::guarded::Sealed = serde_json::from_str(concat!(
+        r#"{"one":"b25l","maybe":"bWF5YmU=","many":["bWFueQ=="],"#,
+        r#""byName":{"name":"YnktbmFtZQ=="},"byIndex":{"-3":"YnktaW5kZXg="},"#,
+        r#""listed":["bGlzdGVk"]}"#
+    ))
     .unwrap();
     assert_eq!(value, sealed());
-    let null_fields: crate::guarded::Sealed =
-        serde_json::from_str(r#"{"one":null,"maybe":null,"chosen":null,"many":null}"#).unwrap();
+    let null_fields: crate::guarded::Sealed = serde_json::from_str(
+        r#"{"one":null,"maybe":null,"chosen":null,"many":null,"byIndex":null,"listed":null}"#,
+    )
+    .unwrap();
     assert_eq!(null_fields, crate::guarded::Sealed::default());
-    for input in [r#"{"many":[null]}"#, r#"{"byName":{"name":null}}"#] {
-        assert!(serde_json::from_str::<crate::guarded::Sealed>(input).is_err());
+    for input in [
+        r#"{"many":[null]}"#,
+        r#"{"byName":{"name":null}}"#,
+        r#"{"byIndex":{"1":null}}"#,
+        r#"{"listed":[null]}"#,
+    ] {
+        let error = serde_json::from_str::<crate::guarded::Sealed>(input).unwrap_err();
+        assert!(
+            error.to_string().contains("null is not a valid"),
+            "{input}: {error}"
+        );
     }
+    // A bad key is reported without echoing it.
+    let error = serde_json::from_str::<crate::guarded::Sealed>(r#"{"byIndex":{"secret":"AA=="}}"#)
+        .unwrap_err()
+        .to_string();
+    assert!(!error.contains("secret"), "{error}");
 }
 
 #[test]
@@ -406,3 +435,28 @@ fn guarded_repeated_floats_roundtrip_and_clear() {
     buffa::ProtoList::clear(&mut value.embedding);
     assert!(value.embedding.is_empty());
 }
+
+/// `<Probe<T>>::IS_ELEM` is the inherent `true` only when `T: ProtoElemJson`;
+/// otherwise it resolves to the trait's `false`.
+struct Probe<T>(core::marker::PhantomData<T>);
+trait NotElem {
+    const IS_ELEM: bool = false;
+}
+impl<T> NotElem for Probe<T> {}
+impl<T: buffa::json_helpers::ProtoElemJson> Probe<T> {
+    #[allow(dead_code)]
+    const IS_ELEM: bool = true;
+}
+
+// Checked at compile time: generated code implements no JSON element trait
+// for a listed policy type, although these types are used as `repeated`
+// elements and `map` values (guarded and plain) throughout the fixtures. A
+// policy type from another crate therefore works in those positions.
+const _: () = {
+    assert!(<Probe<Vec<u8>>>::IS_ELEM);
+    assert!(!<Probe<crate::guarded_repr::SecretBytes>>::IS_ELEM);
+    assert!(!<Probe<crate::guarded_repr::SecretString>>::IS_ELEM);
+    assert!(!<Probe<crate::guarded_repr::SealedBytes>>::IS_ELEM);
+    assert!(!<Probe<crate::sensitive_repr::SecretBytes>>::IS_ELEM);
+    assert!(!<Probe<crate::sensitive_repr::SecretString>>::IS_ELEM);
+};

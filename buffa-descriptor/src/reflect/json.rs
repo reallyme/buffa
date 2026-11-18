@@ -34,7 +34,7 @@ use alloc::vec::Vec;
 
 use serde::de::{self, DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserializer, Serialize, Serializer};
 
 use super::dynamic::default_scalar_value;
 use super::{DynamicMessage, MapKey, MapValue, ReflectMessage, ReflectMessageMut, Value};
@@ -768,12 +768,23 @@ impl<'de> DeserializeSeed<'de> for NestedSeed<'_> {
         if let Some(wkt) = WktKind::from_full_name(&md.full_name) {
             return wkt.deserialize_message(self.pool, self.msg_idx, d, self.flags, self.budget);
         }
-        d.deserialize_map(MessageVisitor {
+        // `deserialize_any` so a non-object reaches the visitor, whose
+        // rejections name the JSON kind but not the value.
+        let typed_map = !d.is_human_readable()
+            || md
+                .field_by_name(buffa::json_helpers::SERDE_JSON_NUMBER_KEY)
+                .is_some();
+        let visitor = MessageVisitor {
             pool: self.pool,
             msg_idx: self.msg_idx,
             flags: self.flags,
             budget: self.budget,
-        })
+        };
+        if typed_map {
+            d.deserialize_map(visitor)
+        } else {
+            d.deserialize_any(visitor)
+        }
     }
 }
 
@@ -795,6 +806,18 @@ impl<'de> Visitor<'de> for MessageVisitor<'_> {
         )
     }
 
+    buffa::json_helpers::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+    );
+
+    // Absent documents are distinct from JSON null. Preserve the previous
+    // typed entry point's empty-container behavior without accepting null.
+    fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+        Ok(DynamicMessage::new(self.pool, self.msg_idx))
+    }
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, tagged: A) -> Result<Self::Value, A::Error> {
+        buffa::json_helpers::deserialize_tagged(self, tagged)
+    }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         let mut msg = DynamicMessage::new(Arc::clone(&self.pool), self.msg_idx);
         // Per the proto3 JSON spec, supplying more than one member of the
@@ -835,6 +858,12 @@ impl<'de> Visitor<'de> for MessageVisitor<'_> {
                 md.field_by_name(&key)
             };
             let Some(fd) = fd else {
+                if key == buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                    return Err(de::Error::invalid_type(
+                        de::Unexpected::Other("number"),
+                        &self,
+                    ));
+                }
                 // Unknown field — error per the spec, unless the caller
                 // opted into lenient parsing. Note that this `continue`
                 // bypasses the duplicate-key check below: a payload with
@@ -952,21 +981,35 @@ impl<'de> DeserializeSeed<'de> for FieldSeed<'_> {
                 budget: self.budget,
             }
             .deserialize(d),
-            FieldKind::List(sk) => d.deserialize_any(ListVisitor {
-                pool: self.pool,
-                kind: sk,
-                enum_type: self.enum_type,
-                flags: self.flags,
-                budget: self.budget,
-            }),
-            FieldKind::Map { key, value } => d.deserialize_any(MapFieldVisitor {
-                pool: self.pool,
-                key,
-                value,
-                enum_type: self.enum_type,
-                flags: self.flags,
-                budget: self.budget,
-            }),
+            FieldKind::List(sk) => {
+                let visitor = ListVisitor {
+                    pool: self.pool,
+                    kind: sk,
+                    enum_type: self.enum_type,
+                    flags: self.flags,
+                    budget: self.budget,
+                };
+                if d.is_human_readable() {
+                    d.deserialize_any(visitor)
+                } else {
+                    d.deserialize_seq(visitor)
+                }
+            }
+            FieldKind::Map { key, value } => {
+                let visitor = MapFieldVisitor {
+                    pool: self.pool,
+                    key,
+                    value,
+                    enum_type: self.enum_type,
+                    flags: self.flags,
+                    budget: self.budget,
+                };
+                if d.is_human_readable() {
+                    d.deserialize_any(visitor)
+                } else {
+                    d.deserialize_map(visitor)
+                }
+            }
         }
     }
 }
@@ -1032,6 +1075,9 @@ fn deserialize_optional_scalar<'de, D: Deserializer<'de>>(
         fn visit_some<D2: Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
             deserialize_scalar(self.0, d).map(Some)
         }
+        buffa::json_helpers::reject_other_json_kinds!(
+            bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+        );
     }
     d.deserialize_option(Opt(sc))
 }
@@ -1068,6 +1114,10 @@ impl<'de> Visitor<'de> for NestedMessageVisitor<'_> {
         .deserialize(d)
         .map(|m| Some(Value::Message(m)))
     }
+
+    buffa::json_helpers::reject_other_json_kinds!(
+        bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+    );
 }
 
 fn deserialize_scalar<'de, D: Deserializer<'de>>(sc: ScalarType, d: D) -> Result<Value, D::Error> {
@@ -1106,6 +1156,8 @@ fn deserialize_scalar<'de, D: Deserializer<'de>>(sc: ScalarType, d: D) -> Result
             // `null` for a scalar means "unset" — handled at the caller.
             Err(de::Error::invalid_type(de::Unexpected::Unit, &self))
         }
+
+        buffa::json_helpers::reject_other_json_kinds!(i128, u128, bytes, byte_buf);
     }
     d.deserialize_any(ScalarVisitor(sc))
 }
@@ -1243,6 +1295,18 @@ fn deserialize_enum<'de, D: Deserializer<'de>>(
                 i64::try_from(v).map_err(|_| E::custom(EnumJsonErrorReason::OutOfRange))?,
             )
         }
+        // Formats that deliver 128-bit integers (YAML, for one) take the
+        // 64-bit path; serde's defaults would echo the number.
+        fn visit_i128<E: de::Error>(self, v: i128) -> Result<Self::Value, E> {
+            self.visit_i64(
+                i64::try_from(v).map_err(|_| E::custom(EnumJsonErrorReason::OutOfRange))?,
+            )
+        }
+        fn visit_u128<E: de::Error>(self, v: u128) -> Result<Self::Value, E> {
+            self.visit_u64(
+                u64::try_from(v).map_err(|_| E::custom(EnumJsonErrorReason::OutOfRange))?,
+            )
+        }
         fn visit_f64<E: de::Error>(self, _: f64) -> Result<Self::Value, E> {
             Err(E::custom(EnumJsonErrorReason::InvalidType))
         }
@@ -1274,6 +1338,56 @@ fn deserialize_enum<'de, D: Deserializer<'de>>(
     })
 }
 
+// Wrong-shaped scalar values must not bypass redaction at a collection boundary.
+macro_rules! reject_container_scalar_values {
+    ($reason:ident) => {
+        fn visit_string<Err: serde::de::Error>(
+            self,
+            value: alloc::string::String,
+        ) -> Result<Self::Value, Err> {
+            buffa::json_helpers::discard_rejected_text(value);
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_str<Err: serde::de::Error>(self, _: &str) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_i64<Err: serde::de::Error>(self, _: i64) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_u64<Err: serde::de::Error>(self, _: u64) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_i128<Err: serde::de::Error>(self, _: i128) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_u128<Err: serde::de::Error>(self, _: u128) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_f64<Err: serde::de::Error>(self, _: f64) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+        fn visit_bool<Err: serde::de::Error>(self, _: bool) -> Result<Self::Value, Err> {
+            Err(Err::custom(
+                buffa::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
+    };
+}
+
 struct ListVisitor<'a> {
     pool: &'a Arc<DescriptorPool>,
     kind: SingularKind,
@@ -1287,9 +1401,17 @@ impl<'de> Visitor<'de> for ListVisitor<'_> {
     fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "a JSON array or null")
     }
+    fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+        Ok(Some(Value::List(Vec::new())))
+    }
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, tagged: A) -> Result<Self::Value, A::Error> {
+        buffa::json_helpers::deserialize_tagged(self, tagged)
+    }
     fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
         Ok(None)
     }
+    reject_container_scalar_values!(InvalidListType);
+    buffa::json_helpers::reject_other_json_kinds!(bytes, byte_buf);
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
         let mut out = Vec::new();
         while let Some(v) = seq.next_element_seed(SingularSeed {
@@ -1325,9 +1447,17 @@ impl<'de> Visitor<'de> for MapFieldVisitor<'_> {
     fn expecting(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "a JSON object or null")
     }
+    fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+        Ok(Some(Value::Map(MapValue::from_entries(Vec::new()))))
+    }
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, tagged: A) -> Result<Self::Value, A::Error> {
+        buffa::json_helpers::deserialize_tagged(self, tagged)
+    }
     fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
         Ok(None)
     }
+    reject_container_scalar_values!(InvalidMapType);
+    buffa::json_helpers::reject_other_json_kinds!(bytes, byte_buf);
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
         // Collect into a Vec then sort+dedup once at the end, rather than
         // sorted-insert per entry (which is `O(n)` per insert into a `Vec`).

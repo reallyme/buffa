@@ -61,6 +61,7 @@ pub use field_payload::FieldPayload;
 
 use crate::encoding::{decode_varint, encode_varint, varint_len, Tag, WireType};
 use crate::error::DecodeError;
+use crate::message::DecodeContext;
 
 /// Validate UTF-8 and return the borrowed `&str`.
 ///
@@ -1375,12 +1376,21 @@ fn read_bounded_payload<B: Buf, R>(
 /// Read a field's length prefix, then hand exactly that many bytes to
 /// `decode`. Bytes `decode` leaves unread are skipped, so `buf` always ends
 /// after the field on success.
+///
+/// The field must end before the last `message_end` bytes of `buf`, which
+/// belong to whatever follows the enclosing message; this is checked before
+/// `decode` runs, so `decode` never sees them.
 #[inline]
 fn decode_length_delimited_with<T, B: Buf>(
     buf: &mut B,
+    message_end: usize,
     decode: impl FnOnce(&mut FieldPayload<&mut B>) -> Result<T, DecodeError>,
 ) -> Result<T, DecodeError> {
     let len = read_payload_len(buf)?;
+    // As `DecodeContext::check_len`.
+    if len > buf.remaining().saturating_sub(message_end) {
+        return Err(DecodeError::UnexpectedEof);
+    }
     let mut payload = FieldPayload::new(buf, len);
     let value = decode(&mut payload)?;
     let unread = payload.remaining();
@@ -1458,17 +1468,21 @@ pub fn string_encoded_len(value: &str) -> usize {
 /// The requirements below depend on where the custom string appears. See the user
 /// guide's "String and bytes field representations" section for the full table.
 ///
-/// - **Must be crate-local.** A custom type in a `repeated` element or `map`
-///   slot needs codegen-emitted `ReflectElement` / `ReflectMapKey` impls (for
-///   vtable reflection), which the orphan rule permits only when the type is
-///   local to the generating crate. A *foreign* custom type in those positions
-///   fails to compile — wrap it in a crate-local newtype.
+/// - **Must be crate-local under reflection.** A custom type in a `repeated`
+///   element or `map` slot needs codegen-emitted `ReflectElement` /
+///   `ReflectMapKey` impls (vtable reflection) or `InspectElement` /
+///   `ReflectMapKey` impls (any reflection with message cleanup), which the
+///   orphan rule permits only when the type is local to the generating crate.
+///   A *foreign* custom type in those positions fails to compile — wrap it in
+///   a crate-local newtype, or disable generated integrations
+///   (`custom_type_impls=false`) when its defining crate provides them.
 /// - **JSON needs native `serde` outside non-optional singular fields.** A custom
 ///   string in an optional, repeated, map, or oneof field uses its own `serde`,
 ///   so it must implement
 ///   `Serialize` / `Deserialize` (and, for an external type, enable its `serde`
 ///   feature). Non-optional singular custom strings use the `proto_string`
-///   with-module and need no `serde` impl.
+///   with-module and need no `serde` impl, and a type with a JSON policy
+///   (`json_policy_type`) uses its `ProtoStringJson` impl in every generated JSON position.
 /// - **A `map` key needs `Hash + Eq`** (default / `HashMap` container) or `Ord`
 ///   (`map_type(BTreeMap)`); the bound is enforced at the generated field type.
 /// - **No `Arbitrary` impl required.** Under `generate_arbitrary`, codegen
@@ -1542,9 +1556,12 @@ pub trait ProtoString:
 
     /// Decode one field payload, given exactly the bytes of that field.
     ///
-    /// Generated code and [`decode_string_to`] call this after reading the field's length
-    /// prefix and checking it against the input, so `payload` holds exactly
-    /// that field and `payload.remaining()` is its validated length. The
+    /// Generated code ([`decode_string_to_ctx`]) and [`decode_string_to`] call
+    /// this after reading the field's length prefix and checking it, so
+    /// `payload` holds exactly that field and `payload.remaining()` is its
+    /// validated length. Under generated code the length is checked against
+    /// the end of the message that holds the field, so the payload never
+    /// reaches the following field or message. The
     /// default passes a [`WirePayload`] to [`Self::from_wire`].
     /// Override it when the representation must also control temporary
     /// allocations, for example to copy a fragmented field straight into
@@ -1586,9 +1603,11 @@ const _: fn() = || {
 /// The default hook hands a wire payload to `from_wire`, which decides
 /// validation and borrow-vs-own, so an
 /// inline-capable type avoids the transient `String` allocation that a
-/// `From<String>` path would force. Generated code uses the in-place
-/// [`merge_string`] for default `String` fields (allocation reuse) and this
-/// helper for every other [`ProtoString`] type.
+/// `From<String>` path would force.
+///
+/// The declared length is checked only against the bytes left in `buf`. To
+/// decode a field of a message being merged, use [`decode_string_to_ctx`],
+/// which also checks it against the end of that message.
 ///
 /// # Errors
 ///
@@ -1599,7 +1618,36 @@ const _: fn() = || {
 ///   representation's [`from_wire`](ProtoString::from_wire).
 #[inline]
 pub fn decode_string_to<S: ProtoString>(buf: &mut impl Buf) -> Result<S, DecodeError> {
-    decode_length_delimited_with(buf, |payload| S::decode_length_delimited(payload))
+    decode_length_delimited_with(buf, 0, |payload| S::decode_length_delimited(payload))
+}
+
+/// [`decode_string_to`] for a field of the message that `ctx` is decoding.
+///
+/// `ctx` must be the context `buf` was passed with, as in
+/// [`Message::merge_field`](crate::Message::merge_field); see
+/// [`DecodeContext`] for decoding another buffer. The declared length
+/// is checked against the end of the enclosing message recorded in `ctx`
+/// before [`ProtoString::decode_length_delimited`] runs, so the
+/// representation never sees bytes that belong to the following field or to
+/// whatever follows the message in `buf`. Generated code uses the in-place
+/// [`merge_string`] for default `String` fields (allocation reuse) and this
+/// helper for every other [`ProtoString`] type.
+///
+/// # Errors
+///
+/// - [`DecodeError::UnexpectedEof`] if the declared length runs past the end
+///   of the buffer or of the enclosing message.
+/// - [`DecodeError::MessageTooLarge`] if the declared length overflows `usize`.
+/// - [`DecodeError::InvalidUtf8`] (or another error) as returned by the
+///   representation's [`from_wire`](ProtoString::from_wire).
+#[inline]
+pub fn decode_string_to_ctx<S: ProtoString>(
+    buf: &mut impl Buf,
+    ctx: DecodeContext<'_>,
+) -> Result<S, DecodeError> {
+    decode_length_delimited_with(buf, ctx.message_end(), |payload| {
+        S::decode_length_delimited(payload)
+    })
 }
 
 /// Encode a `bytes` value as a varint length prefix followed by raw bytes
@@ -1731,7 +1779,12 @@ pub fn decode_bytes_to_bytes(buf: &mut impl Buf) -> Result<Bytes, DecodeError> {
 ///   position fails to compile — wrap it in a crate-local newtype. Singular,
 ///   optional, and oneof uses work with a foreign type directly. (A custom
 ///   `bytes` map value is honored just like the built-in `bytes::Bytes`; only the
-///   `map<bytes, bytes>` carve-out keeps `Vec<u8>` values.)
+///   `map<bytes, bytes>` carve-out keeps `Vec<u8>` values.) A type with a JSON
+///   policy (`json_policy_type`) gets no `ProtoElemJson` impl, because its
+///   elements and values go through buffa's policy helpers, so only vtable
+///   reflection (`ReflectElement`) or reflection with message cleanup
+///   (`InspectElement`) requires it to be crate-local, unless generated
+///   integrations are disabled (`custom_type_impls=false`).
 /// - **No `Arbitrary` impl required.** Under the `arbitrary` feature codegen
 ///   attaches a generic builder, so a custom type needs no native
 ///   `arbitrary::Arbitrary` impl.
@@ -1864,9 +1917,12 @@ pub trait ProtoBytes:
 
     /// Decode one field payload, given exactly the bytes of that field.
     ///
-    /// Generated code and [`decode_bytes_to`] call this after reading the field's length
-    /// prefix and checking it against the input, so `payload` holds exactly
-    /// that field and `payload.remaining()` is its validated length. The
+    /// Generated code ([`decode_bytes_to_ctx`]) and [`decode_bytes_to`] call
+    /// this after reading the field's length prefix and checking it, so
+    /// `payload` holds exactly that field and `payload.remaining()` is its
+    /// validated length. Under generated code the length is checked against
+    /// the end of the message that holds the field, so the payload never
+    /// reaches the following field or message. The
     /// default passes a [`WirePayload`] to [`Self::from_wire`], honoring
     /// [`Self::PREFERS_OWNED_PAYLOAD`].
     /// Override it when the representation must also control temporary
@@ -1921,8 +1977,9 @@ pub trait ProtoBytes:
     ///     }
     ///
     ///     fn decode_length_delimited(payload: &mut FieldPayload<impl Buf>) -> Result<Self, DecodeError> {
-    ///         // The length is already checked against the input, so this
-    ///         // reservation never exceeds the bytes actually present.
+    ///         // The length is already checked against the input (and, under
+    ///         // generated code, the enclosing message), so this reservation
+    ///         // never exceeds the bytes actually present.
     ///         let mut out = Vec::with_capacity(payload.remaining());
     ///         while payload.has_remaining() {
     ///             let chunk = payload.chunk();
@@ -2012,10 +2069,9 @@ const _: fn() = || {
 /// the const set, the payload is an owned [`Bytes`] that shares a `Bytes`
 /// input, and the value keeps that input allocated; see the const.
 ///
-/// Generated code calls this function for custom [`ProtoBytes`] fields and map
-/// values. `Vec<u8>` fields use [`merge_bytes`] (singular and optional fields,
-/// which reuse the allocation) or [`decode_bytes`], and `bytes::Bytes` fields
-/// use [`decode_bytes_to_bytes`].
+/// The declared length is checked only against the bytes left in `buf`. To
+/// decode a field of a message being merged, use [`decode_bytes_to_ctx`],
+/// which also checks it against the end of that message.
 ///
 /// # Errors
 ///
@@ -2026,7 +2082,39 @@ const _: fn() = || {
 ///   [`from_wire`](ProtoBytes::from_wire).
 #[inline]
 pub fn decode_bytes_to<B: ProtoBytes>(buf: &mut impl Buf) -> Result<B, DecodeError> {
-    decode_length_delimited_with(buf, |payload| B::decode_length_delimited(payload))
+    decode_length_delimited_with(buf, 0, |payload| B::decode_length_delimited(payload))
+}
+
+/// [`decode_bytes_to`] for a field of the message that `ctx` is decoding.
+///
+/// `ctx` must be the context `buf` was passed with, as in
+/// [`Message::merge_field`](crate::Message::merge_field); see
+/// [`DecodeContext`] for decoding another buffer. The declared length
+/// is checked against the end of the enclosing message recorded in `ctx`
+/// before [`ProtoBytes::decode_length_delimited`] runs, so the
+/// representation never sees bytes that belong to the following field or to
+/// whatever follows the message in `buf`.
+///
+/// Generated code calls this function for custom [`ProtoBytes`] fields and map
+/// values. `Vec<u8>` fields use [`merge_bytes`] (singular and optional fields,
+/// which reuse the allocation) or [`decode_bytes`], and `bytes::Bytes` fields
+/// use [`decode_bytes_to_bytes`].
+///
+/// # Errors
+///
+/// - [`DecodeError::UnexpectedEof`] if the declared length runs past the end
+///   of the buffer or of the enclosing message.
+/// - [`DecodeError::MessageTooLarge`] if the declared length overflows `usize`.
+/// - Any error returned by the representation's
+///   [`from_wire`](ProtoBytes::from_wire).
+#[inline]
+pub fn decode_bytes_to_ctx<B: ProtoBytes>(
+    buf: &mut impl Buf,
+    ctx: DecodeContext<'_>,
+) -> Result<B, DecodeError> {
+    decode_length_delimited_with(buf, ctx.message_end(), |payload| {
+        B::decode_length_delimited(payload)
+    })
 }
 
 // ---------------------------------------------------------------------------

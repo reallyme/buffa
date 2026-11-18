@@ -20,4 +20,7 @@ message DeclaredDefaults {
   map<int32, MapState> states = 7;
   optional State optional_state = 8;
   oneof choice { State selected_state = 9; }
+  optional bytes blob = 10 [default = "b\001"];
+  optional sint32 level = 11 [default = -4];
+  optional State fallback = 12 [default = SECOND];
 }

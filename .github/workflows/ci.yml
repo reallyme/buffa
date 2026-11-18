@@ -99,6 +99,9 @@ jobs:
       - name: Shared descriptor pool compile
         run: cargo test -p reallyme-buffa-codegen --test shared_pool_compile -- --ignored
 
+      - name: JSON diagnostics downstream compatibility
+        run: cargo test -p reallyme-buffa-codegen --test json_diagnostics_compile -- --ignored
+
       # `examples/bsr-quickstart` is outside the workspace, and its `src/gen/`
       # is checked-in output from the published BSR plugin, not in-tree
       # codegen. Its runtime deps are pinned to the plugin's release (see its

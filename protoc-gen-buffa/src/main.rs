@@ -20,7 +20,6 @@ use std::io::{self, Read, Write};
 use buffa::Message;
 use buffa_codegen::generated::compiler::code_generator_response::File as CodeGeneratorResponseFile;
 use buffa_codegen::generated::compiler::CodeGeneratorResponse;
-use buffa_codegen::generated::descriptor::Edition;
 
 use buffa_codegen::{CodeGenConfig, CodecStrategy, EnumTypeOverride, FeatureOverride};
 
@@ -60,7 +59,8 @@ keeping owned-message JSON, use deny_view_json (repeatable; '.' selects all):
   --reallyme-buffa_opt=json=true,deny_view_json=.my.pkg.Private
 
 For recursive owned/view cleanup, use zeroize=true or zeroize_in (repeatable;
-'.' selects all). Guarded fields and buffa's zeroize feature are required:
+'.' selects all). Selected messages and their containers get no owned-view
+wrapper or HasMessageView. Guarded fields and buffa's zeroize feature are required:
   --reallyme-buffa_opt=unknown_fields=false,zeroize_in=.my.pkg.Private
 Unmatched cleanup/export selectors are errors unless scoped generation
 explicitly enables allow_unmatched_message_rules=true.
@@ -99,7 +99,7 @@ fn main() {
             // Protocol: write a response with an error string, don't just crash.
             let response = CodeGeneratorResponse {
                 error: Some(format!("{}", e)),
-                ..response_metadata()
+                ..buffa_codegen::plugin_response_metadata()
             };
             write_response(&response).unwrap_or_else(|io_err| {
                 eprintln!(
@@ -151,7 +151,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = CodeGeneratorResponse {
         file: files,
-        ..response_metadata()
+        ..buffa_codegen::plugin_response_metadata()
     };
 
     write_response(&response)?;
@@ -165,24 +165,6 @@ fn write_response(response: &CodeGeneratorResponse) -> io::Result<()> {
     io::stdout().write_all(&output)?;
     io::stdout().flush()?;
     Ok(())
-}
-
-// Buf validates edition support on failures too; keep a single source for
-// response capabilities so it can surface the actual configuration error.
-fn response_metadata() -> CodeGeneratorResponse {
-    CodeGeneratorResponse {
-        supported_features: Some(feature_flags()),
-        minimum_edition: Some(Edition::EDITION_PROTO2 as i32),
-        maximum_edition: Some(Edition::EDITION_2024 as i32),
-        ..Default::default()
-    }
-}
-
-/// Feature flags we support (bitmask).
-fn feature_flags() -> u64 {
-    const FEATURE_PROTO3_OPTIONAL: u64 = 1;
-    const FEATURE_SUPPORTS_EDITIONS: u64 = 2;
-    FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS
 }
 
 /// Plugin configuration parsed from the parameter string.

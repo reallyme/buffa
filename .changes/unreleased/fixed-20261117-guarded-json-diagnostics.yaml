@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    Guarded JSON decoding no longer echoes a rejected token of the wrong JSON kind in its error text. The generated visitor of a cleanup-selected message, `sensitive::SecretString`, the guarded `Timestamp`, `Duration` and `Value`, `sensitive::Map` and `List`, and the guarded map, list and enum helpers report such a token by kind only, and wipe a rejected owned string or byte buffer. Accepted JSON inputs are unchanged. Scalar fields still use the ordinary protobuf JSON helpers, whose diagnostics can include the rejected token.
+time: 2026-11-17T12:00:02+01:00

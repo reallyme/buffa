@@ -49,6 +49,10 @@ where
             }
             Ok(collection)
         }
+
+        crate::reject_other_json_kinds!(
+            bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, map
+        );
     }
 
     deserializer.deserialize_any(Elements::<T, C>(PhantomData))

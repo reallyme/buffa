@@ -1,0 +1,4 @@
+kind: Security
+body: |-
+  **Omit the path from `FieldMask` JSON diagnostics.** The generated `FieldMask` quoted a rejected path in its JSON errors. A malformed path in JSON input is now reported as `invalid FieldMask path, expected comma-separated lowerCamelCase paths`, and a path with no JSON form (for example one decoded from binary input) is reported on output as `invalid FieldMask path, it has no proto3 JSON representation`, by the generated `FieldMask`, its view and `DynamicMessage`'s JSON codec alike. Accepted paths are unchanged.
+time: 2026-11-17T16:02:00Z

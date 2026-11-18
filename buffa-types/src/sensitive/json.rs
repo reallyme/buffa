@@ -33,7 +33,7 @@ macro_rules! temporal {
         impl<'de> Deserialize<'de> for $name {
             fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
                 struct Visitor;
-                impl serde::de::Visitor<'_> for Visitor {
+                impl<'de> serde::de::Visitor<'de> for Visitor {
                     type Value = $name;
                     fn expecting(
                         &self,
@@ -58,8 +58,17 @@ macro_rules! temporal {
                         let text = Zeroizing::new(text);
                         self.visit_str(&text)
                     }
+                    buffa::json_helpers::reject_other_json_kinds!(
+                        bool, i64, u64, i128, u128, f64, bytes, byte_buf, unit, seq, map
+                    );
                 }
-                deserializer.deserialize_str(Visitor)
+                // A typed request lets a self-describing parser report a
+                // mismatched token, value included, without the visitor.
+                if deserializer.is_human_readable() {
+                    deserializer.deserialize_any(Visitor)
+                } else {
+                    deserializer.deserialize_str(Visitor)
+                }
             }
         }
     };
@@ -152,6 +161,7 @@ impl<'de> Deserialize<'de> for Value {
                     kind: Some(Kind::StructValue(alloc::boxed::Box::new(Struct { fields }))),
                 })
             }
+            buffa::json_helpers::reject_other_json_kinds!(i128, u128, bytes, byte_buf);
         }
         deserializer.deserialize_any(Visitor)
     }
@@ -206,7 +216,7 @@ impl buffa::json_helpers::ProtoElemJson for Value {
 }
 
 macro_rules! views {
-    ($view:ident,$lazy:ident,$owned:ident) => {
+    ($view:ident,$lazy:ident) => {
         impl Serialize for super::$view<'_> {
             fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 let value = buffa::MessageView::to_owned_message(self)
@@ -221,15 +231,10 @@ macro_rules! views {
                 value.serialize(serializer)
             }
         }
-        impl Serialize for super::$owned {
-            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                self.view().serialize(serializer)
-            }
-        }
     };
 }
-views!(TimestampView, TimestampLazyView, TimestampOwnedView);
-views!(DurationView, DurationLazyView, DurationOwnedView);
-views!(ValueView, ValueLazyView, ValueOwnedView);
-views!(StructView, StructLazyView, StructOwnedView);
-views!(ListValueView, ListValueLazyView, ListValueOwnedView);
+views!(TimestampView, TimestampLazyView);
+views!(DurationView, DurationLazyView);
+views!(ValueView, ValueLazyView);
+views!(StructView, StructLazyView);
+views!(ListValueView, ListValueLazyView);

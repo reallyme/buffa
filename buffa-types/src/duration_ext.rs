@@ -157,10 +157,9 @@ impl serde::Serialize for Duration {
 impl<'de> serde::Deserialize<'de> for Duration {
     /// Deserializes from a decimal seconds string (e.g. `"1.5s"`).
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        use alloc::string::String;
         use buffa::json_helpers::JsonValueError;
 
-        let s: String = serde::Deserialize::deserialize(d)?;
+        let s = buffa::json_helpers::wkt::deserialize_string(d)?;
         let (seconds, nanos) = parse_duration_string(&s)
             .ok_or_else(|| serde::de::Error::custom(JsonValueError::Duration))?;
         Ok(Self {

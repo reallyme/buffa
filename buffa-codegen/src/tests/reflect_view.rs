@@ -236,7 +236,7 @@ fn editions_enum_override_file() -> FileDescriptorProto {
 }
 
 #[test]
-fn vtable_closed_enum_override_in_open_edition_gets_element_impl() {
+fn vtable_enums_get_element_impl_regardless_of_openness() {
     let files = generate(
         &[editions_enum_override_file()],
         &["ed_enum.proto".to_string()],
@@ -251,9 +251,112 @@ fn vtable_closed_enum_override_in_open_edition_gets_element_impl() {
         content.contains("impl ::buffa_descriptor::reflect::ReflectElement for Closed"),
         "an enum that declares itself closed must get ReflectElement: {content}"
     );
-    // The open enum is wrapped in `EnumValue<Open>`, covered by buffa-descriptor.
+    // The open enum's own fields use `EnumValue<Open>`, but another generation
+    // that reaches it through `extern_path` may resolve it as closed and type
+    // it bare, and only the owning crate can provide the impl.
     assert!(
-        !content.contains("impl ::buffa_descriptor::reflect::ReflectElement for Open"),
-        "an open enum must not get its own ReflectElement impl: {content}"
+        content.contains("impl ::buffa_descriptor::reflect::ReflectElement for Open"),
+        "an open enum must also get ReflectElement: {content}"
     );
+}
+
+#[test]
+fn bridge_mode_enums_get_element_impl() {
+    // A vtable-mode generation that reaches a bridge-mode crate's enum through
+    // `extern_path` may type it bare in a repeated or map field, and only the
+    // owning crate can provide the impl.
+    let config = CodeGenConfig {
+        generate_reflection: true,
+        ..Default::default()
+    };
+    let files = generate(
+        &[editions_enum_override_file()],
+        &["ed_enum.proto".to_string()],
+        &config,
+    )
+    .expect("should generate");
+    let content = joined(&files);
+    for name in ["Closed", "Open"] {
+        assert!(
+            content.contains(&format!(
+                "impl ::buffa_descriptor::reflect::ReflectElement for {name}"
+            )),
+            "bridge mode must emit ReflectElement for enum {name}: {content}"
+        );
+    }
+}
+
+#[test]
+fn guarded_enums_get_inspect_element_impl_regardless_of_openness() {
+    // Borrowed inspection follows the `ReflectElement` rule: a generation that
+    // reaches an open enum through `extern_path` may type it bare in a guarded
+    // list or map, and only the owning crate can provide the impl.
+    let mut config = vtable_config();
+    config.generate_zeroize = true;
+    config.preserve_unknown_fields = false;
+    let files = generate(
+        &[editions_enum_override_file()],
+        &["ed_enum.proto".to_string()],
+        &config,
+    )
+    .expect("should generate");
+    let content = joined(&files);
+    for name in ["Closed", "Open"] {
+        assert!(
+            content.contains(&format!(
+                "impl ::buffa_descriptor::reflect::InspectElement for {name}"
+            )),
+            "cleanup generation must emit InspectElement for enum {name}: {content}"
+        );
+    }
+
+    // The trait needs `buffa-descriptor`'s `zeroize` feature, so a generation
+    // that selects no cleanup does not emit it.
+    let plain = joined(
+        &generate(
+            &[editions_enum_override_file()],
+            &["ed_enum.proto".to_string()],
+            &vtable_config(),
+        )
+        .expect("should generate"),
+    );
+    assert!(!plain.contains("InspectElement"), "{plain}");
+
+    // Any `zeroize_in` rule selects cleanup for the generation, even one that
+    // names a message rather than the enum.
+    let mut selected = vtable_config();
+    selected.zeroize_messages = vec![".ed.Holder".into()];
+    selected.preserve_unknown_fields = false;
+    let selected = joined(
+        &generate(
+            &[editions_enum_override_file()],
+            &["ed_enum.proto".to_string()],
+            &selected,
+        )
+        .expect("should generate"),
+    );
+    for name in ["Closed", "Open"] {
+        assert!(
+            selected.contains(&format!(
+                "impl ::buffa_descriptor::reflect::InspectElement for {name}"
+            )),
+            "a zeroize_in generation must emit InspectElement for enum {name}: {selected}"
+        );
+    }
+
+    // Without reflection there is no inspection surface to support.
+    let unreflected = CodeGenConfig {
+        generate_zeroize: true,
+        preserve_unknown_fields: false,
+        ..Default::default()
+    };
+    let unreflected = joined(
+        &generate(
+            &[editions_enum_override_file()],
+            &["ed_enum.proto".to_string()],
+            &unreflected,
+        )
+        .expect("should generate"),
+    );
+    assert!(!unreflected.contains("InspectElement"), "{unreflected}");
 }

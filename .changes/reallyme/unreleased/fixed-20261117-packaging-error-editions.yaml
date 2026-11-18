@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    `protoc-gen-reallyme-buffa-packaging` error responses now carry the advertised edition range as well as the supported features, so Buf reports the plugin's own configuration error instead of a protocol error about missing edition metadata.
+time: 2026-11-17T15:00:00+01:00

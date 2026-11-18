@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    **The `ProtoStringJson` docs now state that a policy used for `map` keys must round-trip, and so be injective.** Runtime behaviour is unchanged: a key policy that maps two keys to one string has always produced a JSON object with a repeated key, whose import keeps only the last entry and silently loses the others, and a key that does not round-trip comes back altered or fails to import. Buffa does not check either property, so review any key policy that normalizes text (for example by changing case). The contract also states more precisely that a deserialized value must carry no state beyond the bytes or text it represents.
+time: 2026-11-17T16:20:00+01:00

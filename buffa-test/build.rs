@@ -360,7 +360,7 @@ fn main() {
         .bytes_type_custom_in("crate::guarded_repr::SealedBytes", &[".guarded.Sealed"])
         .repeated_type_custom_in(
             "crate::guarded_repr::SecretList<*>",
-            &[".guarded.Credentials.embedding"],
+            &[".guarded.Credentials.embedding", ".guarded.Sealed.listed"],
         )
         .json_policy_type("crate::guarded_repr::SecretBytes")
         .json_policy_type("crate::guarded_repr::SecretString")
@@ -555,6 +555,27 @@ fn main() {
         .generate_json(true)
         .compile()
         .expect("buffa_build failed for string_copy_counted.proto");
+
+    // `RecStr` and `RecBytes` override `decode_length_delimited` to record the
+    // window they are given: a test can check that no field's window reaches
+    // past the message that holds it.
+    buffa_build::Config::new()
+        .files(&["protos/decode_hook_frame.proto"])
+        .includes(&["protos/"])
+        .string_type_custom("crate::decode_hook_frame::RecStr")
+        .bytes_type_custom("crate::decode_hook_frame::RecBytes")
+        .compile()
+        .expect("buffa_build failed for decode_hook_frame.proto");
+    // The same shapes with guarded representations and message cleanup.
+    buffa_build::Config::new()
+        .files(&["protos/guarded_hook_frame.proto"])
+        .includes(&["protos/"])
+        .string_type_custom("::buffa_types::sensitive::SecretString")
+        .bytes_type_custom("crate::guarded_repr::SecretBytes")
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .compile()
+        .expect("buffa_build failed for guarded_hook_frame.proto");
 
     // box_type: a crate-LOCAL `CustomBox<T>` pointer (a `ProtoBox<T>` impl) for
     // singular message fields, via the `*`-templated knob. The crate compiling
@@ -1054,6 +1075,61 @@ fn main() {
         .reflect_mode(buffa_build::ReflectMode::VTable)
         .compile()
         .expect("buffa_build failed for open_enums_enum_rule.proto");
+
+    // An enum opened by an enum-level rule in its owning generation, or owned
+    // by a bridge-mode generation, must still get the `ReflectElement` impl: a
+    // vtable-mode generation that reaches it through extern_path without the
+    // rule resolves it as closed and types its repeated and map-value fields
+    // as the bare enum.
+    buffa_build::Config::new()
+        .files(&["protos/extern_open_enum_owner.proto"])
+        .includes(&["protos/"])
+        .open_enums_in(&[".test.extopenenum.owner.Color"])
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("buffa_build failed for extern_open_enum_owner.proto");
+    buffa_build::Config::new()
+        .files(&["protos/extern_bridge_enum_owner.proto"])
+        .includes(&["protos/"])
+        .reflect_mode(buffa_build::ReflectMode::Bridge)
+        .compile()
+        .expect("buffa_build failed for extern_bridge_enum_owner.proto");
+    buffa_build::Config::new()
+        .files(&["protos/extern_open_enum_user.proto"])
+        .includes(&["protos/"])
+        .extern_path(".test.extopenenum.owner", "crate::extern_open_enum_owner")
+        .extern_path(
+            ".test.extopenenum.bridge",
+            "crate::extern_bridge_enum_owner",
+        )
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("buffa_build failed for extern_open_enum_user.proto");
+    // The same cross-generation rule for borrowed inspection: a guarded
+    // generation that reaches an enum opened by its owner's enum-level rule
+    // types its guarded list and map values as the bare enum, which needs the
+    // owner's `InspectElement` impl.
+    buffa_build::Config::new()
+        .files(&["protos/guarded_extern_enum_owner.proto"])
+        .includes(&["protos/"])
+        .open_enums_in(&[".test.guardedextenum.owner.Tier"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("buffa_build failed for guarded_extern_enum_owner.proto");
+    buffa_build::Config::new()
+        .files(&["protos/guarded_extern_enum_user.proto"])
+        .includes(&["protos/"])
+        .extern_path(
+            ".test.guardedextenum.owner",
+            "crate::guarded_extern_enum_owner",
+        )
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("buffa_build failed for guarded_extern_enum_user.proto");
 
     // open_enums_no_unknowns: same open_enums_in override coverage with
     // unknown-field preservation disabled, so matching enum unknowns surface

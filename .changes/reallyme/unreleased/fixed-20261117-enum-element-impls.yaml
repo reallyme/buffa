@@ -1,0 +1,4 @@
+kind: Fixed
+body: |-
+    A crate that hand-wrote `impl ReflectElement` or `impl InspectElement` for an enum it generates must remove that impl, since codegen now emits it (a duplicate fails with E0119). Generated enums get `ReflectElement` whenever reflection is on, and `InspectElement` whenever a cleanup generation has reflection on, whatever the enum's openness and the reflection mode. A generation that reaches an enum through `extern_path` and resolves it as closed, while its owner opened it with an `open_enums_in` rule or uses bridge reflection, types repeated and map-value fields as the bare enum and previously failed to compile. Regenerate the crate that owns the enum with this release. If you cannot regenerate the owning crate, add an `open_enums_in` rule for the enum to the referencing generation, so that its fields use `EnumValue<E>`; this also keeps unknown enum values instead of treating them as unknown fields.
+time: 2026-11-17T14:30:00+01:00
