@@ -1,0 +1,3 @@
+kind: Added
+body: "With the optional zeroize feature, erase transferred numeric/enum text and rejected owned JSON string/byte tokens before release. Borrowed input and deserializer scratch remain caller-owned; decoding behavior and fixed diagnostics are preserved."
+time: 2026-11-18T22:00:00+01:00

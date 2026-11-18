@@ -226,6 +226,9 @@ pub mod extension_registry;
 pub mod json;
 #[cfg(feature = "json")]
 pub mod json_helpers;
+#[cfg(feature = "json")]
+#[doc(hidden)]
+pub use json_helpers::reject_other_json_kinds;
 // Generated-code plumbing: codecs are named via turbofish by `write_to` /
 // `merge_field` emission, never by hand-written code. Hidden so the codec
 // ZSTs and their sealed traits don't surface as consumer API on docs.rs.

@@ -135,31 +135,39 @@ pub enum JsonValueError {
     AnyOpaqueField,
 }
 
-/// Implements `serde::de::Visitor` methods that reject the listed input kinds
-/// without echoing the rejected value.
+/// Implement the `serde::de::Visitor` methods for the input kinds a protobuf
+/// JSON visitor does not accept, without echoing the rejected value.
 ///
-/// serde's default `visit_bool`, `visit_i64`, `visit_u64`, `visit_i128`,
-/// `visit_u128`, `visit_f64` and `visit_str` report
-/// `invalid_type(Unexpected::Bool(v) | Signed(v) | Str(v) | ..)`, which
-/// formats the input into the error. The methods generated here return the
-/// same `invalid_type` error with `Unexpected::Other(kind)`, which names the
-/// kind but not the value. List every kind the visitor does not accept:
-/// `bool`, `i64`, `u64`, `i128`, `u128`, `f64`, `str` and `bytes`. The
-/// narrower integer and float methods, `visit_char`, `visit_string`,
-/// `visit_borrowed_str` and the byte-buffer methods forward to these by
-/// default.
+/// serde's default `visit_*` methods describe a rejected token by its value
+/// (``invalid type: integer `123` ``), which can carry a would-be secret into
+/// error text. Each listed kind instead returns
+/// `invalid_type(Unexpected::Other("<kind>"), &self)`, which names only the
+/// JSON kind. Rejected owned text and bytes are wiped first when buffa's
+/// `zeroize` feature is enabled. List only kinds the visitor does not accept.
 ///
-/// The `i128` and `u128` kinds also suit a visitor that accepts integers: a
-/// value that fits in 64 bits is forwarded to the visitor's `visit_i64` or
-/// `visit_u64`, because serde does not promise that a 128-bit visit means a
-/// wide value. Only a wider value is rejected here.
+/// Kinds: `bool`, `i64`, `u64`, `i128`, `u128`, `f64`, `str`, `string`,
+/// `bytes`, `byte_buf`, `unit`, `seq` and `map`. serde forwards the narrower
+/// integer and float methods to `i64`, `u64` and `f64`, `char` and borrowed
+/// strings to `str`, and borrowed bytes to `bytes`. `seq` and `map` require the
+/// surrounding impl to name the visitor lifetime `'de`.
 ///
-/// The visitor only sees the input when the deserializer is driven with
-/// `deserialize_any`: `serde_json`'s typed entry points (`deserialize_map`,
-/// `deserialize_str`, ...) format a mismatched value themselves.
+/// The `i128` and `u128` arms forward values that fit in 64 bits to the
+/// corresponding integer visitor. A deserializer may use these visits even
+/// for narrow values; rejecting them unconditionally would change acceptance.
+/// Values outside that range are rejected without formatting their contents.
 ///
-/// Invoke it inside an `impl Visitor<'de> for ...` block. The calling crate
-/// must depend on `serde`, as generated code already does.
+/// A visitor only sees these calls through `deserialize_any`: a typed request
+/// such as serde_json's `deserialize_str` reports a mismatched token itself,
+/// including its value.
+///
+/// ```ignore
+/// impl<'de> serde::de::Visitor<'de> for Text {
+///     // ...expecting, visit_str and visit_string...
+///     buffa::json_helpers::reject_other_json_kinds!(
+///         bool, i64, u64, i128, u128, f64, bytes, byte_buf, unit, seq, map
+///     );
+/// }
+/// ```
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __buffa_reject_other_json_kinds {
@@ -167,24 +175,48 @@ macro_rules! __buffa_reject_other_json_kinds {
         $($crate::__buffa_reject_other_json_kinds!(@kind $kind);)*
     };
     (@kind bool) => {
-        $crate::__buffa_reject_other_json_kinds!(@fn visit_bool, ::core::primitive::bool, "boolean");
+        fn visit_bool<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::bool,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("boolean"),
+                &self,
+            ))
+        }
     };
     (@kind i64) => {
-        $crate::__buffa_reject_other_json_kinds!(@fn visit_i64, ::core::primitive::i64, "integer");
+        fn visit_i64<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::i64,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("integer"),
+                &self,
+            ))
+        }
     };
     (@kind u64) => {
-        $crate::__buffa_reject_other_json_kinds!(@fn visit_u64, ::core::primitive::u64, "integer");
+        fn visit_u64<__E: ::serde::de::Error>(
+            self,
+            _: ::core::primitive::u64,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("integer"),
+                &self,
+            ))
+        }
     };
     (@kind i128) => {
         fn visit_i128<__E: ::serde::de::Error>(
             self,
-            v: ::core::primitive::i128,
+            value: ::core::primitive::i128,
         ) -> ::core::result::Result<Self::Value, __E> {
-            if let ::core::result::Result::Ok(v) = <::core::primitive::i64 as ::core::convert::TryFrom<::core::primitive::i128>>::try_from(v) {
-                return ::serde::de::Visitor::visit_i64(self, v);
+            if let ::core::result::Result::Ok(value) = <::core::primitive::i64 as ::core::convert::TryFrom<::core::primitive::i128>>::try_from(value) {
+                return ::serde::de::Visitor::visit_i64(self, value);
             }
-            if let ::core::result::Result::Ok(v) = <::core::primitive::u64 as ::core::convert::TryFrom<::core::primitive::i128>>::try_from(v) {
-                return ::serde::de::Visitor::visit_u64(self, v);
+            if let ::core::result::Result::Ok(value) = <::core::primitive::u64 as ::core::convert::TryFrom<::core::primitive::i128>>::try_from(value) {
+                return ::serde::de::Visitor::visit_u64(self, value);
             }
             ::core::result::Result::Err(__E::invalid_type(
                 ::serde::de::Unexpected::Other("integer"),
@@ -195,10 +227,10 @@ macro_rules! __buffa_reject_other_json_kinds {
     (@kind u128) => {
         fn visit_u128<__E: ::serde::de::Error>(
             self,
-            v: ::core::primitive::u128,
+            value: ::core::primitive::u128,
         ) -> ::core::result::Result<Self::Value, __E> {
-            if let ::core::result::Result::Ok(v) = <::core::primitive::u64 as ::core::convert::TryFrom<::core::primitive::u128>>::try_from(v) {
-                return ::serde::de::Visitor::visit_u64(self, v);
+            if let ::core::result::Result::Ok(value) = <::core::primitive::u64 as ::core::convert::TryFrom<::core::primitive::u128>>::try_from(value) {
+                return ::serde::de::Visitor::visit_u64(self, value);
             }
             ::core::result::Result::Err(__E::invalid_type(
                 ::serde::de::Unexpected::Other("integer"),
@@ -207,29 +239,113 @@ macro_rules! __buffa_reject_other_json_kinds {
         }
     };
     (@kind f64) => {
-        $crate::__buffa_reject_other_json_kinds!(@fn visit_f64, ::core::primitive::f64, "floating point");
-    };
-    (@kind str) => {
-        $crate::__buffa_reject_other_json_kinds!(@fn visit_str, &::core::primitive::str, "string");
-    };
-    (@kind bytes) => {
-        $crate::__buffa_reject_other_json_kinds!(@fn visit_bytes, &[::core::primitive::u8], "byte array");
-    };
-    (@fn $method:ident, $arg:ty, $kind:literal) => {
-        fn $method<__E: ::serde::de::Error>(
+        fn visit_f64<__E: ::serde::de::Error>(
             self,
-            _: $arg,
+            _: ::core::primitive::f64,
         ) -> ::core::result::Result<Self::Value, __E> {
             ::core::result::Result::Err(__E::invalid_type(
-                ::serde::de::Unexpected::Other($kind),
+                ::serde::de::Unexpected::Other("floating point"),
+                &self,
+            ))
+        }
+    };
+    (@kind str) => {
+        fn visit_str<__E: ::serde::de::Error>(
+            self,
+            _: &::core::primitive::str,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("string"),
+                &self,
+            ))
+        }
+    };
+    (@kind string) => {
+        fn visit_string<__E: ::serde::de::Error>(
+            self,
+            value: $crate::alloc::string::String,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            $crate::json_helpers::discard_rejected_text(value);
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("string"),
+                &self,
+            ))
+        }
+    };
+    (@kind bytes) => {
+        fn visit_bytes<__E: ::serde::de::Error>(
+            self,
+            _: &[::core::primitive::u8],
+        ) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("byte array"),
+                &self,
+            ))
+        }
+    };
+    (@kind byte_buf) => {
+        fn visit_byte_buf<__E: ::serde::de::Error>(
+            self,
+            value: $crate::alloc::vec::Vec<::core::primitive::u8>,
+        ) -> ::core::result::Result<Self::Value, __E> {
+            $crate::json_helpers::discard_rejected_bytes(value);
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("byte array"),
+                &self,
+            ))
+        }
+    };
+    (@kind unit) => {
+        fn visit_unit<__E: ::serde::de::Error>(self) -> ::core::result::Result<Self::Value, __E> {
+            ::core::result::Result::Err(__E::invalid_type(
+                ::serde::de::Unexpected::Other("null"),
+                &self,
+            ))
+        }
+    };
+    (@kind seq) => {
+        fn visit_seq<__A: ::serde::de::SeqAccess<'de>>(
+            self,
+            _: __A,
+        ) -> ::core::result::Result<Self::Value, __A::Error> {
+            ::core::result::Result::Err(<__A::Error as ::serde::de::Error>::invalid_type(
+                ::serde::de::Unexpected::Other("array"),
+                &self,
+            ))
+        }
+    };
+    (@kind map) => {
+        fn visit_map<__A: ::serde::de::MapAccess<'de>>(
+            self,
+            _: __A,
+        ) -> ::core::result::Result<Self::Value, __A::Error> {
+            ::core::result::Result::Err(<__A::Error as ::serde::de::Error>::invalid_type(
+                ::serde::de::Unexpected::Other("object"),
                 &self,
             ))
         }
     };
 }
-
 #[doc(hidden)]
 pub use crate::__buffa_reject_other_json_kinds as reject_other_json_kinds;
+
+/// Release rejected owned text, wiping it first under the `zeroize` feature.
+#[doc(hidden)]
+pub fn discard_rejected_text(text: alloc::string::String) {
+    discard_rejected_bytes(text.into_bytes());
+}
+
+/// Release rejected owned bytes, wiping them first under the `zeroize` feature.
+#[doc(hidden)]
+pub fn discard_rejected_bytes(bytes: alloc::vec::Vec<u8>) {
+    #[cfg(feature = "zeroize")]
+    {
+        let mut bytes = bytes;
+        zeroize::Zeroize::zeroize(&mut bytes);
+    }
+    #[cfg(not(feature = "zeroize"))]
+    drop(bytes);
+}
 
 /// The object key under which `serde_json`'s `arbitrary_precision` feature
 /// hands a number to `visit_map`.
@@ -454,7 +570,9 @@ impl<'de, T: ProtoElemJson> serde::de::DeserializeSeed<'de> for ProtoElemSeed<T>
             fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<T, D2::Error> {
                 T::deserialize_proto_json(d)
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
         }
         d.deserialize_option(NoNull::<T>(core::marker::PhantomData))
     }
@@ -547,7 +665,9 @@ pub mod proto_seq {
             fn visit_unit<E>(self) -> Result<Vec<T>, E> {
                 Ok(Vec::new())
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
@@ -687,7 +807,9 @@ pub mod proto_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -766,7 +888,9 @@ pub mod proto_str_key_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -809,7 +933,9 @@ pub mod proto_bool {
             fn visit_bool<E>(self, v: bool) -> Result<bool, E> {
                 Ok(v)
             }
-            crate::__buffa_reject_other_json_kinds!(i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
         }
         d.deserialize_any(V)
     }
@@ -869,7 +995,7 @@ pub mod proto_string {
             fn visit_string<E>(self, v: alloc::string::String) -> Result<T, E> {
                 Ok(T::from(v))
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, bytes);
+            crate::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, bytes, byte_buf);
         }
         d.deserialize_any(V::<T>(core::marker::PhantomData))
     }
@@ -901,6 +1027,15 @@ pub enum EnumJsonErrorReason {
 // Wrong-shaped scalar values must not bypass redaction at a collection boundary.
 macro_rules! reject_container_scalar_values {
     ($reason:ident) => {
+        fn visit_string<Err: serde::de::Error>(
+            self,
+            value: alloc::string::String,
+        ) -> Result<Self::Value, Err> {
+            crate::json_helpers::discard_rejected_text(value);
+            Err(Err::custom(
+                crate::json_helpers::EnumJsonErrorReason::$reason,
+            ))
+        }
         fn visit_str<Err: serde::de::Error>(self, _: &str) -> Result<Self::Value, Err> {
             Err(Err::custom(
                 crate::json_helpers::EnumJsonErrorReason::$reason,
@@ -992,6 +1127,26 @@ pub mod proto_enum {
             }
             fn visit_bool<Err: serde::de::Error>(self, _: bool) -> Result<Self::Value, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
+            }
+            #[cfg(feature = "zeroize")]
+            fn visit_string<Err: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<Self::Value, Err> {
+                // Generated open-enum fields use this adapter rather than the
+                // standalone EnumValue visitor. Each owns its transferred token.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+            #[cfg(feature = "zeroize")]
+            fn visit_byte_buf<Err: serde::de::Error>(
+                self,
+                value: alloc::vec::Vec<u8>,
+            ) -> Result<Self::Value, Err> {
+                // Preserve Serde's borrowed-byte rejection while wiping the
+                // owned allocation that its default forwarding would release.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_bytes(&value)
             }
             fn visit_str<Err: serde::de::Error>(self, v: &str) -> Result<crate::EnumValue<E>, Err> {
                 match E::from_proto_name(v) {
@@ -1182,7 +1337,7 @@ pub mod repeated_enum {
             }
 
             reject_container_scalar_values!(InvalidListType);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
@@ -1265,7 +1420,7 @@ pub mod map_enum {
             }
 
             reject_container_scalar_values!(InvalidMapType);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -1486,8 +1641,17 @@ macro_rules! int_serde_module {
                     fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<$int_type, E> {
                         $parse_str(v).ok_or_else(|| E::custom(JsonValueError::$reason))
                     }
+                    fn visit_string<E: serde::de::Error>(
+                        self,
+                        value: alloc::string::String,
+                    ) -> Result<$int_type, E> {
+                        // A transferred token is ours to erase even if parsing fails.
+                        #[cfg(feature = "zeroize")]
+                        let value = zeroize::Zeroizing::new(value);
+                        self.visit_str(&value)
+                    }
                     visit_wide_ints!(JsonValueError::$reason);
-                    crate::__buffa_reject_other_json_kinds!(bytes);
+                    crate::reject_other_json_kinds!(bytes, byte_buf);
                 }
                 d.deserialize_any(Vis)
             }
@@ -1610,6 +1774,14 @@ pub mod float {
                 Err(E::custom(super::JsonValueError::Float))
             }
 
+            fn visit_string<E: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<f32, E> {
+                #[cfg(feature = "zeroize")]
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<f32, E> {
                 match v {
                     "NaN" => Ok(f32::NAN),
@@ -1649,7 +1821,7 @@ pub mod float {
             }
 
             visit_wide_ints!(super::JsonValueError::Float);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f32, E> {
                 Ok(v as f32)
@@ -1702,6 +1874,14 @@ pub mod double {
                 Err(E::custom(super::JsonValueError::Double))
             }
 
+            fn visit_string<E: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<f64, E> {
+                #[cfg(feature = "zeroize")]
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<f64, E> {
                 match v {
                     "NaN" => Ok(f64::NAN),
@@ -1729,7 +1909,7 @@ pub mod double {
             }
 
             visit_wide_ints!(super::JsonValueError::Double);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f64, E> {
                 Ok(v as f64)
@@ -1885,7 +2065,7 @@ pub mod bytes {
             }
 
             visit_wide_ints!(super::JsonValueError::Base64);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
 
             fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<alloc::vec::Vec<u8>, E> {
                 super::decode_base64(v).map_err(serde::de::Error::custom)
@@ -1998,7 +2178,9 @@ pub mod bytes_key_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -2057,7 +2239,9 @@ pub mod bytes_key_bytes_val_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -2130,7 +2314,9 @@ pub mod string_key_map {
             fn visit_unit<E>(self) -> Result<Self::Value, E> {
                 Ok(C::default())
             }
-            crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+            crate::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf
+            );
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
@@ -2427,7 +2613,7 @@ where
         Ok(None)
     }
 
-    crate::__buffa_reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, bytes);
+    crate::reject_other_json_kinds!(bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf);
 
     fn visit_unit<E>(self) -> Result<Self::Value, E> {
         Ok(None)
@@ -2647,6 +2833,26 @@ pub mod closed_enum {
             fn visit_bool<Err: serde::de::Error>(self, _: bool) -> Result<E, Err> {
                 Err(Err::custom(EnumJsonErrorReason::InvalidType))
             }
+            #[cfg(feature = "zeroize")]
+            fn visit_string<Err: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<E, Err> {
+                // Only the owned-token callback transfers the allocation.
+                // Borrowed text and parser scratch stay with the deserializer.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+            #[cfg(feature = "zeroize")]
+            fn visit_byte_buf<Err: serde::de::Error>(
+                self,
+                value: alloc::vec::Vec<u8>,
+            ) -> Result<Self::Value, Err> {
+                // Preserve Serde's borrowed-byte rejection while wiping the
+                // owned allocation that its default forwarding would release.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_bytes(&value)
+            }
             fn visit_str<Err: serde::de::Error>(self, v: &str) -> Result<E, Err> {
                 match E::from_proto_name(v) {
                     Some(e) => Ok(e),
@@ -2743,7 +2949,7 @@ pub mod repeated_closed_enum {
             }
 
             reject_container_scalar_values!(InvalidListType);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
@@ -2817,7 +3023,7 @@ pub mod map_closed_enum {
             }
 
             reject_container_scalar_values!(InvalidMapType);
-            crate::__buffa_reject_other_json_kinds!(bytes);
+            crate::reject_other_json_kinds!(bytes, byte_buf);
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,

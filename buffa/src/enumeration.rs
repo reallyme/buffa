@@ -225,6 +225,16 @@ impl<'de, E: Enumeration> serde::Deserialize<'de> for EnumValue<E> {
                 Ok(EnumValue::from(0))
             }
 
+            #[cfg(feature = "zeroize")]
+            fn visit_byte_buf<Err: serde::de::Error>(
+                self,
+                value: alloc::vec::Vec<u8>,
+            ) -> Result<Self::Value, Err> {
+                // Preserve Serde's borrowed-byte rejection while wiping the
+                // owned allocation that its default forwarding would release.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_bytes(&value)
+            }
             fn visit_str<Err: serde::de::Error>(self, v: &str) -> Result<EnumValue<E>, Err> {
                 match E::from_proto_name(v) {
                     Some(e) => Ok(EnumValue::Known(e)),
@@ -240,6 +250,17 @@ impl<'de, E: Enumeration> serde::Deserialize<'de> for EnumValue<E> {
                         Err(Err::custom(EnumJsonErrorReason::UnknownName))
                     }
                 }
+            }
+
+            #[cfg(feature = "zeroize")]
+            fn visit_string<Err: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<Self::Value, Err> {
+                // Serde transferred this allocation, so wipe it even when
+                // the enum name cannot be resolved.
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
             }
 
             fn visit_i64<Err: serde::de::Error>(self, v: i64) -> Result<EnumValue<E>, Err> {
