@@ -24,6 +24,7 @@ impl ::core::default::Default for NullValue {
     }
 }
 impl ::buffa::Enumeration for NullValue {
+    const IS_NULL_VALUE: bool = true;
     fn from_i32(value: i32) -> ::core::option::Option<Self> {
         match value {
             0i32 => ::core::option::Option::Some(Self::NULL_VALUE),
@@ -46,6 +47,14 @@ impl ::buffa::Enumeration for NullValue {
     }
     fn values() -> &'static [Self] {
         &[Self::NULL_VALUE]
+    }
+}
+#[cfg(feature = "reflect")]
+impl ::buffa_descriptor::reflect::ReflectElement for NullValue {
+    fn as_value_ref(&self) -> ::buffa_descriptor::reflect::ValueRef<'_> {
+        ::buffa_descriptor::reflect::ValueRef::EnumNumber(
+            ::buffa::Enumeration::to_i32(self),
+        )
     }
 }
 /// `Struct` represents a structured data value, consisting of fields

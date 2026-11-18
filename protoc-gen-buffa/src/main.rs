@@ -19,7 +19,6 @@ use std::io::{self, Read, Write};
 use buffa::Message;
 use buffa_codegen::generated::compiler::code_generator_response::File as CodeGeneratorResponseFile;
 use buffa_codegen::generated::compiler::CodeGeneratorResponse;
-use buffa_codegen::generated::descriptor::Edition;
 
 use buffa_codegen::{CodeGenConfig, CodecStrategy, EnumTypeOverride, FeatureOverride};
 
@@ -49,6 +48,11 @@ Options are passed as a comma-separated parameter string, e.g.
 The proto side of extern_path is a dotted protobuf package or type name
 (leading dot optional); a name with an empty or non-identifier segment
 is an error.
+
+To emit native adapters from typed protobuf options, pass adapters=true.
+Additionally or instead, adapter_manifest=path reads a bounded typed JSON
+manifest; with a manifest, files without adapter options are allowed.
+Native adapter files are included explicitly by their API owner.
 
 To skip a package pulled in by include_imports (e.g. an option-only
 import that is never referenced as a field), use exclude_package:
@@ -84,8 +88,7 @@ fn main() {
             // Protocol: write a response with an error string, don't just crash.
             let response = CodeGeneratorResponse {
                 error: Some(format!("{}", e)),
-                supported_features: Some(feature_flags()),
-                ..Default::default()
+                ..buffa_codegen::plugin_response_metadata()
             };
             write_response(&response).unwrap_or_else(|io_err| {
                 eprintln!(
@@ -136,12 +139,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let response = CodeGeneratorResponse {
-        supported_features: Some(feature_flags()),
-        // Tell protoc which editions we support.
-        minimum_edition: Some(Edition::EDITION_PROTO2 as i32),
-        maximum_edition: Some(Edition::EDITION_2024 as i32),
         file: files,
-        ..Default::default()
+        ..buffa_codegen::plugin_response_metadata()
     };
 
     write_response(&response)?;
@@ -155,13 +154,6 @@ fn write_response(response: &CodeGeneratorResponse) -> io::Result<()> {
     io::stdout().write_all(&output)?;
     io::stdout().flush()?;
     Ok(())
-}
-
-/// Feature flags we support (bitmask).
-fn feature_flags() -> u64 {
-    const FEATURE_PROTO3_OPTIONAL: u64 = 1;
-    const FEATURE_SUPPORTS_EDITIONS: u64 = 2;
-    FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS
 }
 
 /// Plugin configuration parsed from the parameter string.
@@ -198,6 +190,22 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             .split_once('=')
             .ok_or_else(|| format!("plugin option '{param}' must use key=value syntax"))?;
         match key.trim() {
+            "adapters" => {
+                codegen.generate_adapters =
+                    parse_adapter_bool(value).map_err(|error| error.to_string())?;
+            }
+            "adapter_manifest" => {
+                if codegen.adapters.is_some() {
+                    return Err(buffa_codegen::adapters::AdapterError::from(
+                        buffa_codegen::adapters::ErrorReason::InvalidPluginOption,
+                    )
+                    .to_string());
+                }
+                codegen.adapters = Some(
+                    buffa_codegen::adapters::AdapterConfig::read_json(value)
+                        .map_err(|error| error.to_string())?,
+                );
+            }
             "views" => codegen.generate_views = parse_bool("views", value)?,
             "lazy_views" => codegen.lazy_views = parse_bool("lazy_views", value)?,
             "unknown_fields" => {
@@ -212,6 +220,38 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
                     normalize_proto_path(value.trim(), "unknown_fields_in")?,
                     true,
                 ));
+            }
+            // Repeatable path-scoped custom representations, the plugin form
+            // of buffa-build's `bytes_type_custom_in`, `string_type_custom_in`
+            // and `repeated_type_custom_in`. The value is
+            // "<proto_path>=<rust_type>"; a repeated rule's type is a template
+            // with a `*` placeholder for the element type. buffa-codegen
+            // validates the Rust type at generation time.
+            key
+            @ ("bytes_type_custom_in" | "string_type_custom_in" | "repeated_type_custom_in") => {
+                let (path, rust_type) = parse_custom_type_rule(key, value)?;
+                match key {
+                    "bytes_type_custom_in" => codegen
+                        .bytes_fields
+                        .push((path, buffa_codegen::BytesRepr::Custom(rust_type))),
+                    "string_type_custom_in" => codegen
+                        .string_fields
+                        .push((path, buffa_codegen::StringRepr::Custom(rust_type))),
+                    _ => codegen
+                        .repeated_fields
+                        .push((path, buffa_codegen::RepeatedRepr::Custom(rust_type))),
+                }
+            }
+            // Repeatable: route a custom representation's protobuf JSON
+            // through its ProtoBytesJson / ProtoStringJson impl.
+            "json_policy_type" => {
+                let rust_type = value.trim();
+                if rust_type.is_empty() {
+                    return Err("'json_policy_type' requires a Rust type path \
+                         (e.g. 'json_policy_type=crate::SecretBytes')"
+                        .to_string());
+                }
+                codegen.json_policy_types.push(rust_type.to_string());
             }
             "json" => codegen.generate_json = parse_bool("json", value)?,
             // Reject unknown JSON keys instead of ignoring them. Without
@@ -535,6 +575,16 @@ fn parse_codec_strategy(value: &str) -> Result<CodecStrategy, String> {
     }
 }
 
+// Adapter diagnostics must not format rejected values even transiently. Other
+// plugin options retain their existing diagnostics through parse_bool below.
+fn parse_adapter_bool(value: &str) -> Result<bool, buffa_codegen::adapters::AdapterError> {
+    match value.trim() {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(buffa_codegen::adapters::ErrorReason::InvalidPluginOption.into()),
+    }
+}
+
 fn parse_bool(key: &str, value: &str) -> Result<bool, String> {
     match value.trim() {
         "true" => Ok(true),
@@ -572,6 +622,33 @@ fn normalize_override_path(path: &str) -> Result<String, String> {
     normalize_proto_path(path, "feature override")
 }
 
+/// Parse the `<proto_path>=<rust_type>` value of a custom representation
+/// option. The proto path is normalized like the other path-scoped options;
+/// the Rust type is checked only for presence here and parsed by codegen.
+fn parse_custom_type_rule(key: &str, value: &str) -> Result<(String, String), String> {
+    let example = match key {
+        "bytes_type_custom_in" => "crate::SecretBytes",
+        "string_type_custom_in" => "crate::SecretString",
+        _ => "crate::SecretList<*>",
+    };
+    let invalid = || {
+        format!(
+            "invalid {key} format '{value}', expected \
+             '{key}=<proto_path>=<rust_type>' \
+             (e.g. '{key}=.my.pkg.Msg.field={example}')"
+        )
+    };
+    let (path, rust_type) = value.split_once('=').ok_or_else(invalid)?;
+    let rust_type = rust_type.trim();
+    if rust_type.is_empty() {
+        return Err(invalid());
+    }
+    Ok((
+        normalize_proto_path(path.trim(), key)?,
+        rust_type.to_owned(),
+    ))
+}
+
 fn normalize_unbox_oneof_path(path: &str) -> Result<String, String> {
     normalize_proto_path(path, "unbox_oneof_in")
 }
@@ -607,11 +684,142 @@ fn normalize_proto_path(path: &str, label: &str) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn native_adapters_require_explicit_plugin_selection() {
+        assert!(!parse_config("").unwrap().codegen.generate_adapters);
+        assert!(
+            parse_config("adapters=true")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+        assert!(
+            !parse_config("adapters=false")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+        assert!(
+            parse_config("adapters= true ")
+                .unwrap()
+                .codegen
+                .generate_adapters
+        );
+    }
+
+    #[test]
+    fn native_adapter_option_errors_never_echo_values() {
+        for value in ["invalid", "private-token", "", "1", "TRUE"] {
+            let error = parse_err(&format!("adapters={value}"));
+            assert_eq!(error, "adapter generation failed: InvalidPluginOption");
+        }
+    }
+
+    #[test]
+    fn native_manifest_duplicates_have_a_fixed_typed_reason() {
+        let manifest = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/empty_adapters.json"
+        );
+        let error = parse_err(&format!(
+            "adapter_manifest={manifest},adapter_manifest=private-path"
+        ));
+        assert_eq!(error, "adapter generation failed: InvalidPluginOption");
+    }
+
+    #[test]
+    fn native_manifest_read_failures_are_fixed_and_redacted() {
+        let error = parse_err("adapter_manifest=/a-path-that-does-not-exist/private-contract.json");
+        assert_eq!(error, "adapter generation failed: ManifestIo");
+        assert!(!error.contains("private-contract"));
+    }
+
     fn parse_err(params: &str) -> String {
         match parse_config(params) {
             Ok(_) => panic!("expected parse_config({params:?}) to fail"),
             Err(err) => err,
         }
+    }
+
+    #[test]
+    fn custom_type_rules_are_repeatable_and_normalized() {
+        let config = parse_config(
+            "bytes_type_custom_in=demo.Request.key=crate::SecretBytes,\
+            bytes_type_custom_in=.demo.Request.token..=crate::OtherBytes,\
+            string_type_custom_in= .demo.Request.identity = crate::SecretString,\
+            repeated_type_custom_in=.demo.Request.embedding=crate::SecretList<*>,\
+            bytes_type_custom_in=.=crate::AllBytes",
+        )
+        .unwrap();
+        assert_eq!(
+            config.codegen.bytes_fields,
+            vec![
+                (
+                    ".demo.Request.key".to_owned(),
+                    buffa_codegen::BytesRepr::Custom("crate::SecretBytes".to_owned())
+                ),
+                (
+                    ".demo.Request.token".to_owned(),
+                    buffa_codegen::BytesRepr::Custom("crate::OtherBytes".to_owned())
+                ),
+                (
+                    ".".to_owned(),
+                    buffa_codegen::BytesRepr::Custom("crate::AllBytes".to_owned())
+                ),
+            ]
+        );
+        assert_eq!(
+            config.codegen.string_fields,
+            vec![(
+                ".demo.Request.identity".to_owned(),
+                buffa_codegen::StringRepr::Custom("crate::SecretString".to_owned())
+            )]
+        );
+        assert_eq!(
+            config.codegen.repeated_fields,
+            vec![(
+                ".demo.Request.embedding".to_owned(),
+                buffa_codegen::RepeatedRepr::Custom("crate::SecretList<*>".to_owned())
+            )]
+        );
+    }
+
+    #[test]
+    fn custom_type_rules_report_the_option_and_value() {
+        for option in [
+            "bytes_type_custom_in",
+            "string_type_custom_in",
+            "repeated_type_custom_in",
+        ] {
+            for value in ["", "demo.Key", ".demo.Key="] {
+                let err = parse_err(&format!("{option}={value}"));
+                assert!(err.contains(option), "{option}={value}: {err}");
+                assert!(
+                    err.contains(&format!("'{value}'")),
+                    "{option}={value}: {err}"
+                );
+            }
+            let err = parse_err(&format!("{option}==crate::Secret"));
+            assert!(err.contains(option), "{option}: {err}");
+            assert!(err.contains("non-empty proto path"), "{option}: {err}");
+        }
+    }
+
+    #[test]
+    fn json_policy_types_are_repeatable() {
+        let config = parse_config(
+            "json_policy_type=crate::SecretBytes,json_policy_type= crate::SecretString ",
+        )
+        .unwrap();
+        assert_eq!(
+            config.codegen.json_policy_types,
+            vec![
+                "crate::SecretBytes".to_owned(),
+                "crate::SecretString".to_owned()
+            ]
+        );
+        let err = parse_err("json_policy_type=");
+        assert!(err.contains("json_policy_type"), "{err}");
     }
 
     #[test]

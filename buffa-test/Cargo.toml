@@ -17,7 +17,7 @@ buffa = { workspace = true, features = ["std", "json", "text"] }
 # generated with `generate_text(true)` and the pool decodes the WKT
 # descriptors that need it.
 buffa-descriptor = { workspace = true, features = ["reflect", "json", "std"] }
-buffa-types = { workspace = true, features = ["json", "chrono", "jiff", "reflect"] }
+buffa-types = { workspace = true, features = ["json", "jiff", "reflect"] }
 # The `buffa.ext` option types, for reading the options that
 # `protos/ext_options.proto` sets (`src/tests/ext_options.rs`).
 buffa-proto-options = { workspace = true }
@@ -37,6 +37,14 @@ serde_json = { workspace = true }
 # exercises codegen's generic arbitrary builder.
 ecow = { workspace = true, features = ["serde"] }
 compact_str = { workspace = true, features = ["serde"] }
+
+# Guarded field representations exercise allocation ownership without adding
+# runtime dependencies to buffa itself.
+secrecy = { workspace = true }
+zeroize = { workspace = true }
+subtle = { workspace = true }
+base64 = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 # `src/tests/json_private_key.rs` needs `serde_json::Value` to parse the string under

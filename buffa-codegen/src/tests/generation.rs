@@ -3506,3 +3506,49 @@ fn repeated_message_named_like_a_local_map_entry_is_a_list() {
         "{content}"
     );
 }
+
+#[test]
+fn plugin_response_metadata_advertises_features_and_edition_range() {
+    use crate::generated::descriptor::Edition;
+    let response = plugin_response_metadata();
+    // FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS. Buf rejects a
+    // response that advertises editions without both ends of the range.
+    assert_eq!(response.supported_features, Some(3));
+    assert_eq!(
+        response.minimum_edition,
+        Some(Edition::EDITION_PROTO2 as i32)
+    );
+    assert_eq!(response.maximum_edition, Some(Edition::EDITION_2024 as i32));
+    assert!(response.error.is_none());
+    assert!(response.file.is_empty());
+}
+
+#[test]
+fn null_value_marker_requires_the_exact_protobuf_type() {
+    for (package, name, expected) in [
+        ("google.protobuf", "NullValue", true),
+        ("other", "NullValue", false),
+        ("google.protobuf", "NullValueLike", false),
+        ("google.protobuf.child", "NullValue", false),
+    ] {
+        let mut file = proto3_file("null_marker.proto");
+        file.package = Some(package.into());
+        file.enum_type.push(EnumDescriptorProto {
+            name: Some(name.into()),
+            value: vec![enum_value("NULL_VALUE", 0)],
+            ..Default::default()
+        });
+        let generated = generate(
+            &[file],
+            &["null_marker.proto".into()],
+            &CodeGenConfig::default(),
+        )
+        .unwrap();
+        let output = joined(&generated);
+        assert_eq!(
+            output.contains("const IS_NULL_VALUE: bool = true;"),
+            expected,
+            "{package}.{name}"
+        );
+    }
+}

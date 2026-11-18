@@ -13,8 +13,7 @@ use super::{
 use crate::alloc::{string::String, vec::Vec};
 use crate::bytes::Buf;
 use crate::encoding::{
-    check_wire_type, decode_unknown_field, decode_varint, skip_field_depth, wire_type_mismatch,
-    Tag, WireType,
+    check_wire_type, decode_unknown_field, decode_varint, wire_type_mismatch, Tag, WireType,
 };
 use crate::message::MAX_MESSAGE_BYTES;
 use crate::{types, DecodeContext, DecodeError, UnknownField, UnknownFieldData, UnknownFields};
@@ -32,6 +31,9 @@ pub(super) unsafe fn merge_to_limit<B: Buf>(
     limit: usize,
 ) -> Result<(), DecodeError> {
     let n = buf.remaining().saturating_sub(limit);
+    // The slice decoded below holds exactly this message, so nothing in it
+    // follows the message.
+    let ctx = ctx.with_message_end(0);
     let chunk = buf.chunk();
     if chunk.len() >= n {
         let mut payload = &chunk[..n];
@@ -64,9 +66,8 @@ pub(super) unsafe fn merge_length_delimited<B: Buf>(
         return Err(DecodeError::MessageTooLarge);
     }
     let len = usize::try_from(len).map_err(|_| DecodeError::MessageTooLarge)?;
-    if buf.remaining() < len {
-        return Err(DecodeError::UnexpectedEof);
-    }
+    // The sub-message must also end within the message that holds it.
+    ctx.check_len(buf.remaining(), len)?;
     let limit = buf.remaining() - len;
     // SAFETY: forwarded from the caller.
     unsafe { merge_to_limit(table, base, buf, ctx, limit) }
@@ -90,10 +91,15 @@ pub(super) unsafe fn merge_field<B: Buf>(
     if chunk.len() < remaining {
         return Err(DecodeError::UnexpectedEof);
     }
-    let mut payload = chunk;
+    // The field ends within the enclosing message, so decode it from a slice
+    // that stops there.
+    let Some(span) = remaining.checked_sub(ctx.message_end()) else {
+        return Err(DecodeError::UnexpectedEof);
+    };
+    let mut payload = &chunk[..span];
     // SAFETY: forwarded from the caller.
-    unsafe { merge_one(table, base, tag, &mut payload, ctx)? };
-    let consumed = remaining - payload.len();
+    unsafe { merge_one(table, base, tag, &mut payload, ctx.with_message_end(0))? };
+    let consumed = span - payload.len();
     buf.advance(consumed);
     Ok(())
 }
@@ -139,8 +145,9 @@ pub(super) unsafe fn merge_sub(
     }
     let (mut payload, rest) = buf.split_at(len);
     *buf = rest;
+    // `payload` holds exactly the sub-message.
     // SAFETY: forwarded from the caller.
-    unsafe { merge_slice(table, base, &mut payload, ctx) }
+    unsafe { merge_slice(table, base, &mut payload, ctx.with_message_end(0)) }
 }
 
 /// # Safety
@@ -182,7 +189,7 @@ unsafe fn merge_unknown(
     ctx: DecodeContext<'_>,
 ) -> Result<(), DecodeError> {
     if table.unknown == NO_UNKNOWN {
-        return skip_field_depth(tag, buf, ctx.depth());
+        return crate::encoding::skip_unknown_field(tag, buf, ctx);
     }
     let field = decode_unknown_field(tag, buf, ctx)?;
     // SAFETY: `unknown` is the offset of the message's `UnknownFields`.
@@ -704,7 +711,7 @@ unsafe fn enum_reject(
     ctx: DecodeContext<'_>,
 ) -> Result<(), DecodeError> {
     if table.unknown == NO_UNKNOWN {
-        return Ok(());
+        return ctx.check_unknown_field();
     }
     ctx.register_unknown_field()?;
     // SAFETY: `unknown` is the offset of the message's `UnknownFields`.

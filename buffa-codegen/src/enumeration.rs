@@ -26,54 +26,7 @@ fn generate_enum_serde(name_ident: &Ident) -> TokenStream {
 
         impl<'de> ::serde::Deserialize<'de> for #name_ident {
             fn deserialize<__D: ::serde::Deserializer<'de>>(d: __D) -> ::core::result::Result<Self, __D::Error> {
-                struct _V;
-                impl ::serde::de::Visitor<'_> for _V {
-                    type Value = #name_ident;
-
-                    fn expecting(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                        f.write_str(concat!("a string, integer, or null for ", stringify!(#name_ident)))
-                    }
-
-                    fn visit_str<__E: ::serde::de::Error>(self, v: &str) -> ::core::result::Result<#name_ident, __E> {
-                        <#name_ident as ::buffa::Enumeration>::from_proto_name(v).ok_or_else(|| {
-                            ::serde::de::Error::invalid_value(
-                                ::serde::de::Unexpected::Str(v),
-                                &"a known enum variant name",
-                            )
-                        })
-                    }
-
-                    fn visit_i64<__E: ::serde::de::Error>(self, v: i64) -> ::core::result::Result<#name_ident, __E> {
-                        let v32 = i32::try_from(v).map_err(|_| {
-                            ::serde::de::Error::custom(
-                                ::buffa::alloc::format!("enum value {v} out of i32 range")
-                            )
-                        })?;
-                        <#name_ident as ::buffa::Enumeration>::from_i32(v32).ok_or_else(|| {
-                            ::serde::de::Error::custom(
-                                ::buffa::alloc::format!("unknown enum value {v32}")
-                            )
-                        })
-                    }
-
-                    fn visit_u64<__E: ::serde::de::Error>(self, v: u64) -> ::core::result::Result<#name_ident, __E> {
-                        let v32 = i32::try_from(v).map_err(|_| {
-                            ::serde::de::Error::custom(
-                                ::buffa::alloc::format!("enum value {v} out of i32 range")
-                            )
-                        })?;
-                        <#name_ident as ::buffa::Enumeration>::from_i32(v32).ok_or_else(|| {
-                            ::serde::de::Error::custom(
-                                ::buffa::alloc::format!("unknown enum value {v32}")
-                            )
-                        })
-                    }
-
-                    fn visit_unit<__E: ::serde::de::Error>(self) -> ::core::result::Result<#name_ident, __E> {
-                        ::core::result::Result::Ok(::core::default::Default::default())
-                    }
-                }
-                d.deserialize_any(_V)
+                ::buffa::json_helpers::closed_enum::deserialize_strict(d)
             }
         }
 
@@ -134,7 +87,7 @@ pub fn generate_enum(
     enum_desc: &EnumDescriptorProto,
     rust_name: &str,
     proto_fqn: &str,
-    features: &ResolvedFeatures,
+    _features: &ResolvedFeatures,
     _resolver: &crate::imports::ImportResolver,
 ) -> Result<TokenStream, CodeGenError> {
     let name_ident = format_ident!("{}", rust_name);
@@ -341,14 +294,16 @@ pub fn generate_enum(
         };
 
     // Vtable-mode reflection: closed enums appear as bare `#name_ident` in
-    // `RepeatedView` / `MapView`, so they need a `ReflectElement` impl for the
-    // generic container impls to apply. Open enums use `EnumValue<E>`, which
-    // `buffa-descriptor` already covers, so the impl is emitted only for closed
-    // enums — emitting it for open ones would just be dead `cargo doc` noise.
-    let reflect_element_impl = if ctx.config.generate_reflection
-        && ctx.config.generate_reflection_vtable
-        && crate::message::is_closed_enum(features)
-    {
+    // `Vec` / `RepeatedView` / map values, so they need a `ReflectElement`
+    // impl for the generic container impls to apply. The impl is emitted for
+    // every enum under either reflection mode, whatever its openness here:
+    // openness is resolved per field by the generation that compiles the
+    // field, so a vtable-mode generation that reaches this enum through
+    // `extern_path` (without this generation's `open_enums_in` rules, or
+    // while this generation uses bridge mode) may still type it bare, and only
+    // this crate can provide the impl. It does not overlap `buffa-descriptor`'s
+    // impl for `EnumValue<E>`, which covers open-enum fields.
+    let reflect_element_impl = if ctx.config.generate_reflection {
         crate::feature_gates::cfg_block(
             quote! {
                 impl ::buffa_descriptor::reflect::ReflectElement for #name_ident {
@@ -393,6 +348,9 @@ pub fn generate_enum(
     // the enum carries it too, like the scoped `non_snake_case` allow on
     // messages (#408). A regular `//` comment inside `quote!` is dropped,
     // which is why this note sits outside it.
+    let null_value_marker = (proto_fqn == "google.protobuf.NullValue")
+        .then(|| quote! { const IS_NULL_VALUE: bool = true; });
+
     Ok(quote! {
         #enum_doc
         #[allow(non_camel_case_types)]
@@ -413,6 +371,8 @@ pub fn generate_enum(
 
         #deprecated_value_allow
         impl ::buffa::Enumeration for #name_ident {
+            #null_value_marker
+
             fn from_i32(value: i32) -> ::core::option::Option<Self> {
                 match value {
                     #(#from_i32_arms,)*

@@ -42,6 +42,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
         with:
           components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
 
       - name: Install protoc
         run: |
@@ -60,6 +61,13 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace
+
+      # Feature unification can deliver wide JSON numbers through 128-bit
+      # visitor callbacks when decoding a Value instead of JSON text.
+      - name: Enum diagnostics with arbitrary precision
+        run: cargo test -p buffa-test --features serde_json/arbitrary_precision --test enum_json_precision -- --ignored
+      - name: Test optional Chrono conversions
+        run: cargo test -p buffa-types --features chrono,json chrono
 
       # Optional features must keep compiling — #88 was a feature-flag-only
       # break that escaped the default-features test pass above. cargo check
@@ -100,6 +108,9 @@ jobs:
       - name: Feature-gating compile matrix
         run: cargo test -p buffa-codegen --test feature_gating_compile -- --ignored
 
+      - name: JSON diagnostic consumer compatibility
+        run: cargo test -p buffa-codegen --test json_diagnostics_compile -- --ignored
+
       # Shared-pool mode emits each package's descriptor_pool() as a relative
       # `super::…::__buffa_fds` path, so the hop count has to match the module
       # nesting exactly. Only a real compiled tree proves it resolves; the
@@ -107,6 +118,18 @@ jobs:
       # because it spawns cargo. (#311)
       - name: Shared descriptor pool compile
         run: cargo test -p buffa-codegen --test shared_pool_compile -- --ignored
+
+      # Associated type projections and parentheses can name working custom
+      # representations; verify the generated code compiles and round-trips.
+      - name: Custom type path compatibility
+        run: cargo test -p buffa-codegen --test custom_type_paths_compile -- --ignored
+      # Separate Rust crates must share enum element impls across reflection
+      # modes and keep the descriptor dependency optional when reflection is off.
+      - name: External enum reflection compile
+        run: cargo test -p buffa-codegen --test extern_enum_reflection_compile -- --ignored
+
+      - name: Foreign JSON policy compile and runtime tests
+        run: cargo test -p buffa-codegen --test json_policy_compile -- --ignored
 
       # `examples/bsr-quickstart` is outside the workspace, and its `src/gen/`
       # is checked-in output from the published BSR plugin, not in-tree
@@ -360,7 +383,7 @@ jobs:
       # file then bypasses, and the bare-metal check fails with E0463.
       - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
         with:
-          targets: i686-unknown-linux-gnu, thumbv7em-none-eabihf
+          targets: i686-unknown-linux-gnu, thumbv7em-none-eabihf, wasm32-unknown-unknown
 
       - name: Install protoc
         run: |
@@ -376,6 +399,11 @@ jobs:
 
       - name: Test buffa no_std JSON options
         run: cargo test -p buffa --no-default-features --features json --test nostd_json_options
+
+      # The policy helpers must use the runtime's feature-selected map type,
+      # even though the integration test executable itself links std.
+      - name: Test buffa no_std JSON policies
+        run: cargo test -p buffa --no-default-features --features json --test json_policy_containers
 
       - name: Check buffa no_std (bare-metal ARM)
         run: cargo check -p buffa --no-default-features --target thumbv7em-none-eabihf
@@ -400,6 +428,19 @@ jobs:
 
       - name: Check buffa-proto-options no_std + json/text/views
         run: cargo check -p buffa-proto-options --no-default-features --features json,text,views
+
+      - name: Check ordinary generated crates remain no_std (bare-metal ARM)
+        run: |
+          cargo check --manifest-path buffa-types/Cargo.toml --no-default-features --target thumbv7em-none-eabihf
+          cargo check --manifest-path buffa-descriptor/Cargo.toml --no-default-features --target thumbv7em-none-eabihf
+
+      # Check crates separately: workspace feature unification would hide a
+      # missing std dependency in an arbitrary-only consumer.
+      - name: Check isolated arbitrary features (host and Wasm)
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$GITHUB_WORKSPACE/scripts/check-arbitrary-features.sh"
+          "$GITHUB_WORKSPACE/scripts/check-arbitrary-features.sh" wasm32-unknown-unknown
 
       - name: Check workspace 32-bit
         run: cargo check --workspace --target i686-unknown-linux-gnu

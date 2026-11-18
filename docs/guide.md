@@ -210,7 +210,7 @@ The macro pulls in `OUT_DIR/<dotted.pkg>.mod.rs`, which in turn includes the per
 | `.generate_with_setters(bool)` | `true` | Emit `with_<name>()` builder-style setters for explicit-presence fields |
 | `.map_entries_omit_defaults(bool)` | `false` | Encode map entries as prost does: an entry's key or value at its default is left out, the entry itself is kept. Each crate's types encode as that crate was generated; the well-known types and `DynamicMessage` write both. For multi-entry maps to match prost's bytes, also use `.map_type(MapRepr::BTreeMap)` where prost used `btree_map`. See [Map entries](migration-from-prost.md#map-entries) |
 | `.generate_arbitrary(bool)` | `false` | Emit `#[derive(arbitrary::Arbitrary)]` gated behind the `arbitrary` feature (for fuzzing) |
-| `.skip_debug(&[...])` | — | Omit the generated `Debug` impl for matching messages (proto-path prefixes), with their oneof enums, and for enums named exactly, so your crate can write its own. A matched enum needs a hand-written impl to compile. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
+| `.skip_debug(&[...])` | — | Omit the generated `Debug` impl for matching owned messages (proto-path prefixes), with their oneof enums, and for enums named exactly, so your crate can write its own. A matched enum needs a hand-written impl to compile. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
 | `.gate_impls_on_crate_features(bool)` | `false` | Wrap json/views/text impls in `#[cfg(feature = ...)]` for library crates whose generated code is a public dependency surface |
 | `.json_feature_name(name)` etc. | `"json"`, `"views"`, `"text"`, `"reflect"` | Rename the crate feature a gated impl kind is conditioned on (one setter per kind: `json_feature_name`, `views_feature_name`, `text_feature_name`, `reflect_feature_name`); inert without `gate_impls_on_crate_features`. The renamed feature must be declared in the consuming crate's `[features]` table — an undeclared name leaves the `#[cfg]` permanently false and the impls silently absent |
 | `.strict_utf8_mapping(bool)` | `false` | Map `utf8_validation = NONE` string fields to `Vec<u8>` / `&[u8]` instead of `String` (see [Skipping UTF-8 validation](#skipping-utf-8-validation)) |
@@ -385,10 +385,13 @@ Key points:
 - **The rule also covers `map` `string` slots.** A `string_type` rule on a `map<string, V>` / `map<K, string>` field applies to the key and/or value — one rule on the field path covers both slots of a `map<string, string>`. The `map` container itself stays the configured type (the `map_type` knob); only the `string` element type changes. (`bytes` is value-only here, since proto forbids `bytes` map keys.) Because the rule is keyed on the field path, a `map<string, string>` is all-or-nothing: you cannot give the key a custom type and leave the value `String` (or vice versa) on the same field. Asymmetric cases where only one slot is `string` (`map<string, int64>`, `map<int32, string>`) are unaffected.
 - **A custom string needs no `Arbitrary` impl.** Under `generate_arbitrary`, codegen attaches a generic builder to a custom string field (singular, optional, repeated or oneof) and to a `map` field with a custom string key or value. The builder makes a `String` and converts it through `From<String>`.
 - **JSON of a custom string with explicit presence (proto3 or proto2 `optional`, and the edition 2023 default), in a `repeated` field, in a oneof, or in a `map`,** serializes through the element's native `serde`, so such a newtype must implement `Serialize` / `Deserialize` (`buffa-smolstr`'s `serde` feature does this, and a `buffa-remote-derive` newtype gets them from `#[buffa(remote = ..., serde)]`). A singular string field with implicit presence, or a proto2 `required` one, uses buffa's `proto_string` with-module and needs no `serde` impl.
+- **A [JSON policy](#json-policies-for-custom-types) replaces these JSON rules for a listed type.** The generated JSON of a listed custom string or bytes type, in owned messages and views, goes through its `ProtoStringJson` / `ProtoBytesJson` impl instead. Reflective JSON (`DynamicMessage`) does not consult the policy.
 - **A custom string used as a `map` key needs `Hash + Eq`** (for the default / `HashMap` container) or `Ord` (for `map_type(BTreeMap)`). The bound is enforced at the generated map field type, so a missing impl is a clear compile error at that field.
-- **A custom type used as a `repeated` element, or as a `map` key/value, must be crate-local.** Codegen emits per-element `ReflectElement` (vtable reflection), `ReflectMapKey` (vtable, for a custom `string` map key), and base64 `ProtoElemJson` (JSON, bytes only) impls for it, which the orphan rule forbids for a foreign type — a local newtype satisfies this. Singular / optional / oneof uses have no such restriction.
+- **A custom type used as a `repeated` element, or as a `map` key/value, must be crate-local under vtable reflection, and an unlisted custom bytes type must be under JSON too.** Codegen emits per-element `ReflectElement` (vtable reflection), `ReflectMapKey` (vtable, for a custom `string` map key), and base64 `ProtoElemJson` (JSON, bytes only) impls for it, which the orphan rule forbids for a foreign type — a local newtype satisfies this. Singular / optional / oneof uses have no such restriction. A bytes type listed with `json_policy_type` gets no `ProtoElemJson` impl (buffa's policy helpers handle its elements and values), so under JSON alone it may be defined, with its representation and policy impls, in another crate.
 
-`string_type` / `bytes_type` are `buffa-build` / `buffa-codegen` options only — there is no `protoc-gen-buffa` plugin equivalent yet.
+For `protoc-gen-buffa`, use the repeatable `bytes_type_custom_in=<proto_path>=<rust_type_path>` and `string_type_custom_in=<proto_path>=<rust_type_path>` options, and `repeated_type_custom_in=<proto_path>=<template>` for a custom `repeated` collection; `.` as the path selects every field. They follow the same proto-path prefix matching and last-match-wins ordering as the `buffa-build` methods. Plugin options are comma-separated, so use a local type alias for a generic Rust type whose path contains a comma.
+
+The crate-global impls described above are emitted once per plugin invocation, so every file that uses such a type in those positions must be generated by a **single** plugin invocation: set `strategy: all` on the `protoc-gen-buffa` entry in `buf.gen.yaml`, or pass all the files to one `protoc` call. This applies to a custom **bytes** type used as a `repeated` element or `map` value under `json=true` (`ProtoElemJson`) or `reflection=true` / `reflect_mode=vtable` (`ReflectElement`), and to a custom **string** type used as a `repeated` element, `map` key or `map` value under `reflection=true` / `reflect_mode=vtable` (`ReflectElement`, `ReflectMapKey`). Under buf's default per-directory strategy, two directories that use the same custom type in those positions each emit the impls, and the crate fails to compile with E0119 (conflicting implementations). Singular, `optional` and `oneof` uses, custom strings under `json=true` alone, and types listed with `json_policy_type` under `json=true` alone, do not need `strategy: all`. Each invocation also checks the rules against its own files only, so under per-directory generation a path-scoped rule warns ("matched no field") in every run whose files do not contain that path; `strategy: all` removes that noise too.
 
 ### Multi-package projects
 
@@ -628,7 +631,7 @@ plugins:
     strategy: all
 ```
 
-`protoc-gen-buffa` does not emit `mod.rs` and does not require `strategy: all` — buf can invoke it per-directory. `protoc-gen-buffa-packaging` requires `strategy: all` to see the full proto file set. Run it once per output directory; if you have multiple codegen plugins emitting to different directories, invoke it once per directory with the appropriate `out:`.
+`protoc-gen-buffa` does not emit `mod.rs` and does not require `strategy: all` — buf can invoke it per-directory. The exception is a custom type from `bytes_type_custom_in` or `string_type_custom_in` that is used as a `repeated` element or a `map` key or value with `reflection=true` / `reflect_mode=vtable` (or, for a bytes type not listed with `json_policy_type`, with `json=true`): generate every file that uses it in one invocation (`strategy: all`), or the crate fails to compile with duplicate impls — see [String and bytes field representations](#string-and-bytes-field-representations). `protoc-gen-buffa-packaging` requires `strategy: all` to see the full proto file set. Run it once per output directory; if you have multiple codegen plugins emitting to different directories, invoke it once per directory with the appropriate `out:`.
 
 #### Plugin options
 
@@ -637,13 +640,15 @@ Passed via `opt:` (works for `remote:` and `local:`):
 | Option | Description |
 |--------|-------------|
 | `views=true` | Generate zero-copy view types (default: true) |
+| `adapters=true` | Generate standalone native adapters from typed protobuf options (default: false); without `adapter_manifest`, a requested file must declare them; see [Native adapters](native-adapters.md) |
+| `adapter_manifest=<path>` | Read a bounded typed adapter manifest; output stays outside the portable module tree |
 | `json=true` | Generate serde Serialize/Deserialize for proto3 JSON |
 | `text=true` | Generate `impl buffa::text::TextFormat` for textproto encoding/decoding |
 | `unknown_fields=false` | Disable unknown field preservation |
 | `unknown_fields_in=<path>` | Re-enable unknown-field preservation for matching messages and the messages nested in them. Repeatable; same proto-path prefix matching as `open_enums_in`; see [Path-scoped re-enable](#path-scoped-re-enable) |
 | `deny_unknown_json_fields=true` | Reject unknown keys when parsing JSON instead of ignoring them; without `json=true` it changes nothing and the plugin prints a warning. See [Unknown fields in JSON](#unknown-fields-in-json) |
 | `deny_unknown_json_fields_in=<path>` | Reject unknown JSON keys for matching messages and the messages nested in them; rules can only enable, and need `json=true` like the global option. Repeatable; same proto-path prefix matching as `unknown_fields_in`. See [Unknown fields in JSON](#unknown-fields-in-json) |
-| `skip_debug=<path>` | Omit the generated `Debug` impl for matching messages (with their oneof enums) and for enums named exactly, so the crate can write its own. A matched enum needs a hand-written impl to compile. Repeatable; message paths use the same proto-path prefix matching as `unknown_fields_in`. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
+| `skip_debug=<path>` | Omit the generated `Debug` impl for matching owned messages (with their oneof enums) and for enums named exactly, so the crate can write its own. A matched enum needs a hand-written impl to compile. Repeatable; message paths use the same proto-path prefix matching as `unknown_fields_in`. See [`skip_debug` and hand-written `Debug`](#skip_debug-and-hand-written-debug) |
 | `arbitrary=true` | Emit `#[derive(arbitrary::Arbitrary)]` for fuzzing |
 | `gate_impls=true` | Wrap json/views/text impls in `#[cfg(feature = ...)]` for library crates whose generated code is a public dependency surface (default: emitted unconditionally) |
 | `json_feature=<name>` | Rename the crate feature a gated impl kind is conditioned on (also `views_feature=`, `text_feature=`, `reflect_feature=`); inert without `gate_impls=true` |
@@ -665,6 +670,10 @@ Passed via `opt:` (works for `remote:` and `local:`):
 | `reflection=true` | Emit reflection support (vtable mode) plus an embedded per-package descriptor pool — see [Runtime reflection](#runtime-reflection) |
 | `reflect_mode=off\|bridge\|vtable` | Finer-grained reflection selector; `reflection=true` is shorthand for `vtable` |
 | `shared_descriptor_pool=true` | Deduplicate the embedded descriptor set: per-package reflect modules delegate to one shared `__buffa_fds` root module. Pass a matching `shared_descriptor_pool=true` to `protoc-gen-buffa-packaging` so the root module is emitted. See [Runtime reflection](#runtime-reflection) |
+| `bytes_type_custom_in=.pkg.Msg.field=crate::Bytes` | Custom owned bytes representation for a protobuf path prefix, or `.` for every field (repeatable, last matching rule wins). With `json=true` (unless the type is listed with `json_policy_type`) or `reflection=true` / `reflect_mode=vtable`, a type used as a `repeated` element or `map` value needs all of its uses generated in one invocation (`strategy: all`) — see [String and bytes field representations](#string-and-bytes-field-representations) |
+| `string_type_custom_in=.pkg.Msg.field=crate::Text` | Custom owned string representation for a protobuf path prefix, or `.` for every field (repeatable, last matching rule wins). With `reflection=true` / `reflect_mode=vtable`, a type used as a `repeated` element or `map` key or value needs all of its uses generated in one invocation (`strategy: all`) — see [String and bytes field representations](#string-and-bytes-field-representations) |
+| `repeated_type_custom_in=.pkg.Msg.field=crate::List<*>` | Custom owned collection for `repeated` fields under a protobuf path prefix; `*` is replaced by the element type (repeatable, last matching rule wins). See [`repeated_type_custom_in`](https://docs.rs/buffa-build/latest/buffa_build/struct.Config.html#method.repeated_type_custom_in) for the `ProtoList` requirements |
+| `json_policy_type=crate::Secret` | Route a custom bytes or string representation's generated protobuf JSON, in owned messages and views, through its `ProtoBytesJson` / `ProtoStringJson` impl (repeatable; reflective `DynamicMessage` JSON does not consult it) — see [JSON policies for custom types](#json-policies-for-custom-types) |
 | `extern_path=.pkg=::rust` | Map a proto package — or a single type, e.g. `extern_path=.pkg.Type=::rust::Type` — to an external Rust path. The proto side is a dotted protobuf name with an optional leading dot; an empty or non-identifier segment is an error |
 | `exclude_package=.pkg` | Drop a proto package and its subpackages from generation (repeatable; leading dot optional). For option-only imports that `include_imports` pulls in but that are never used as field types, e.g. `buf.validate`, `gnostic`. **Pass the same `exclude_package` to `protoc-gen-buffa-packaging`** (see the note below the table) so the generated `mod.rs` omits the same packages. |
 | `file_per_package=true` | Emit one `<dotted.package>.rs` per package instead of per-proto-file content + a `<dotted.pkg>.mod.rs` stitcher. Use this with the remote plugin when you don't want to install `protoc-gen-buffa-packaging` — see [Remote plugin only](#remote-plugin-only-no-local-install). Under `strategy: directory`, requires the input module to be `PACKAGE_DIRECTORY_MATCH`-clean. |
@@ -1168,7 +1177,7 @@ are bare. Your attribute, with its note, is on the owned struct's field only.
 
 - A message path (`.demo.Uuid4`) covers that message, its oneof enums and the messages nested in it. A package path (`.demo`) covers every message in the package and its sub-packages, and `.` covers every message.
 - An enum loses its `Debug` only when a rule is its exact name (`.demo.Level`). A message or package rule leaves the enums under it as they are.
-- View types keep their generated `Debug`, so a view still prints every field. `skip_debug` is for formatting; to hide a value, use `[debug_redact = true]`, which covers the owned message, the view and reflective output. The option does not reach a matched message or oneof, whose output is your impl's.
+- Views of a matched message (eager, lazy, and owned), including its view oneofs, keep `Debug` but show only the type name and `[REDACTED]`. This hides preserved unknown fields too. The rule affects generated formatting only. For selective redaction in generated and reflective formatting, use `[debug_redact = true]`. Your hand-written impl decides what a matched owned message or oneof prints.
 
 Your crate then implements `Debug` where something needs it:
 
@@ -1772,7 +1781,9 @@ limit of its own; see
 buffa does not support `serde_json`'s `arbitrary_precision` feature. When any
 crate in the build enables it, buffa rejects every number that has a fraction
 or an exponent, and every whole number outside the `i64` and `u64` ranges. It
-reads such a number in a `google.protobuf.Value` as a struct. To check your
+reads such a number in a `google.protobuf.Value` or `Struct` as a struct, and
+in a map field as an entry under the key `$serde_json::private::Number`, which
+the map's value type then parses. To check your
 build, run `cargo tree -e features -i serde_json` in your workspace, and look
 for `arbitrary_precision` in the output. Tracked in
 [#482](https://github.com/anthropics/buffa/issues/482).
@@ -1806,6 +1817,43 @@ struct Event {
 // In a hand-written visitor:
 let buffa::json_helpers::buffered::BufferedValue(payload) = map.next_value()?;
 ```
+
+### JSON policies for custom types
+
+A custom `bytes` or `string` representation can own its protobuf JSON encoding. List the type with `.json_policy_type("crate::SecretBytes")` (plugin: `json_policy_type=crate::SecretBytes`, repeatable) and implement `buffa::json_helpers::ProtoBytesJson` or `ProtoStringJson` for it:
+
+```rust,ignore
+impl buffa::json_helpers::ProtoBytesJson for SecretBytes {
+    fn serialize_json<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        buffa::json_helpers::bytes::serialize(bytes, s)
+    }
+    fn deserialize_json<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        buffa::json_helpers::bytes::deserialize(d)
+    }
+}
+```
+
+The generated JSON of a listed type then goes through the trait: singular, optional, repeated and oneof fields, `map` keys and values, and the same fields of views, lazy views and owned views. The type's own `serde` impls are not consulted. Serialization receives only the field's `&[u8]` or `&str`, so one policy governs owned and borrowed export, and it cannot depend on per-value state. The trait has no default methods and no blanket impl: a listed type that does not implement it fails to compile. JSON `null` is handled before the policy runs, with the usual protobuf rules for each field shape. A listed `string` type cannot be the key of a `map` with enum values. Unlisted custom types keep their existing JSON behavior.
+
+Generated code implements no JSON trait for a listed type: its `repeated` elements and `map` values go through buffa's policy helpers. With JSON alone, a listed type may therefore be defined, together with its `ProtoBytes`/`ProtoString` and policy impls, in another crate, and separate generation runs (buf's per-directory strategy, or several `compile()` calls) may share it. Under `reflect_mode=vtable` its `repeated` and `map` uses still get `ReflectElement`/`ReflectMapKey` impls, so there it must be crate-local and generated in one invocation. The listing is per run: list the type in every run that generates a field of it, since a run that omits it encodes those fields as plain base64 or strings without calling the policy. See [guarded field representations](guarded-fields.md) for a worked example that wipes its scratch storage.
+
+Only the generated `serde` impls consult a policy, so a policy is not a confidentiality boundary. Binary encoding and generated text format never call it, and neither does descriptor-driven reflection: JSON produced or read through `buffa-descriptor` (`DynamicMessage`'s serde impls, or a generated message converted with `to_dynamic`, or with `DynamicMessage::try_from_message`, which works whether or not reflection is generated) encodes each field by its protobuf type, as standard base64 or a plain string, in either direction. A policy that refuses export therefore does not stop reflective JSON from printing the value, and its import checks do not run on reflective input. Codegen warns (`CodeGenWarning::JsonPolicyReflectionBypass`) when generated fields use policy types with JSON and reflection both generated; it names the selected types once per run, and unused rules for other directories do not trigger it.
+
+### Null elements in repeated enums
+
+A null repeated field is empty. Inside an ordinary enum list, null is invalid,
+even when `ignore_unknown_enum_values` is enabled. Open-enum lists of
+`google.protobuf.NullValue` accept its null sentinel. Enums that merely declare
+a `NULL_VALUE` variant do not receive that exception.
+
+This uses defaulted `Enumeration::IS_NULL_VALUE` metadata. Existing enum
+implementations continue to compile. Update the runtime and canonical
+`buffa-types` provider together to preserve NullValue list input; existing
+generated messages that use that provider do not need regeneration. External,
+vendored or handwritten NullValue providers must regenerate or explicitly set
+the marker and recognize numeric zero. Newly generated canonical providers
+require a runtime containing the marker. Serialization and other field shapes
+retain their existing behavior.
 
 ### Unknown fields in JSON
 

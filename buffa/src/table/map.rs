@@ -35,9 +35,7 @@ use super::encode::{put_tag, write_kind};
 use super::shape::{DirectMsgVt, EnumVtOf};
 use super::size::size_kind;
 use super::{Aux, Entry, EnumShape, Kind, KindSlot, MessageTable, IMPLICIT, NO_UNKNOWN, REQUIRED};
-use crate::encoding::{
-    check_wire_type, encode_varint, skip_field_depth, varint_len, Tag, WireType,
-};
+use crate::encoding::{check_wire_type, encode_varint, varint_len, Tag, WireType};
 use crate::map_codec::MapStorage;
 use crate::{
     types, DecodeContext, DecodeError, EncodeSink, SizeCache, UnknownField, UnknownFieldData,
@@ -81,6 +79,10 @@ pub struct MapVt {
 /// whether to insert the entry.
 type EntryReader<'a> = dyn FnMut(*mut u8, *mut u8) -> Result<bool, DecodeError> + 'a;
 
+#[cfg(all(test, feature = "zeroize"))]
+#[path = "map_cleanup_tests.rs"]
+mod cleanup_tests;
+
 /// # Safety
 ///
 /// `map` points to a live `Mp`, which nothing mutates during the call.
@@ -107,16 +109,16 @@ where
     Mp::Key: Default,
     Mp::Value: Default,
 {
-    let mut key = Mp::Key::default();
-    let mut value = Mp::Value::default();
+    let mut key = crate::erasing::Erasing::new(Mp::Key::default(), Mp::storage_erase_key);
+    let mut value = crate::erasing::Erasing::new(Mp::Value::default(), Mp::storage_erase_value);
     let keep = f(
-        (&mut key as *mut Mp::Key).cast(),
-        (&mut value as *mut Mp::Value).cast(),
+        (&mut *key as *mut Mp::Key).cast(),
+        (&mut *value as *mut Mp::Value).cast(),
     )?;
     if keep {
         // SAFETY: the caller passes a pointer to a live `Mp` that it has
         // exclusive access to.
-        unsafe { (*map.cast::<Mp>()).storage_insert(key, value) };
+        unsafe { (*map.cast::<Mp>()).storage_insert(key.into_inner(), value.into_inner()) };
     }
     Ok(keep)
 }
@@ -384,7 +386,8 @@ pub(super) unsafe fn merge_map(
     // table describes what it passes to the closure.
     let inserted = unsafe {
         (vt.decode_entry)(slot, &mut |key, value| {
-            merge_entry(&entry_table, key, value, payload, ctx)
+            // `payload` holds exactly the entry.
+            merge_entry(&entry_table, key, value, payload, ctx.with_message_end(0))
         })?
     };
     if !inserted && table.unknown != NO_UNKNOWN {
@@ -444,6 +447,9 @@ unsafe fn merge_entry(
                 // SAFETY: `value` points to the enum the value entry's
                 // descriptor was built for.
                 known = unsafe { (table.enum_vt(value_entry).set)(value, raw) };
+                if !known {
+                    ctx.check_unknown_field()?;
+                }
             }
             2 => {
                 // SAFETY: as for the key.
@@ -459,7 +465,7 @@ unsafe fn merge_entry(
                     )
                 }?;
             }
-            _ => skip_field_depth(tag, &mut payload, ctx.depth())?,
+            _ => crate::encoding::skip_unknown_field(tag, &mut payload, ctx)?,
         }
     }
     Ok(known)

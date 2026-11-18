@@ -9,6 +9,7 @@ use crate::context::{ancillary_prefix, AncillaryKind, CodeGenContext, MessageSco
 use crate::defaults::parse_default_value;
 use crate::features::ResolvedFeatures;
 use crate::impl_message::{is_explicit_presence_scalar, is_real_oneof_member};
+use crate::json_policy::JsonPolicyKind;
 use crate::CodeGenError;
 
 /// Qualified paths to the per-message / per-extension registry `const` items
@@ -1294,6 +1295,37 @@ fn generate_custom_deserialize(
     let non_snake_attr = ctx.message_non_snake_attr(msg);
     let deprecated_field_allow = deprecated_field_allow(ctx, msg, proto_fqn);
 
+    // An explicit json_name may legally use this spelling. Known fields must
+    // retain their schema mapping rather than being mistaken for a number.
+    let has_number_key = accepted_keys
+        .iter()
+        .any(|key| key == "$serde_json::private::Number");
+    let number_key_arm = if has_number_key {
+        quote! {}
+    } else {
+        quote! {
+            ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
+                return ::core::result::Result::Err(
+                    <__A::Error as ::serde::de::Error>::invalid_type(
+                        ::serde::de::Unexpected::Other("number"), &self,
+                    ),
+                );
+            }
+        }
+    };
+
+    // For this exceptional schema, deserialize_any cannot distinguish a
+    // genuine object from serde_json's synthetic arbitrary-precision number.
+    // Keep the original typed map boundary rather than accepting a scalar.
+    let deserialize_body = if has_number_key {
+        quote! { d.deserialize_map(_V) }
+    } else {
+        quote! {
+            if d.is_human_readable() { d.deserialize_any(_V) }
+            else { d.deserialize_map(_V) }
+        }
+    };
+
     Ok(quote! {
         #non_snake_attr
         #deprecated_field_allow
@@ -1307,6 +1339,21 @@ fn generate_custom_deserialize(
                         f.write_str(#expecting_msg)
                     }
 
+                    ::buffa::json_helpers::reject_other_json_kinds!(
+                        bool, i64, u64, i128, u128, f64, str, bytes
+                    );
+
+                    // An empty YAML value reaches `deserialize_any` as
+                    // `visit_none`; `deserialize_map` read it as an empty
+                    // map. JSON never sends it.
+                    fn visit_none<__E: ::serde::de::Error>(self) -> ::core::result::Result<#name_ident, __E> {
+                        ::core::result::Result::Ok(<#name_ident as ::core::default::Default>::default())
+                    }
+
+                    fn visit_enum<__A: ::serde::de::EnumAccess<'de>>(self, tagged: __A) -> ::core::result::Result<Self::Value, __A::Error> {
+                        ::buffa::json_helpers::deserialize_tagged(self, tagged)
+                    }
+
                     #[allow(clippy::field_reassign_with_default)]
                     fn visit_map<__A: ::serde::de::MapAccess<'de>>(
                         self,
@@ -1317,6 +1364,7 @@ fn generate_custom_deserialize(
 
                         while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
                             match key.as_str() {
+                                #number_key_arm
                                 #(#match_arms)*
                                 #ext_arm
                                 #terminal_arm
@@ -1332,7 +1380,9 @@ fn generate_custom_deserialize(
                         Ok(__r)
                     }
                 }
-                d.deserialize_map(_V)
+                // `deserialize_any` so a non-object reaches `_V`, whose
+                // rejections name the JSON kind but not the value.
+                #deserialize_body
             }
         }
     })
@@ -1412,6 +1462,7 @@ fn custom_deser_regular_field(
 
     let field_features = crate::features::resolve_field(ctx, field, features);
     let (with_module, null_deser) = field_deser_modules(
+        ctx,
         crate::impl_message::effective_type(ctx, field, features),
         &info,
         &field_features,
@@ -1536,12 +1587,20 @@ fn custom_deser_oneof_group(
         let qualified_enum: TokenStream = quote! { #oneof_prefix #enum_ident };
         let variant_fqn = format!(".{proto_fqn}.{oneof_name}.{proto_name}");
         let variant_pointer_repr = ctx.pointer_repr(&variant_fqn);
+        let variant_json_policy = crate::json_policy::JsonPolicyKind::of_field(
+            ctx,
+            field_type,
+            &variant_bytes_repr,
+            &variant_string_repr,
+        );
         let deser_input = crate::oneof::OneofVariantDeserInput {
+            json_policy: variant_json_policy,
             variant_ident: &variant_ident,
             variant_type: &variant_type,
             json_name,
             proto_name,
             field_type,
+            custom_string: !variant_string_repr.is_default(),
             null_forward: crate::oneof::null_is_valid_value(field),
             is_boxed: crate::oneof::variant_boxed(ctx, field_type, &variant_fqn),
             pointer_repr: &variant_pointer_repr,
@@ -1607,6 +1666,8 @@ pub(crate) struct FieldInfo {
     /// the wrong type.
     struct_field_type: TokenStream,
     is_repeated: bool,
+    /// A custom collection retains its native bool/string Serde policy.
+    repeated_is_custom: bool,
     is_map: bool,
     /// Whether the field's resolved presence is explicit: proto3 `optional`
     /// scalars and proto2 `optional` (non-required) scalars, which use
@@ -1668,6 +1729,17 @@ pub(crate) struct FieldInfo {
     /// `true` when the map **value** is proto `string` *and* a custom
     /// `string_type` representation is configured for the field.
     map_value_custom_string: bool,
+    /// Whether this non-map `bytes` or `string` field's custom type is listed
+    /// in `json_policy_types`, so its JSON goes through the type's policy.
+    json_policy: bool,
+    /// Policy paths selected by these effective slots. Record them only when
+    /// emitting JSON plumbing, not during unrelated field analysis.
+    json_policy_types: Vec<String>,
+    /// Whether a map's `string` key type is listed in `json_policy_types`.
+    map_key_json_policy: bool,
+    /// Whether a map's `bytes` or `string` value type is listed in
+    /// `json_policy_types`.
+    map_value_json_policy: bool,
     /// The bare inner type `T` when `is_optional = true` (`rust_type` is `Option<T>`).
     /// `None` for all non-optional fields.
     inner_opt_type: Option<TokenStream>,
@@ -1888,10 +1960,57 @@ pub(crate) fn classify_field(
     let map_key_custom_string = map_key_type == Some(Type::TYPE_STRING) && map_string_is_custom;
     let map_value_custom_string = map_value_type == Some(Type::TYPE_STRING) && map_string_is_custom;
 
+    let json_policy = !is_map
+        && match (&bytes_repr, &string_repr) {
+            (crate::BytesRepr::Custom(path), _) | (_, crate::StringRepr::Custom(path)) => {
+                ctx.is_json_policy_type(path)
+            }
+            _ => false,
+        };
+    let map_string_policy = matches!(
+        &map_string_repr,
+        crate::StringRepr::Custom(path) if ctx.is_json_policy_type(path)
+    );
+    let map_key_json_policy = map_key_type == Some(Type::TYPE_STRING) && map_string_policy;
+    let map_value_json_policy = (map_value_type == Some(Type::TYPE_STRING) && map_string_policy)
+        || matches!(
+            &map_value_bytes_repr,
+            crate::BytesRepr::Custom(path) if ctx.is_json_policy_type(path)
+        );
+    // Track effective field/slot choices, not every matching configuration
+    // rule: a map's string rule need not apply to either of its slot types.
+    let mut json_policy_types = Vec::new();
+    if json_policy {
+        match (&bytes_repr, &string_repr) {
+            (crate::BytesRepr::Custom(path), _) | (_, crate::StringRepr::Custom(path)) => {
+                json_policy_types.push(path.clone());
+            }
+            _ => {}
+        }
+    }
+    if map_key_json_policy || (map_value_type == Some(Type::TYPE_STRING) && map_value_json_policy) {
+        if let crate::StringRepr::Custom(path) = &map_string_repr {
+            json_policy_types.push(path.clone());
+        }
+    }
+    if map_value_json_policy && map_value_type == Some(Type::TYPE_BYTES) {
+        if let crate::BytesRepr::Custom(path) = &map_value_bytes_repr {
+            json_policy_types.push(path.clone());
+        }
+    }
+    // A policy key with a non-policy value routes the map through
+    // `policy_str_key_map`, whose values use `ProtoElemJson`. Enum values would
+    // lose `map_enum`'s unknown-value handling there, so that combination is
+    // rejected.
+    if map_key_json_policy && map_value_type == Some(Type::TYPE_ENUM) {
+        return Err(CodeGenError::JsonPolicyMapKey(field_fqn));
+    }
+
     Ok(FieldInfo {
         rust_type,
         struct_field_type,
         is_repeated,
+        repeated_is_custom: !repeated_repr.is_default(),
         is_map,
         is_optional,
         is_required,
@@ -1906,6 +2025,10 @@ pub(crate) fn classify_field(
         map_value_enum_closed,
         map_key_custom_string,
         map_value_custom_string,
+        json_policy,
+        json_policy_types,
+        map_key_json_policy,
+        map_value_json_policy,
         inner_opt_type,
     })
 }
@@ -2597,16 +2720,43 @@ fn scalar_rust_type(
 /// deserialization) and `generate_custom_deserialize` (for hand-generated
 /// Deserialize impls on messages with oneofs).
 fn field_deser_modules(
+    ctx: &CodeGenContext<'_>,
     field_type: Type,
     info: &FieldInfo,
     features: &ResolvedFeatures,
 ) -> (Option<&'static str>, Option<&'static str>) {
+    for path in &info.json_policy_types {
+        ctx.record_json_policy_type(path);
+    }
+    // A JSON policy type owns its encoding in every shape. buffa's policy
+    // with-modules handle `null` before calling the policy, so codegen
+    // implements no JSON trait for the (possibly foreign) policy type.
+    if info.json_policy {
+        let module = match (
+            field_type == Type::TYPE_BYTES,
+            info.is_repeated,
+            info.is_optional,
+        ) {
+            (true, true, _) => "::buffa::json_helpers::repeated_bytes_policy",
+            (false, true, _) => "::buffa::json_helpers::repeated_string_policy",
+            (true, false, true) => "::buffa::json_helpers::opt_bytes_policy",
+            (true, false, false) => "::buffa::json_helpers::bytes_policy",
+            (false, false, true) => "::buffa::json_helpers::opt_string_policy",
+            (false, false, false) => "::buffa::json_helpers::string_policy",
+        };
+        return (Some(module), None);
+    }
     let with_module = if info.is_map {
         map_serde_module(info)
     } else if info.is_repeated {
         repeated_serde_module(field_type, info, features)
     } else if info.is_optional {
-        optional_serde_module(field_type, features)
+        if field_type == Type::TYPE_STRING && !info.string_repr.is_default() {
+            // Custom representations retain their native Serde conversions.
+            None
+        } else {
+            optional_serde_module(field_type, features)
+        }
     } else {
         singular_serde_module(field_type, features)
     };
@@ -2624,7 +2774,9 @@ fn field_deser_modules(
 ///
 /// Integers accept quoted strings and integral decimal/exponent forms;
 /// int64/uint64 serialize as quoted strings; float/double use NaN/Inf tokens;
-/// bytes use base64. For bool/string, derive serde is already compliant.
+/// bytes use base64. Native serde accepts the same bool/string inputs, but
+/// its diagnostics echo a wrong-kind value, so the container callers route
+/// those through the helpers as well.
 fn value_needs_proto_json(ty: Type) -> bool {
     matches!(
         ty,
@@ -2646,11 +2798,17 @@ fn value_needs_proto_json(ty: Type) -> bool {
 
 /// Serde module for map fields (keyed by key/value types).
 ///
-/// Uses `proto_map` (generic over `V: ProtoElemJson`) only when the value
-/// type needs proto3-JSON parsing or encoding (integer numeric forms,
-/// int64→quoted, float→NaN token, bytes→base64). For string/bool values with
-/// string keys, returns `None` to use derive. Non-string keys still use
-/// `string_key_map` for key stringification.
+/// A value whose type is listed in `json_policy_types` comes first: it goes
+/// through buffa's policy map modules (see [`policy_value_map_module`]). A
+/// listed key with any other value uses `policy_str_key_map`.
+///
+/// Uses `proto_map`, or `proto_str_key_map` for a string key (both generic
+/// over `V: ProtoElemJson`), only when the value type needs proto3-JSON
+/// parsing or encoding (integer numeric forms, int64→quoted, float→NaN
+/// token, bytes→base64), or is a bool or default `String` (whose native
+/// diagnostics would echo a wrong-kind value). A
+/// custom `string_type` value with a string key returns `None` to use derive;
+/// with a non-string key it uses `string_key_map` for key stringification.
 ///
 /// Open-enum map values keep `map_enum` for its ignore-unknown-values
 /// filtering behavior (a `JsonParseOptions` feature proto_map doesn't have).
@@ -2666,6 +2824,30 @@ fn value_needs_proto_json(ty: Type) -> bool {
 /// `HashMap`'s default serde is correct for non-string keys without an
 /// explicit `string_key_map` wrapper.
 fn map_serde_module(info: &FieldInfo) -> Option<&'static str> {
+    // A JSON policy value goes through buffa's policy map modules, chosen by
+    // the value's kind and the key's shape, whatever the key type.
+    if info.map_value_json_policy {
+        let key = if info.map_key_json_policy {
+            PolicyMapKey::Policy
+        } else if matches!(info.map_key_type, Some(Type::TYPE_BYTES)) {
+            PolicyMapKey::Bytes
+        } else if info.map_key_custom_string {
+            PolicyMapKey::Serde
+        } else {
+            PolicyMapKey::Display
+        };
+        let value = if matches!(info.map_value_type, Some(Type::TYPE_BYTES)) {
+            JsonPolicyKind::Bytes
+        } else {
+            JsonPolicyKind::String
+        };
+        return Some(policy_value_map_module(value, key));
+    }
+    // A JSON policy key with any other value serializes the keys through
+    // their policy, and the values through `ProtoElemJson`.
+    if info.map_key_json_policy {
+        return Some("::buffa::json_helpers::policy_str_key_map");
+    }
     // Bytes key (from strict_utf8_mapping normalizing string→bytes):
     // keys are base64-encoded, not Display-stringified. proto_map's
     // Display-based key serialization doesn't work here. The bytes-key helper
@@ -2715,15 +2897,37 @@ fn map_serde_module(info: &FieldInfo) -> Option<&'static str> {
     }
 
     // Scalar value types: route through proto_map if the value needs
-    // proto-JSON parsing or encoding. String/bool values can use derive.
+    // proto-JSON parsing or encoding. Bool and default `String` values go
+    // there too, so a wrong-kind value is rejected without echoing it. A
+    // custom `string_type` value has no `ProtoElemJson` impl and keeps its
+    // own serde.
     let value_ty = info.map_value_type.unwrap_or(Type::TYPE_STRING);
     let is_string_key = matches!(info.map_key_type, Some(Type::TYPE_STRING));
-    if value_needs_proto_json(value_ty) {
+    let value_uses_proto_map = match value_ty {
+        Type::TYPE_BOOL => true,
+        Type::TYPE_STRING => !info.map_value_custom_string,
+        ty => value_needs_proto_json(ty),
+    };
+    if value_uses_proto_map {
+        // Bool/default-string values used native Serde before the redacting
+        // routing. A custom container may validate or encode its own shape.
+        if matches!(value_ty, Type::TYPE_BOOL | Type::TYPE_STRING)
+            && is_string_key
+            && matches!(info.map_repr, crate::MapRepr::Custom(_))
+        {
+            return None;
+        }
         // Value needs special parsing or encoding.
-        // A custom-`ProtoString` key lacks the `Display`/`FromStr` that
-        // `proto_map` requires, so route it through the serde-keyed twin.
-        Some(if info.map_key_custom_string {
-            "::buffa::json_helpers::proto_str_key_map"
+        // A string key, custom `ProtoString` or not, goes through the
+        // serde-keyed twin: a custom key lacks the `Display`/`FromStr` that
+        // `proto_map` requires, and a `String` key read through `FromStr`
+        // would be copied once more.
+        Some(if is_string_key {
+            if matches!(value_ty, Type::TYPE_BOOL | Type::TYPE_STRING) {
+                "::buffa::json_helpers::native_str_key_map"
+            } else {
+                "::buffa::json_helpers::proto_str_key_map"
+            }
         } else {
             "::buffa::json_helpers::proto_map"
         })
@@ -2736,11 +2940,40 @@ fn map_serde_module(info: &FieldInfo) -> Option<&'static str> {
     }
 }
 
+/// The key shape of a `map` field whose value is a JSON policy type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PolicyMapKey {
+    /// Integer, `bool` or `String` keys, through `Display` / `FromStr`.
+    Display,
+    /// A custom string key without a JSON policy, through its own serde.
+    Serde,
+    /// A string key that is itself a JSON policy type.
+    Policy,
+    /// A `string` key normalized to bytes, as base64.
+    Bytes,
+}
+
+/// The `buffa::json_helpers` with-module for a `map` field whose value type is
+/// a JSON policy type of kind `value`, keyed as `key` describes.
+fn policy_value_map_module(value: JsonPolicyKind, key: PolicyMapKey) -> &'static str {
+    use JsonPolicyKind::{Bytes, String};
+    match (value, key) {
+        (Bytes, PolicyMapKey::Display) => "::buffa::json_helpers::map_bytes_policy",
+        (Bytes, PolicyMapKey::Serde) => "::buffa::json_helpers::map_bytes_policy_serde_key",
+        (Bytes, PolicyMapKey::Policy) => "::buffa::json_helpers::map_bytes_policy_policy_key",
+        (Bytes, PolicyMapKey::Bytes) => "::buffa::json_helpers::map_bytes_policy_bytes_key",
+        (String, PolicyMapKey::Display) => "::buffa::json_helpers::map_string_policy",
+        (String, PolicyMapKey::Serde) => "::buffa::json_helpers::map_string_policy_serde_key",
+        (String, PolicyMapKey::Policy) => "::buffa::json_helpers::map_string_policy_policy_key",
+        (String, PolicyMapKey::Bytes) => "::buffa::json_helpers::map_string_policy_bytes_key",
+    }
+}
+
 /// Serde module for repeated fields.
 ///
-/// Uses `proto_seq` (generic over `T: ProtoElemJson`) only for element types
-/// that need proto3-JSON parsing or encoding. For string/bool, derive is
-/// already compliant.
+/// Uses `proto_seq` (generic over `T: ProtoElemJson`) for scalar element
+/// types, except a custom `string_type` element, which has no
+/// `ProtoElemJson` impl and keeps its own serde.
 ///
 /// Enums keep the `_enum` / `_closed_enum` modules for their
 /// ignore-unknown-values filtering behavior (JsonParseOptions).
@@ -2764,8 +2997,15 @@ fn repeated_serde_module(
         // Other messages/groups: derived Serialize is already proto-JSON.
         Type::TYPE_MESSAGE | Type::TYPE_GROUP => None,
         // Route scalar types needing special parsing or encoding through
-        // proto_seq. String/bool can use derive.
+        // proto_seq. Bool and default `String` elements go there too, so a
+        // wrong-kind element is rejected without echoing it. A custom
+        // `string_type` element has no `ProtoElemJson` impl and keeps its
+        // own serde.
         ty if value_needs_proto_json(ty) => Some("::buffa::json_helpers::proto_seq"),
+        Type::TYPE_BOOL if !info.repeated_is_custom => Some("::buffa::json_helpers::native_seq"),
+        Type::TYPE_STRING if info.string_repr.is_default() && !info.repeated_is_custom => {
+            Some("::buffa::json_helpers::native_seq")
+        }
         _ => None,
     }
 }
@@ -2784,6 +3024,8 @@ fn optional_serde_module(field_type: Type, features: &ResolvedFeatures) -> Optio
         Type::TYPE_FLOAT => Some("::buffa::json_helpers::opt_float"),
         Type::TYPE_DOUBLE => Some("::buffa::json_helpers::opt_double"),
         Type::TYPE_BYTES => Some("::buffa::json_helpers::opt_bytes"),
+        Type::TYPE_BOOL => Some("::buffa::json_helpers::opt_bool"),
+        Type::TYPE_STRING => Some("::buffa::json_helpers::opt_string"),
         Type::TYPE_ENUM => Some(if is_closed_enum(features) {
             "::buffa::json_helpers::opt_closed_enum"
         } else {
@@ -2899,7 +3141,7 @@ fn serde_field_attr(
     let field_type = crate::impl_message::effective_type(ctx, field, features);
     let field_features = crate::features::resolve_field(ctx, field, features);
     let json_name = field.json_name.as_deref().unwrap_or(field_name);
-    let (with_module, null_deser) = field_deser_modules(field_type, info, &field_features);
+    let (with_module, null_deser) = field_deser_modules(ctx, field_type, info, &field_features);
 
     let skip_if = skip_serializing_predicate(field_type, info, &field_features);
 

@@ -11,7 +11,7 @@
 
 use crate::generated::descriptor::field_descriptor_proto::{Label, Type};
 use crate::generated::descriptor::{DescriptorProto, FieldDescriptorProto, OneofDescriptorProto};
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
 use crate::context::{ancillary_prefix, AncillaryKind, CodeGenContext, MessageScope, SENTINEL_MOD};
@@ -41,7 +41,7 @@ fn closed_enum_view_unknown_route(preserve_unknown_fields: bool) -> TokenStream 
             view.__buffa_unknown_fields.push_record(before_tag, __span_len, ctx)?;
         }
     } else {
-        quote! {}
+        quote! { ctx.check_unknown_field()?; }
     }
 }
 
@@ -56,7 +56,7 @@ fn closed_enum_view_unknown_varint_route(
             view.__buffa_unknown_fields.push_varint(#field_number, __raw as u64, ctx)?;
         }
     } else {
-        quote! {}
+        quote! { ctx.check_unknown_field()?; }
     }
 }
 
@@ -295,11 +295,12 @@ pub(crate) fn generate_view_with_nesting(
     };
     let unknown_field_handling = if preserve_unknown_fields {
         quote! {
+            ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
             let span_len = before_tag.len() - cur.len();
             view.__buffa_unknown_fields.push_record(before_tag, span_len, ctx)?;
         }
     } else {
-        quote! {}
+        quote! { ::buffa::encoding::skip_unknown_field(tag, &mut cur, ctx)?; }
     };
 
     // Eager views: `message_fields_anchor_lifetime` is false, because a message
@@ -351,10 +352,10 @@ pub(crate) fn generate_view_with_nesting(
         )?
     };
 
-    // Fields marked `[debug_redact = true]` print a placeholder instead of
-    // their value. The `Debug` derive is swapped for a manual impl only when
-    // at least one field is redacted, so unaffected views keep byte-identical
-    // output. Oneof payload redaction is handled by the view-oneof enum.
+    // Matched views keep the required Debug impl without inspecting any field
+    // or formatting stored wire data, which may include unknown fields.
+    // Other views use a field-by-field formatter for `[debug_redact = true]`.
+    // Unaffected views keep their derive. View oneofs redact their own payload.
     // Like the owned message's Debug impl, the manual impl lists proto fields
     // only — `__buffa_unknown_fields` is deliberately excluded because unknown
     // fields can carry redacted data from a newer schema version.
@@ -362,7 +363,17 @@ pub(crate) fn generate_view_with_nesting(
         custom_view_default_impl(view_scope, msg, &view_ident, has_phantom_field)?;
     let has_custom_default_impl = custom_default_impl.is_some();
     let any_redacted = view_fields.iter().any(|(_, _, redacted)| *redacted);
-    let (view_debug_derive, view_debug_impl) = if any_redacted {
+    let redacted_derive = if has_custom_default_impl {
+        quote! { #[derive(Clone)] }
+    } else {
+        quote! { #[derive(Clone, Default)] }
+    };
+    let (view_debug_derive, view_debug_impl) = if ctx.skip_debug(proto_fqn) {
+        (
+            redacted_derive,
+            fully_redacted_debug(&view_ident, &quote! { <'a> }),
+        )
+    } else if any_redacted {
         let placeholder = crate::message::DEBUG_REDACT_PLACEHOLDER;
         let view_name_str = view_ident.to_string();
         let mut debug_field_names: Vec<String> = Vec::new();
@@ -382,11 +393,7 @@ pub(crate) fn generate_view_with_nesting(
             debug_field_values.push(quote! { &self.#ident });
         }
         (
-            if has_custom_default_impl {
-                quote! { #[derive(Clone)] }
-            } else {
-                quote! { #[derive(Clone, Default)] }
-            },
+            redacted_derive,
             quote! {
                 #deprecated_field_allow
                 impl<'a> ::core::fmt::Debug for #view_ident<'a> {
@@ -470,7 +477,6 @@ pub(crate) fn generate_view_with_nesting(
                     #(#repeated_arms)*
                     #(#oneof_arms)*
                     _ => {
-                        ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
                         #unknown_field_handling
                     }
                 }
@@ -1141,7 +1147,12 @@ fn generate_oneof_view_enum(
     // Variants whose field is `[debug_redact = true]` print a placeholder
     // instead of their payload (same rule as the owned oneof enum).
     let any_redacted = fields.iter().any(|f| crate::message::is_debug_redacted(f));
-    let (debug_derive, debug_impl) = if any_redacted {
+    let (debug_derive, debug_impl) = if ctx.skip_debug(scope.proto_fqn) {
+        (
+            quote! { #[derive(Clone)] },
+            fully_redacted_debug(base_ident, &generics),
+        )
+    } else if any_redacted {
         let placeholder = crate::message::DEBUG_REDACT_PLACEHOLDER;
         let arms = fields
             .iter()
@@ -1809,7 +1820,7 @@ pub(crate) fn map_decode_arm(
     let closed_enum_hooks = val_is_closed_enum.then(|| {
         (
             quote! { __entry_unknown = false; },
-            quote! { __entry_unknown = true; },
+            quote! { ctx.check_unknown_field()?; __entry_unknown = true; },
         )
     });
     let decode_key = map_view_entry_decode(scope, key_fd, &format_ident!("key"), None)?;
@@ -1852,7 +1863,7 @@ pub(crate) fn map_decode_arm(
                 match entry_tag.field_number() {
                     1 => { #decode_key }
                     2 => { #decode_val }
-                    _ => { ::buffa::encoding::skip_field_depth(entry_tag, &mut entry_cur, ctx.depth())?; }
+                    _ => { ::buffa::encoding::skip_unknown_field(entry_tag, &mut entry_cur, ctx)?; }
                 }
             }
             #entry_finish
@@ -2496,6 +2507,45 @@ pub(crate) fn view_field_serialize_stmt(
         let val_raw = effective_type_in_map_entry(ctx, val_fd, parent_features);
         let val_f = crate::features::resolve_field(ctx, val_fd, parent_features);
 
+        // JSON policies of the owned key and value types, matching the owned
+        // message's serialization of the same map.
+        let map_fqn = format!(".{}.{}", scope.proto_fqn, field_name);
+        let map_string = match ctx.string_repr(&map_fqn) {
+            crate::StringRepr::Custom(path) => Some(path),
+            _ => None,
+        };
+        let key_policy = if key_raw == Type::TYPE_STRING {
+            crate::json_policy::of_map_slot(
+                ctx,
+                crate::json_policy::JsonPolicyKind::String,
+                map_string.as_deref(),
+            )?
+        } else {
+            None
+        };
+        let val_policy = match val_raw {
+            Type::TYPE_STRING => crate::json_policy::of_map_slot(
+                ctx,
+                crate::json_policy::JsonPolicyKind::String,
+                map_string.as_deref(),
+            )?,
+            Type::TYPE_BYTES => match crate::impl_message::map_value_bytes_repr(
+                ctx,
+                Some(key_raw),
+                Some(val_raw),
+                scope.proto_fqn,
+                field_name,
+            ) {
+                crate::BytesRepr::Custom(path) => crate::json_policy::of_map_slot(
+                    ctx,
+                    crate::json_policy::JsonPolicyKind::Bytes,
+                    Some(&path),
+                )?,
+                _ => None,
+            },
+            _ => None,
+        };
+
         let key_ty = match key_raw {
             Type::TYPE_STRING => quote! { &'__a str },
             Type::TYPE_BYTES => quote! { &'__a [u8] },
@@ -2531,25 +2581,33 @@ pub(crate) fn view_field_serialize_stmt(
         // The explicit wrappers make the view encoding byte-identical to the
         // owned encoding for any serde backend, not just `serde_json` (whose
         // `MapKeySerializer` happens to stringify primitives on its own).
-        let (key_wrapper, key_expr) = match key_raw {
-            Type::TYPE_STRING => (quote! {}, quote! { k }),
-            // k: &&[u8] — deref coercion to &[u8] at the adapter field.
-            Type::TYPE_BYTES => (quote! {}, quote! { &::buffa::json_helpers::BytesJson(k) }),
-            _ => (quote! {}, quote! { &::buffa::json_helpers::MapKeyJson(k) }),
+        let (key_wrapper, key_expr) = if let Some((kind, owned)) = &key_policy {
+            (quote! {}, kind.serialize_borrowed(owned, &quote! { k }))
+        } else {
+            match key_raw {
+                Type::TYPE_STRING => (quote! {}, quote! { k }),
+                // k: &&[u8] — deref coercion to &[u8] at the adapter field.
+                Type::TYPE_BYTES => (quote! {}, quote! { &::buffa::json_helpers::BytesJson(k) }),
+                _ => (quote! {}, quote! { &::buffa::json_helpers::MapKeyJson(k) }),
+            }
         };
 
         // Value wrapper struct (for types needing special encoding).
-        let (val_wrapper, val_expr) = match val_raw {
-            // v: &&[u8] — deref coercion to &[u8] at the adapter field.
-            Type::TYPE_BYTES => (quote! {}, quote! { &::buffa::json_helpers::BytesJson(v) }),
-            Type::TYPE_ENUM if is_closed_enum(&val_f) => (
-                quote! {},
-                quote! { &::buffa::json_helpers::ClosedEnumJson(v) },
-            ),
-            vt if serde_helper_path(vt).is_some() => {
-                (quote! {}, quote! { &::buffa::json_helpers::ProtoJson(v) })
+        let (val_wrapper, val_expr) = if let Some((kind, owned)) = &val_policy {
+            (quote! {}, kind.serialize_borrowed(owned, &quote! { v }))
+        } else {
+            match val_raw {
+                // v: &&[u8] — deref coercion to &[u8] at the adapter field.
+                Type::TYPE_BYTES => (quote! {}, quote! { &::buffa::json_helpers::BytesJson(v) }),
+                Type::TYPE_ENUM if is_closed_enum(&val_f) => (
+                    quote! {},
+                    quote! { &::buffa::json_helpers::ClosedEnumJson(v) },
+                ),
+                vt if serde_helper_path(vt).is_some() => {
+                    (quote! {}, quote! { &::buffa::json_helpers::ProtoJson(v) })
+                }
+                _ => (quote! {}, quote! { v }),
             }
-            _ => (quote! {}, quote! { v }),
         };
 
         // Include '__a only when key/val types actually reference the view lifetime.
@@ -2599,8 +2657,19 @@ pub(crate) fn view_field_serialize_stmt(
         });
     }
 
+    // A listed JSON policy type governs its view fields too.
+    let policy = crate::json_policy::of_view_field(ctx, scope.proto_fqn, field_name, ty)?;
+
     // ── Repeated field ────────────────────────────────────────────────────────
     if is_repeated {
+        if let Some((kind, owned)) = &policy {
+            let seq_val = kind.serialize_seq(owned, &quote! { &self.#ident });
+            return Ok(quote! {
+                if !self.#ident.is_empty() {
+                    __map.serialize_entry(#json_name, #seq_val)?;
+                }
+            });
+        }
         let seq_adapter = match ty {
             Type::TYPE_BYTES => quote! { ::buffa::json_helpers::BytesSeqJson },
             Type::TYPE_ENUM if is_closed_enum(&f_features) => {
@@ -2632,6 +2701,14 @@ pub(crate) fn view_field_serialize_stmt(
     if is_explicit_presence_scalar(field, ty, &f_features) {
         // opt_* helpers from json_helpers take &Option<owned_T>, not &Option<view_T>.
         // Handle each case inline so the view's Option<&str>/Option<&[u8]> work.
+        if let Some((kind, owned)) = &policy {
+            let value = kind.serialize_borrowed(owned, &quote! { __v });
+            return Ok(quote! {
+                if let ::core::option::Option::Some(__v) = self.#ident {
+                    __map.serialize_entry(#json_name, #value)?;
+                }
+            });
+        }
         let entry = match ty {
             Type::TYPE_STRING => quote! {
                 if let ::core::option::Option::Some(__v) = self.#ident {
@@ -2681,64 +2758,74 @@ pub(crate) fn view_field_serialize_stmt(
     }
 
     // ── Singular fields ───────────────────────────────────────────────────────
-    let (skip_cond, serialize_stmt) = match ty {
-        Type::TYPE_STRING => (
-            quote! { !::buffa::json_helpers::skip_if::is_empty_str(self.#ident) },
-            quote! { __map.serialize_entry(#json_name, self.#ident)?; },
-        ),
-        Type::TYPE_BYTES => (
-            quote! { !::buffa::json_helpers::skip_if::is_empty_bytes(self.#ident) },
-            quote! {
-                __map.serialize_entry(
-                    #json_name,
-                    &::buffa::json_helpers::BytesJson(self.#ident),
-                )?;
-            },
-        ),
-        Type::TYPE_MESSAGE | Type::TYPE_GROUP => (
-            quote! { self.#ident.is_set() },
-            quote! {
-                if let ::core::option::Option::Some(__v) = self.#ident.as_option() {
-                    __map.serialize_entry(#json_name, __v)?;
-                }
-            },
-        ),
-        Type::TYPE_ENUM if is_closed_enum(&f_features) => {
-            let skip_fn = quote! { ::buffa::json_helpers::skip_if::is_default_closed_enum };
-            (
-                quote! { !#skip_fn(&self.#ident) },
+    let (skip_cond, serialize_stmt) = if let Some((kind, owned)) = &policy {
+        let value = kind.serialize_borrowed(owned, &quote! { self.#ident });
+        let skip = if ty == Type::TYPE_STRING {
+            quote! { !::buffa::json_helpers::skip_if::is_empty_str(self.#ident) }
+        } else {
+            quote! { !::buffa::json_helpers::skip_if::is_empty_bytes(self.#ident) }
+        };
+        (skip, quote! { __map.serialize_entry(#json_name, #value)?; })
+    } else {
+        match ty {
+            Type::TYPE_STRING => (
+                quote! { !::buffa::json_helpers::skip_if::is_empty_str(self.#ident) },
+                quote! { __map.serialize_entry(#json_name, self.#ident)?; },
+            ),
+            Type::TYPE_BYTES => (
+                quote! { !::buffa::json_helpers::skip_if::is_empty_bytes(self.#ident) },
                 quote! {
                     __map.serialize_entry(
                         #json_name,
-                        &::buffa::json_helpers::ClosedEnumJson(&self.#ident),
+                        &::buffa::json_helpers::BytesJson(self.#ident),
                     )?;
                 },
-            )
-        }
-        Type::TYPE_ENUM => (
-            quote! { !::buffa::json_helpers::skip_if::is_default_enum_value(&self.#ident) },
-            quote! { __map.serialize_entry(#json_name, &self.#ident)?; },
-        ),
-        scalar if serde_helper_path(scalar).is_some() => {
-            let skip_path = scalar_skip_predicate(scalar);
-            (
-                quote! { !#skip_path(&self.#ident) },
+            ),
+            Type::TYPE_MESSAGE | Type::TYPE_GROUP => (
+                quote! { self.#ident.is_set() },
                 quote! {
-                    __map.serialize_entry(
-                        #json_name,
-                        &::buffa::json_helpers::ProtoJson(&self.#ident),
-                    )?;
+                    if let ::core::option::Option::Some(__v) = self.#ident.as_option() {
+                        __map.serialize_entry(#json_name, __v)?;
+                    }
                 },
-            )
+            ),
+            Type::TYPE_ENUM if is_closed_enum(&f_features) => {
+                let skip_fn = quote! { ::buffa::json_helpers::skip_if::is_default_closed_enum };
+                (
+                    quote! { !#skip_fn(&self.#ident) },
+                    quote! {
+                        __map.serialize_entry(
+                            #json_name,
+                            &::buffa::json_helpers::ClosedEnumJson(&self.#ident),
+                        )?;
+                    },
+                )
+            }
+            Type::TYPE_ENUM => (
+                quote! { !::buffa::json_helpers::skip_if::is_default_enum_value(&self.#ident) },
+                quote! { __map.serialize_entry(#json_name, &self.#ident)?; },
+            ),
+            scalar if serde_helper_path(scalar).is_some() => {
+                let skip_path = scalar_skip_predicate(scalar);
+                (
+                    quote! { !#skip_path(&self.#ident) },
+                    quote! {
+                        __map.serialize_entry(
+                            #json_name,
+                            &::buffa::json_helpers::ProtoJson(&self.#ident),
+                        )?;
+                    },
+                )
+            }
+            Type::TYPE_BOOL => (
+                quote! { self.#ident },
+                quote! { __map.serialize_entry(#json_name, &self.#ident)?; },
+            ),
+            _ => (
+                quote! { self.#ident != ::core::default::Default::default() },
+                quote! { __map.serialize_entry(#json_name, &self.#ident)?; },
+            ),
         }
-        Type::TYPE_BOOL => (
-            quote! { self.#ident },
-            quote! { __map.serialize_entry(#json_name, &self.#ident)?; },
-        ),
-        _ => (
-            quote! { self.#ident != ::core::default::Default::default() },
-            quote! { __map.serialize_entry(#json_name, &self.#ident)?; },
-        ),
     };
 
     // Message fields handle skip internally via the if-let. Required fields
@@ -2814,6 +2901,18 @@ pub(crate) fn view_oneof_serialize_arm(
         return Ok(quote! {
             #view_enum::#variant(_) => {
                 __map.serialize_entry(#json_name, &())?;
+            }
+        });
+    }
+
+    // A listed JSON policy type governs its view variants too.
+    if let Some((kind, owned)) =
+        crate::json_policy::of_view_field(scope.ctx, scope.proto_fqn, name, ty)?
+    {
+        let value = kind.serialize_borrowed(&owned, &quote! { v });
+        return Ok(quote! {
+            #view_enum::#variant(v) => {
+                __map.serialize_entry(#json_name, #value)?;
             }
         });
     }
@@ -3003,4 +3102,17 @@ pub(crate) fn resolve_owned_path(
         .ctx
         .rust_type_relative(type_name, scope.current_package, scope.nesting)
         .ok_or_else(|| CodeGenError::Other(format!("message type '{type_name}' not found")))
+}
+
+/// Keep view trait bounds and wrapper formatting without reading any data.
+pub(crate) fn fully_redacted_debug(ident: &Ident, generics: &TokenStream) -> TokenStream {
+    let placeholder = crate::message::DEBUG_REDACT_PLACEHOLDER;
+    let label = format!("{ident}({placeholder})");
+    quote! {
+        impl #generics ::core::fmt::Debug for #ident #generics {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.write_str(#label)
+            }
+        }
+    }
 }

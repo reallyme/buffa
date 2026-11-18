@@ -104,6 +104,24 @@ pub const DEFAULT_ELEMENT_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
 /// every field decoded under one entry point draws from the same
 /// allowance.
 ///
+/// It also records where the message being decoded ends in the buffer the
+/// context is passed with. The default [`Message::merge_to_limit`] (and so
+/// [`Message::merge`]) records it; [`Message::merge_length_delimited`], map
+/// entries and
+/// [`decode_string_to_ctx`](crate::types::decode_string_to_ctx) /
+/// [`decode_bytes_to_ctx`](crate::types::decode_bytes_to_ctx) reject a declared
+/// length that runs past it, before decoding what it covers.
+/// [`DecodeContext::new`] records no end, so the whole buffer is allowed.
+///
+/// Because the end belongs to one buffer, hand-written code that decodes a
+/// *different* buffer with a context it was given (a copy of the message, a
+/// decompressed payload) must record that buffer's end first, with
+/// [`with_message_end`](Self::with_message_end) — `0` when the message runs to
+/// the end of that buffer — or start it with [`Message::merge`] or
+/// [`Message::merge_to_limit`], which do so. Otherwise a valid nested field
+/// near the end of that buffer can be rejected with
+/// [`DecodeError::UnexpectedEof`].
+///
 /// Constructed automatically by the [`Message`] convenience methods
 /// ([`decode`](Message::decode), [`decode_from_slice`](Message::decode_from_slice),
 /// [`merge_from_slice`](Message::merge_from_slice)) and by [`DecodeOptions`].
@@ -129,19 +147,77 @@ pub const DEFAULT_ELEMENT_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
 pub struct DecodeContext<'a> {
     depth: u32,
     unknown_fields_remaining: &'a core::cell::Cell<usize>,
+    reject_unknown_fields: bool,
     element_memory_remaining: Option<&'a core::cell::Cell<usize>>,
+    /// `buf.remaining()` at the end of the innermost enclosing
+    /// length-delimited message; 0 when the message runs to the end of the
+    /// buffer.
+    message_end: usize,
 }
 
 impl<'a> DecodeContext<'a> {
     /// Create a context with `depth` remaining recursion levels and the
     /// remaining unknown-field allowance stored in `unknown_field_limit`.
+    /// The rejection policy is captured at construction: an initial zero
+    /// allowance requests rejection. A context created with a positive
+    /// allowance keeps its storage-only policy if that allowance is later
+    /// exhausted. Decoders must consult the context as described by
+    /// [`DecodeOptions::reject_unknown_fields`].
     #[must_use]
     pub fn new(depth: u32, unknown_field_limit: &'a core::cell::Cell<usize>) -> Self {
         Self {
             depth,
             unknown_fields_remaining: unknown_field_limit,
+            reject_unknown_fields: unknown_field_limit.get() == 0,
             element_memory_remaining: None,
+            message_end: 0,
         }
+    }
+
+    /// The number of bytes of the buffer that follow the innermost enclosing
+    /// length-delimited message, or 0 when it runs to the end of the buffer.
+    #[inline]
+    pub(crate) fn message_end(&self) -> usize {
+        self.message_end
+    }
+
+    /// Record that the message being decoded ends when the buffer this
+    /// context is passed with has `message_end` bytes left, so a field,
+    /// sub-message or map entry of it that would reach further is rejected.
+    ///
+    /// The default [`Message::merge_to_limit`] calls this with its `limit`.
+    /// Call it yourself in a `merge_to_limit` override that calls
+    /// [`Message::merge_field`] directly, passing the `limit` (or `0` when the
+    /// override decodes a buffer holding exactly the message), and before
+    /// decoding a buffer other than the one the context came with.
+    #[inline]
+    #[must_use]
+    pub fn with_message_end(self, message_end: usize) -> Self {
+        Self {
+            message_end,
+            ..self
+        }
+    }
+
+    /// Check a declared length against the enclosing message: the bytes
+    /// `buf` holds before [`message_end`](Self::message_end), given its
+    /// `remaining` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DecodeError::UnexpectedEof`] if `len` runs past the end of
+    /// the enclosing message or of the buffer.
+    #[inline]
+    pub(crate) fn check_len(&self, remaining: usize, len: usize) -> Result<(), DecodeError> {
+        // A prefix may already have crossed the boundary. Saturation would
+        // turn that invalid state into a valid zero-length payload.
+        let available = remaining
+            .checked_sub(self.message_end)
+            .ok_or(DecodeError::UnexpectedEof)?;
+        if len > available {
+            return Err(DecodeError::UnexpectedEof);
+        }
+        Ok(())
     }
 
     /// Attach the shared element-memory budget in `element_memory_limit`.
@@ -177,6 +253,33 @@ impl<'a> DecodeContext<'a> {
         self.unknown_fields_remaining.get()
     }
 
+    /// Whether this decode explicitly rejects all unknown wire fields.
+    /// Exhausting a positive storage budget does not change this policy.
+    #[must_use]
+    pub fn rejects_unknown_fields(&self) -> bool {
+        self.reject_unknown_fields
+    }
+
+    /// Check an unknown occurrence independently of its storage policy.
+    ///
+    /// # Errors
+    /// Returns `UnknownFieldLimitExceeded` when this decode started with a
+    /// zero allowance. Discarded fields do not consume a positive storage budget.
+    pub fn check_unknown_field(&self) -> Result<(), DecodeError> {
+        if self.reject_unknown_fields {
+            Err(DecodeError::UnknownFieldLimitExceeded)
+        } else {
+            Ok(())
+        }
+    }
+
+    // Deferred children replay the rejection policy separately from a storage
+    // allowance that may have reached zero before their bytes were recorded.
+    pub(crate) fn with_unknown_field_rejection(mut self, reject: bool) -> Self {
+        self.reject_unknown_fields = reject;
+        self
+    }
+
     /// Consume one level of recursion depth.
     ///
     /// # Errors
@@ -193,18 +296,21 @@ impl<'a> DecodeContext<'a> {
 
     /// Consume one slot of the shared unknown-field allowance.
     ///
-    /// Call **before** materializing an [`UnknownField`](crate::UnknownField).
+    /// Call before materializing an unknown field. Discarded occurrences use
+    /// `check_unknown_field` instead, preserving the storage budget's meaning.
     ///
     /// # Errors
     ///
     /// Returns [`DecodeError::UnknownFieldLimitExceeded`] (leaving the
     /// allowance unchanged) when no slots remain.
     pub fn register_unknown_field(&self) -> Result<(), DecodeError> {
-        let remaining = self.unknown_fields_remaining.get();
-        if remaining == 0 {
-            return Err(DecodeError::UnknownFieldLimitExceeded);
-        }
-        self.unknown_fields_remaining.set(remaining - 1);
+        self.check_unknown_field()?;
+        let remaining = self
+            .unknown_fields_remaining
+            .get()
+            .checked_sub(1)
+            .ok_or(DecodeError::UnknownFieldLimitExceeded)?;
+        self.unknown_fields_remaining.set(remaining);
         Ok(())
     }
 
@@ -923,13 +1029,22 @@ pub trait Message: DefaultInstance + Clone + PartialEq + Send + Sync {
     /// budget.  Each call to
     /// [`merge_length_delimited`](Self::merge_length_delimited) consumes one
     /// depth level before recursing; when the depth reaches zero the call
-    /// returns [`DecodeError::RecursionLimitExceeded`].
+    /// returns [`DecodeError::RecursionLimitExceeded`].  The default
+    /// implementation records `limit` in `ctx` as the end of the message
+    /// ([`DecodeContext::with_message_end`]), so a sub-message, map entry, or
+    /// custom string or bytes field of it whose declared length runs past
+    /// `limit` is rejected before it is decoded. Other fields are checked only
+    /// against the buffer, so a caller passing `limit > 0` must still check
+    /// that `buf.remaining() == limit` afterwards, as
+    /// [`merge_length_delimited`](Self::merge_length_delimited) does. An
+    /// override should record `limit` the same way.
     fn merge_to_limit(
         &mut self,
         buf: &mut impl Buf,
         ctx: DecodeContext<'_>,
         limit: usize,
     ) -> Result<(), DecodeError> {
+        let ctx = ctx.with_message_end(limit);
         while buf.remaining() > limit {
             let tag = crate::encoding::Tag::decode(buf)?;
             self.merge_field(tag, buf, ctx)?;
@@ -1030,9 +1145,11 @@ pub trait Message: DefaultInstance + Clone + PartialEq + Send + Sync {
     ///
     /// # Errors
     ///
-    /// Returns an error if the buffer is too short, if the declared length
-    /// exceeds 2 GiB, if the recursion limit is reached, or if the inner
-    /// `merge_to_limit` call fails.
+    /// Returns an error if the buffer is too short or the declared length runs
+    /// past the end of the message being decoded with `ctx` (both
+    /// [`DecodeError::UnexpectedEof`]), if the declared length exceeds 2 GiB,
+    /// if the recursion limit is reached, or if the inner `merge_to_limit`
+    /// call fails.
     fn merge_length_delimited(
         &mut self,
         buf: &mut impl Buf,
@@ -1044,9 +1161,8 @@ pub trait Message: DefaultInstance + Clone + PartialEq + Send + Sync {
             return Err(DecodeError::MessageTooLarge);
         }
         let len = usize::try_from(len_u64).map_err(|_| DecodeError::MessageTooLarge)?;
-        if buf.remaining() < len {
-            return Err(DecodeError::UnexpectedEof);
-        }
+        // The sub-message must also end within the message that holds it.
+        ctx.check_len(buf.remaining(), len)?;
         // Arithmetic limit: the sub-message occupies `len` bytes, so the
         // decode loop should stop when `buf.remaining()` drops to
         // `remaining - len`.  This avoids wrapping the buffer in `Take`,
@@ -1208,6 +1324,7 @@ pub struct DecodeOptions {
     unbounded_reader_size: bool,
     unknown_field_limit: usize,
     element_memory_limit: usize,
+    clear_on_merge_error: bool,
 }
 
 /// Default maximum message size: 2 GiB - 1 (matches the sub-message limit
@@ -1236,6 +1353,7 @@ impl DecodeOptions {
             unbounded_reader_size: false,
             unknown_field_limit: DEFAULT_UNKNOWN_FIELD_LIMIT,
             element_memory_limit: DEFAULT_ELEMENT_MEMORY_LIMIT,
+            clear_on_merge_error: false,
         }
     }
 
@@ -1307,7 +1425,13 @@ impl DecodeOptions {
 
     /// Set the maximum number of unknown fields decoded per decode call.
     ///
-    /// Each decoded unknown field occupies a ~40-byte
+    /// Preserved unknown fields consume this allowance. A zero allowance also
+    /// rejects discarded unknown wire fields regardless of storage configuration.
+    /// Positive limits retain their storage-budget semantics.
+    /// See [`reject_unknown_fields`](Self::reject_unknown_fields) for the
+    /// regeneration and hand-written decoder requirements of a zero limit.
+    ///
+    /// Each preserved unknown field occupies a ~40-byte
     /// [`UnknownField`](crate::UnknownField) slot regardless of its wire
     /// size (a minimal field is 2 wire bytes — a ~20× amplification), so an
     /// input-size cap alone does not bound decoder memory; this limit does,
@@ -1331,6 +1455,33 @@ impl DecodeOptions {
     pub fn with_unknown_field_limit(mut self, count: usize) -> Self {
         self.unknown_field_limit = count;
         self
+    }
+
+    /// Reject unknown wire fields independently of generated storage settings.
+    /// Equivalent to a zero unknown-field allowance. Unknown closed-enum values
+    /// are included; open-enum numbers remain valid values of known fields.
+    /// Generated static messages retain extensions, MessageSet items and custom
+    /// descriptor options as unknown fields, so they are rejected too. A dynamic
+    /// message can recognize extensions registered in its descriptor pool.
+    ///
+    /// Deferred lazy children are checked only when materialized: constructing a
+    /// lazy view alone does not establish rejection throughout its subtree.
+    ///
+    /// # Generated and hand-written decoders
+    ///
+    /// Regenerate existing bindings with a matching generator that supports
+    /// this policy before relying on rejection. Older generated code can
+    /// discard unknown fields or closed-enum values without checking the
+    /// context, especially when unknown-field storage is disabled; upgrading
+    /// the runtime alone cannot enforce rejection in those paths.
+    /// Hand-written [`Message`] / [`MessageView`](crate::MessageView) decoders
+    /// must use [`skip_unknown_field`](crate::encoding::skip_unknown_field)
+    /// when discarding unknown fields and
+    /// [`DecodeContext::check_unknown_field`] for discarded unknown
+    /// closed-enum occurrences.
+    #[must_use]
+    pub fn reject_unknown_fields(self) -> Self {
+        self.with_unknown_field_limit(0)
     }
 
     /// Set the memory this decode may materialize in the elements of
@@ -1409,6 +1560,14 @@ impl DecodeOptions {
         self.unbounded_reader_size
     }
 
+    /// Returns whether a failed merge clears the destination message.
+    ///
+    /// See [`Self::with_clear_on_merge_error`].
+    #[must_use]
+    pub fn clears_on_merge_error(&self) -> bool {
+        self.clear_on_merge_error
+    }
+
     /// Decode a message from a buffer.
     pub fn decode<M: Message>(&self, buf: &mut impl Buf) -> Result<M, DecodeError> {
         if buf.remaining() > self.max_message_size {
@@ -1484,34 +1643,73 @@ impl DecodeOptions {
         Ok(msg)
     }
 
+    /// Enable clearing the destination when a merge returns an error.
+    ///
+    /// Equivalent to [`Self::with_clear_on_merge_error`] with `true`. See that
+    /// method for the cleanup and input-buffer guarantees.
+    #[must_use]
+    pub fn clear_on_merge_error(self) -> Self {
+        self.with_clear_on_merge_error(true)
+    }
+
+    /// Set whether a merge error clears the entire destination, including
+    /// when the input exceeds the message size limit. Disabled by default.
+    ///
+    /// Use this when a failed merge must not leave old values or a partially
+    /// merged message available to the caller. Passing `false` restores the
+    /// normal partial-merge behavior, including on a cloned configuration.
+    ///
+    /// This option applies to [`Self::merge`] and [`Self::merge_from_slice`],
+    /// which call [`Message::clear`], so memory is wiped only if the message's
+    /// implementation wipes its fields. It also applies to
+    /// `buffa_descriptor::reflect::DynamicMessage::merge_with_options`, which
+    /// removes every set and unknown field without wiping memory. Backing
+    /// storage may be retained.
+    ///
+    /// The typed decode methods on `DecodeOptions` do not apply this policy.
+    /// `DynamicMessage::decode_with_options` delegates to its merge method,
+    /// so it applies the policy to its temporary destination on error; it
+    /// still returns no message and provides no memory-wiping guarantee.
+    ///
+    /// The caller's input is not wiped. A failed buffer merge may already
+    /// have consumed bytes; clearing does not rewind that buffer.
+    #[must_use]
+    pub fn with_clear_on_merge_error(mut self, enabled: bool) -> Self {
+        self.clear_on_merge_error = enabled;
+        self
+    }
+
     /// Merge fields from a buffer into an existing message.
+    ///
+    /// On error the destination can contain old and partially merged fields,
+    /// unless [`Self::clear_on_merge_error`] was requested. Buffer consumption
+    /// is not rolled back on failure, regardless of the clearing policy.
     pub fn merge<M: Message>(&self, msg: &mut M, buf: &mut impl Buf) -> Result<(), DecodeError> {
-        if buf.remaining() > self.max_message_size {
-            return Err(DecodeError::MessageTooLarge);
+        let result = if buf.remaining() > self.max_message_size {
+            Err(DecodeError::MessageTooLarge)
+        } else {
+            let limit = core::cell::Cell::new(self.unknown_field_limit);
+            let elem_budget = core::cell::Cell::new(self.element_memory_limit);
+            msg.merge(
+                buf,
+                DecodeContext::new(self.recursion_limit, &limit).with_element_memory(&elem_budget),
+            )
+        };
+        if self.clear_on_merge_error && result.is_err() {
+            msg.clear();
         }
-        let limit = core::cell::Cell::new(self.unknown_field_limit);
-        let elem_budget = core::cell::Cell::new(self.element_memory_limit);
-        msg.merge(
-            buf,
-            DecodeContext::new(self.recursion_limit, &limit).with_element_memory(&elem_budget),
-        )
+        result
     }
 
     /// Merge fields from a byte slice into an existing message.
+    ///
+    /// The destination follows the same failure policy as [`Self::merge`].
     pub fn merge_from_slice<M: Message>(
         &self,
         msg: &mut M,
-        data: &[u8],
+        mut data: &[u8],
     ) -> Result<(), DecodeError> {
-        if data.len() > self.max_message_size {
-            return Err(DecodeError::MessageTooLarge);
-        }
-        let limit = core::cell::Cell::new(self.unknown_field_limit);
-        let elem_budget = core::cell::Cell::new(self.element_memory_limit);
-        msg.merge(
-            &mut &*data,
-            DecodeContext::new(self.recursion_limit, &limit).with_element_memory(&elem_budget),
-        )
+        self.merge(msg, &mut data)
     }
 
     /// Decode a zero-copy view from a byte slice.
@@ -1970,6 +2168,213 @@ mod tests {
             .with_max_message_size(1)
             .merge_from_slice(&mut msg, &bytes);
         assert_eq!(result, Err(DecodeError::MessageTooLarge));
+    }
+
+    #[test]
+    fn merge_error_clears_destination_only_when_requested() {
+        let mut message = FlatMsg { value: 17 };
+        let mut malformed = FlatMsg { value: 42 }.encode_to_vec();
+        malformed.push(0); // illegal field number
+        assert_eq!(
+            DecodeOptions::new().merge_from_slice(&mut message, &malformed),
+            Err(DecodeError::InvalidFieldNumber)
+        );
+        assert_eq!(message.value, 42);
+        assert!(!DecodeOptions::new().clears_on_merge_error());
+
+        let options = DecodeOptions::new().clear_on_merge_error();
+        assert!(options.clears_on_merge_error());
+        assert_eq!(
+            options.merge(&mut message, &mut malformed.as_slice()),
+            Err(DecodeError::InvalidFieldNumber)
+        );
+        assert_eq!(message.value, 0);
+
+        let wire = FlatMsg { value: 27 }.encode_to_vec();
+        options.merge_from_slice(&mut message, &wire).unwrap();
+        assert_eq!(message.value, 27);
+        assert_eq!(
+            options
+                .with_max_message_size(1)
+                .merge_from_slice(&mut message, &wire),
+            Err(DecodeError::MessageTooLarge)
+        );
+        assert_eq!(message.value, 0);
+    }
+
+    #[test]
+    fn clear_policy_can_be_disabled_on_a_cloned_configuration() {
+        let enabled = DecodeOptions::new()
+            .with_recursion_limit(7)
+            .with_max_message_size(99)
+            .with_unknown_field_limit(3)
+            .with_element_memory_limit(64)
+            .clear_on_merge_error();
+        #[cfg(feature = "std")]
+        let enabled = enabled.without_reader_size_limit();
+        let disabled = enabled.clone().with_clear_on_merge_error(false);
+        assert!(enabled.clears_on_merge_error());
+        assert!(!disabled.clears_on_merge_error());
+        assert_eq!(disabled.recursion_limit(), enabled.recursion_limit());
+        assert_eq!(disabled.max_message_size(), enabled.max_message_size());
+        assert_eq!(
+            disabled.unknown_field_limit(),
+            enabled.unknown_field_limit()
+        );
+        assert_eq!(
+            disabled.element_memory_limit(),
+            enabled.element_memory_limit()
+        );
+        #[cfg(feature = "std")]
+        assert_eq!(
+            disabled.is_reader_size_unbounded(),
+            enabled.is_reader_size_unbounded()
+        );
+        assert!(disabled
+            .clone()
+            .with_clear_on_merge_error(true)
+            .clears_on_merge_error());
+
+        let mut wire = FlatMsg { value: 42 }.encode_to_vec();
+        wire.push(0);
+        let mut message = FlatMsg { value: 17 };
+        assert_eq!(
+            disabled.merge_from_slice(&mut message, &wire),
+            Err(DecodeError::InvalidFieldNumber)
+        );
+        assert_eq!(message.value, 42);
+        assert_eq!(
+            enabled.merge_from_slice(&mut message, &wire),
+            Err(DecodeError::InvalidFieldNumber)
+        );
+        assert_eq!(message.value, 0);
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct ClearObserved {
+        inner: FlatMsg,
+        clear_calls: usize,
+    }
+    crate::impl_default_instance!(ClearObserved);
+    impl Message for ClearObserved {
+        fn compute_size(&self, cache: &mut SizeCache) -> u32 {
+            self.inner.compute_size(cache)
+        }
+        fn write_to(&self, cache: &mut SizeCache, buf: &mut impl EncodeSink) {
+            self.inner.write_to(cache, buf);
+        }
+        fn merge_field(
+            &mut self,
+            tag: crate::encoding::Tag,
+            buf: &mut impl Buf,
+            ctx: DecodeContext<'_>,
+        ) -> Result<(), DecodeError> {
+            self.inner.merge_field(tag, buf, ctx)
+        }
+        fn clear(&mut self) {
+            self.inner.clear();
+            self.clear_calls = self.clear_calls.checked_add(1).unwrap();
+        }
+    }
+
+    #[test]
+    fn merge_cleanup_calls_the_message_hook_once_without_rewinding_input() {
+        let valid = FlatMsg { value: 42 }.encode_to_vec();
+        let mut malformed = valid.clone();
+        malformed.extend_from_slice(&[0, 0x7f]);
+        let input_before = malformed.clone();
+        for clear in [false, true] {
+            let options = DecodeOptions::new().with_clear_on_merge_error(clear);
+            let mut message = ClearObserved::default();
+            options.merge_from_slice(&mut message, &valid).unwrap();
+            options.merge_from_slice(&mut message, &[]).unwrap();
+            assert_eq!(message.clear_calls, 0, "success must not run cleanup");
+            assert_eq!(message.inner.value, 42);
+
+            // Fragmented buffers retain the same consumed cursor when the
+            // destination policy changes. The sentinel is outside the error.
+            let (first, rest) = malformed.split_at(1);
+            let mut input = first.chain(rest);
+            assert_eq!(
+                options.merge(&mut message, &mut input),
+                Err(DecodeError::InvalidFieldNumber)
+            );
+            assert_eq!(input.chunk(), &[0x7f]);
+            assert_eq!(message.clear_calls, usize::from(clear));
+            assert_eq!(message.inner.value, if clear { 0 } else { 42 });
+
+            let mut message = ClearObserved::default();
+            let mut input = valid.as_slice();
+            assert_eq!(
+                options
+                    .with_max_message_size(0)
+                    .merge(&mut message, &mut input),
+                Err(DecodeError::MessageTooLarge)
+            );
+            assert_eq!(input, valid, "size rejection must not consume input");
+            // This remains necessary even when the message is already empty:
+            // its clear hook may erase retained allocation or external state.
+            assert_eq!(message.clear_calls, usize::from(clear));
+        }
+        assert_eq!(malformed, input_before, "caller input bytes are not wiped");
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct MergeOverride(ClearObserved);
+    crate::impl_default_instance!(MergeOverride);
+    impl Message for MergeOverride {
+        fn compute_size(&self, cache: &mut SizeCache) -> u32 {
+            self.0.compute_size(cache)
+        }
+        fn write_to(&self, cache: &mut SizeCache, buf: &mut impl EncodeSink) {
+            self.0.write_to(cache, buf);
+        }
+        fn merge_field(
+            &mut self,
+            tag: crate::encoding::Tag,
+            buf: &mut impl Buf,
+            ctx: DecodeContext<'_>,
+        ) -> Result<(), DecodeError> {
+            self.0.merge_field(tag, buf, ctx)
+        }
+        fn merge(
+            &mut self,
+            _buf: &mut impl Buf,
+            _ctx: DecodeContext<'_>,
+        ) -> Result<(), DecodeError> {
+            // Hand-written implementations can reject empty input after
+            // changing state, without entering the default field loop.
+            self.0.inner.value = 42;
+            Err(DecodeError::Custom("merge override rejected input"))
+        }
+        fn clear(&mut self) {
+            self.0.clear();
+        }
+    }
+
+    #[test]
+    fn empty_input_still_calls_an_overridden_merge_and_its_cleanup_hook() {
+        for clear in [false, true] {
+            let options = DecodeOptions::new()
+                .with_max_message_size(0)
+                .with_clear_on_merge_error(clear);
+            for from_slice in [false, true] {
+                let mut message = MergeOverride::default();
+                let mut input = [].as_slice();
+                let result = if from_slice {
+                    options.merge_from_slice(&mut message, input)
+                } else {
+                    options.merge(&mut message, &mut input)
+                };
+                assert_eq!(
+                    result,
+                    Err(DecodeError::Custom("merge override rejected input"))
+                );
+                assert!(input.is_empty());
+                assert_eq!(message.0.clear_calls, usize::from(clear));
+                assert_eq!(message.0.inner.value, if clear { 0 } else { 42 });
+            }
+        }
     }
 
     #[test]

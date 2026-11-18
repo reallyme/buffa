@@ -183,11 +183,12 @@ pub(crate) fn generate_lazy_view_with_nesting(
     };
     let unknown_field_handling = if preserve_unknown_fields {
         quote! {
+            ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
             let span_len = before_tag.len() - cur.len();
             view.__buffa_unknown_fields.push_record(before_tag, span_len, ctx)?;
         }
     } else {
-        quote! {}
+        quote! { ::buffa::encoding::skip_unknown_field(tag, &mut cur, ctx)?; }
     };
 
     // Lazy views differ from eager ones only in the message field: a lazy
@@ -236,7 +237,17 @@ pub(crate) fn generate_lazy_view_with_nesting(
         custom_view_default_impl(view_scope, msg, &lazy_ident, has_phantom_field)?;
     let has_custom_default_impl = custom_default_impl.is_some();
     let any_redacted = lazy_fields.iter().any(|(_, _, redacted)| *redacted);
-    let (debug_derive, debug_impl) = if any_redacted {
+    let redacted_derive = if has_custom_default_impl {
+        quote! { #[derive(Clone)] }
+    } else {
+        quote! { #[derive(Clone, Default)] }
+    };
+    let (debug_derive, debug_impl) = if ctx.skip_debug(proto_fqn) {
+        (
+            redacted_derive,
+            crate::view::fully_redacted_debug(&lazy_ident, &quote! { <'a> }),
+        )
+    } else if any_redacted {
         let placeholder = crate::message::DEBUG_REDACT_PLACEHOLDER;
         let name_str = lazy_ident.to_string();
         let mut names: Vec<String> = Vec::new();
@@ -254,11 +265,7 @@ pub(crate) fn generate_lazy_view_with_nesting(
             values.push(quote! { &self.#ident });
         }
         (
-            if has_custom_default_impl {
-                quote! { #[derive(Clone)] }
-            } else {
-                quote! { #[derive(Clone, Default)] }
-            },
+            redacted_derive,
             quote! {
                 #deprecated_field_allow
                 impl<'a> ::core::fmt::Debug for #lazy_ident<'a> {
@@ -336,7 +343,6 @@ pub(crate) fn generate_lazy_view_with_nesting(
                         #(#repeated_arms)*
                         #(#oneof_arms)*
                         _ => {
-                            ::buffa::encoding::skip_field_depth(tag, &mut cur, ctx.depth())?;
                             #unknown_field_handling
                         }
                     }
