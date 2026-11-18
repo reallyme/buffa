@@ -1,0 +1,4 @@
+kind: Changed
+body: |-
+    Advance compatible dependency patches for bytes 1.12.2, Jiff 1.0.1, smallvec 1.16.6, zeroize 1.9.2 and the regex family across workspace and standalone lockfiles. Remove the unused normal fuzz dependency on the build-time generator, retaining its build dependency. Keep feature selections, the 0.1.3 crate family and Rust 1.100 support unchanged; retain the explicit full-capacity vector cleanup around the upgraded zeroization backend.
+time: 2026-11-18T19:00:00+01:00
