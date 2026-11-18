@@ -185,6 +185,10 @@ impl<'a> DecodeContext<'a> {
     /// context is passed with has `message_end` bytes left, so a field,
     /// sub-message or map entry of it that would reach further is rejected.
     ///
+    /// `message_end` counts the bytes following the message: the value of
+    /// `buf.remaining()` when this message ends. It is not a message length
+    /// or offset. Use `0` for a buffer containing exactly the message.
+    ///
     /// The default [`Message::merge_to_limit`] calls this with its `limit`.
     /// Call it yourself in a `merge_to_limit` override that calls
     /// [`Message::merge_field`] directly, passing the `limit` (or `0` when the
@@ -975,7 +979,9 @@ pub trait Message: DefaultInstance + Clone + PartialEq + Send + Sync {
         let mut msg = Self::default();
         msg.merge_to_limit(
             buf,
-            DecodeContext::new(RECURSION_LIMIT, &field_limit).with_element_memory(&elem_budget),
+            DecodeContext::new(RECURSION_LIMIT, &field_limit)
+                .with_element_memory(&elem_budget)
+                .with_message_end(limit),
             limit,
         )?;
         if buf.remaining() != limit {
@@ -1037,7 +1043,9 @@ pub trait Message: DefaultInstance + Clone + PartialEq + Send + Sync {
     /// against the buffer, so a caller passing `limit > 0` must still check
     /// that `buf.remaining() == limit` afterwards, as
     /// [`merge_length_delimited`](Self::merge_length_delimited) does. An
-    /// override should record `limit` the same way.
+    /// override should record `limit` the same way. Length-delimited callers
+    /// also record it before dispatching, so context-aware field hooks in an
+    /// override receive the frame boundary.
     fn merge_to_limit(
         &mut self,
         buf: &mut impl Buf,
@@ -1169,7 +1177,8 @@ pub trait Message: DefaultInstance + Clone + PartialEq + Send + Sync {
         // which would grow the type at each recursion level and trigger
         // E0275 for recursive message types like `Struct ↔ Value`.
         let limit = buf.remaining() - len;
-        self.merge_to_limit(buf, ctx, limit)?;
+        // A hand-written override may not record this context boundary itself.
+        self.merge_to_limit(buf, ctx.with_message_end(limit), limit)?;
         if buf.remaining() != limit {
             let remaining = buf.remaining();
             if remaining > limit {
@@ -1629,7 +1638,8 @@ impl DecodeOptions {
         msg.merge_to_limit(
             buf,
             DecodeContext::new(self.recursion_limit, &field_limit)
-                .with_element_memory(&elem_budget),
+                .with_element_memory(&elem_budget)
+                .with_message_end(limit),
             limit,
         )?;
         if buf.remaining() != limit {
@@ -1961,6 +1971,80 @@ mod tests {
         fn clear(&mut self) {
             *self = Self::default();
         }
+    }
+
+    /// A message whose `merge_to_limit` override does not record its limit,
+    /// and whose `merge_field` reports the end its context carries.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    struct OverrideMsg {
+        seen_end: Option<usize>,
+    }
+
+    impl DefaultInstance for OverrideMsg {
+        fn default_instance() -> &'static Self {
+            static INST: crate::__private::OnceBox<OverrideMsg> = crate::__private::OnceBox::new();
+            INST.get_or_init(|| alloc::boxed::Box::new(OverrideMsg::default()))
+        }
+    }
+
+    impl Message for OverrideMsg {
+        fn compute_size(&self, _cache: &mut SizeCache) -> u32 {
+            0
+        }
+
+        fn write_to(&self, _cache: &mut SizeCache, _buf: &mut impl EncodeSink) {}
+
+        fn merge_field(
+            &mut self,
+            tag: crate::encoding::Tag,
+            buf: &mut impl Buf,
+            ctx: DecodeContext<'_>,
+        ) -> Result<(), DecodeError> {
+            self.seen_end = Some(ctx.message_end());
+            crate::encoding::skip_field(tag, buf)
+        }
+
+        fn merge_to_limit(
+            &mut self,
+            buf: &mut impl Buf,
+            ctx: DecodeContext<'_>,
+            limit: usize,
+        ) -> Result<(), DecodeError> {
+            while buf.remaining() > limit {
+                let tag = crate::encoding::Tag::decode(buf)?;
+                self.merge_field(tag, buf, ctx)?;
+            }
+            Ok(())
+        }
+
+        fn clear(&mut self) {
+            *self = Self::default();
+        }
+    }
+
+    #[test]
+    fn length_delimited_callers_record_the_end_for_an_override() {
+        // A frame holding one varint field, then three bytes of a next frame.
+        let stream = [2u8, 0x08, 0x01, 0xaa, 0xbb, 0xcc];
+
+        let mut input = &stream[..];
+        let msg = OverrideMsg::decode_length_delimited(&mut input).unwrap();
+        assert_eq!(msg.seen_end, Some(3));
+
+        let mut input = &stream[..];
+        let msg: OverrideMsg = DecodeOptions::new()
+            .decode_length_delimited(&mut input)
+            .unwrap();
+        assert_eq!(msg.seen_end, Some(3));
+
+        let limit = core::cell::Cell::new(DEFAULT_UNKNOWN_FIELD_LIMIT);
+        let mut msg = OverrideMsg::default();
+        msg.merge_length_delimited(
+            &mut &stream[..],
+            DecodeContext::new(RECURSION_LIMIT, &limit),
+        )
+        .unwrap();
+        assert_eq!(msg.seen_end, Some(3));
     }
 
     fn wire_bytes(msg: &FlatMsg) -> alloc::vec::Vec<u8> {
