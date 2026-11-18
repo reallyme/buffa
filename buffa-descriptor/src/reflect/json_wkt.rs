@@ -736,9 +736,9 @@ use buffa::json_helpers::wkt::{
 /// Convert a snake_case field-mask path to lowerCamelCase, rejecting paths
 /// that don't round-trip per the proto3 JSON spec (empty components, invalid
 /// characters, double underscores, underscore-digit, uppercase).
-fn field_mask_to_camel(p: &str) -> Result<String, &'static str> {
+fn field_mask_to_camel(p: &str) -> Result<String, buffa::json_helpers::JsonValueError> {
     if !field_mask_path_round_trips(p) {
-        return Err("FieldMask path does not round-trip through camelCase");
+        return Err(buffa::json_helpers::JsonValueError::FieldMaskEncode);
     }
     Ok(snake_to_camel(p))
 }

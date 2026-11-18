@@ -111,6 +111,8 @@ pub enum JsonValueError {
     Timestamp,
     #[error("invalid FieldMask path, expected comma-separated lowerCamelCase paths")]
     FieldMask,
+    #[error("invalid FieldMask path, it has no proto3 JSON representation")]
+    FieldMaskEncode,
     #[error("invalid JSON payload for a registered Any message")]
     AnyMessage,
     #[error("invalid JSON value for a registered Any well-known type")]

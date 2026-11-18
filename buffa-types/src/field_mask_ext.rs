@@ -324,9 +324,10 @@ impl serde::Serialize for FieldMask {
             .iter()
             .map(|p| {
                 if !field_mask_path_round_trips(p) {
-                    return Err(serde::ser::Error::custom(alloc::format!(
-                        "FieldMask path '{p}' is not a valid field mask path"
-                    )));
+                    // The diagnostic omits the rejected path.
+                    return Err(serde::ser::Error::custom(
+                        buffa::json_helpers::JsonValueError::FieldMaskEncode,
+                    ));
                 }
                 Ok(snake_to_camel(p))
             })
