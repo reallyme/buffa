@@ -251,6 +251,7 @@ fn rustc_minor() -> u32 {
 }
 
 fn main() {
+    compile_sensitive_family_fixtures();
     compile_cleanup_fixtures();
     compile_cleanup_hygiene();
     compile_cleanup_json_hygiene();
@@ -1752,6 +1753,101 @@ fn compile_cleanup_json_hygiene() {
         .deny_unknown_json_fields(true)
         .compile()
         .expect("cleanup JSON hygiene fixture generation failed");
+}
+
+fn compile_sensitive_family_fixtures() {
+    // Separate generations share foreign representations without emitting
+    // implementations for either foreign type in this consuming crate.
+    for file in [
+        "protos/shared_guarded.proto",
+        "protos/shared_guarded_second.proto",
+    ] {
+        buffa_build::Config::new()
+            .files(&[file])
+            .includes(&["protos/"])
+            .bytes_type_custom("crate::guarded_repr::SecretBytes")
+            .string_type_custom("::buffa_types::sensitive::SecretString")
+            .json_policy_type("crate::guarded_repr::SecretBytes")
+            .json_policy_type("::buffa_types::sensitive::SecretString")
+            .emit_custom_type_impls(false)
+            .preserve_unknown_fields(false)
+            .generate_zeroize(true)
+            .generate_json(true)
+            .generate_reflection(true)
+            .generate_arbitrary(true)
+            .lazy_views(true)
+            .compile()
+            .expect("shared guarded fixture generation failed");
+    }
+    buffa_build::Config::new()
+        .files(&[
+            "protos/sensitive.proto",
+            "protos/sensitive_defaults.proto",
+            "protos/sensitive_editions.proto",
+        ])
+        .includes(&["protos/"])
+        .bytes_type_custom_in("crate::sensitive_repr::SecretBytes", &[".sensitive_test"])
+        .string_type_custom_in("crate::sensitive_repr::SecretString", &[".sensitive_test"])
+        .json_policy_type("crate::sensitive_repr::SecretBytes")
+        .json_policy_type("crate::sensitive_repr::SecretString")
+        .preserve_unknown_fields(false)
+        .extern_path(
+            ".google.protobuf.Timestamp",
+            "::buffa_types::sensitive::Timestamp",
+        )
+        .extern_path(".google.protobuf.Value", "::buffa_types::sensitive::Value")
+        .message_attribute(".sensitive_test.Numeric", "#[repr(C)]")
+        .generate_arbitrary(true)
+        .generate_reflection(true)
+        .generate_json(true)
+        .generate_text(true)
+        .lazy_views(true)
+        .deny_unknown_json_fields(true)
+        .zeroize_in(&[".sensitive_test", ".sensitive_editions"])
+        .skip_debug(&[
+            ".sensitive_test.NoDebugChild",
+            ".sensitive_test.NoDebugParent",
+        ])
+        .deny_view_json(&[".sensitive_test.ViewPrivate"])
+        .compile()
+        .expect("sensitive fixture generation failed");
+
+    // The same shapes with guarded representations and message cleanup.
+    buffa_build::Config::new()
+        .files(&["protos/guarded_hook_frame.proto"])
+        .includes(&["protos/"])
+        .string_type_custom("::buffa_types::sensitive::SecretString")
+        .bytes_type_custom("crate::guarded_repr::SecretBytes")
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .compile()
+        .expect("buffa_build failed for guarded_hook_frame.proto");
+
+    // The same cross-generation rule for borrowed inspection: a guarded
+    // generation that reaches an enum opened by its owner's enum-level rule
+    // types its guarded list and map values as the bare enum, which needs the
+    // owner's `InspectElement` impl.
+    buffa_build::Config::new()
+        .files(&["protos/guarded_extern_enum_owner.proto"])
+        .includes(&["protos/"])
+        .open_enums_in(&[".test.guardedextenum.owner.Tier"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("buffa_build failed for guarded_extern_enum_owner.proto");
+    buffa_build::Config::new()
+        .files(&["protos/guarded_extern_enum_user.proto"])
+        .includes(&["protos/"])
+        .extern_path(
+            ".test.guardedextenum.owner",
+            "crate::guarded_extern_enum_owner",
+        )
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .reflect_mode(buffa_build::ReflectMode::VTable)
+        .compile()
+        .expect("buffa_build failed for guarded_extern_enum_user.proto");
 }
 
 fn compile_cleanup_setter_hygiene() {

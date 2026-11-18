@@ -1490,3 +1490,76 @@ pub mod cleanup_setter_hygiene {
     buffa::include_proto!("cleanup_setter_hygiene");
     pub struct Some;
 }
+
+/// Messages exercising scalar cleanup and wipe-owning collections.
+///
+/// Cleanup messages do not expose a standard owned-view handle, whose backing
+/// `Bytes` would never be wiped.
+///
+/// ```compile_fail,E0277
+/// use buffa_test::sensitive_test::Record;
+/// type Raw = <Record as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod sensitive_test {
+    buffa::include_proto!("sensitive_test");
+}
+/// Enum-level edition overrides must reach borrowed inspection too.
+// Enum defaults are emitted explicitly, as in the other flat include fixtures.
+#[allow(clippy::derivable_impls)]
+pub mod sensitive_editions {
+    buffa::include_proto!("sensitive_editions");
+}
+
+/// Foreign guarded representations shared across independent generations.
+pub mod shared_guarded {
+    buffa::include_proto!("shared_guarded");
+}
+/// A second generation using the same foreign representations.
+pub mod shared_guarded_second {
+    buffa::include_proto!("shared_guarded_second");
+}
+
+/// The decode-hook frame shapes with guarded representations and cleanup.
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod guarded_hook_frame {
+    buffa::include_proto!("guarded_hook_frame");
+}
+
+/// Separate nominal guard types for the independent cleanup fixture generation.
+// Reusing the fixture source deliberately creates distinct local types: each
+// generation emits element trait impls, which would conflict on one shared type.
+#[allow(clippy::duplicate_mod)]
+#[path = "guarded_repr.rs"]
+pub mod sensitive_repr;
+
+// The defining crate supplies this borrowed integration once; independently
+// generated consumers use it without emitting an orphan implementation.
+impl buffa_descriptor::reflect::InspectElement for guarded_repr::SecretBytes {
+    fn as_inspect_value(&self) -> buffa_descriptor::reflect::InspectValueRef<'_> {
+        buffa_descriptor::reflect::InspectValueRef::Bytes(self.as_ref())
+    }
+}
+
+/// Guarded owner of an enum opened by an enum-level `open_enums_in` rule,
+/// referenced through extern_path by [`guarded_extern_enum_user`].
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod guarded_extern_enum_owner {
+    buffa::include_proto!("test.guardedextenum.owner");
+}
+
+/// References the enum of [`guarded_extern_enum_owner`] as closed in guarded
+/// repeated and map-value position.
+#[allow(
+    clippy::derivable_impls,
+    clippy::match_single_binding,
+    non_camel_case_types
+)]
+pub mod guarded_extern_enum_user {
+    buffa::include_proto!("test.guardedextenum.user");
+}

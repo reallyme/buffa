@@ -1,0 +1,7 @@
+syntax = "proto3";
+package shared_guarded_second;
+
+message Credentials {
+  repeated bytes keys = 1;
+  repeated string labels = 2;
+}

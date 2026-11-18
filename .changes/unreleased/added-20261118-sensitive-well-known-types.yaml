@@ -1,0 +1,3 @@
+kind: Added
+body: "Add optional wipe-owning Timestamp, Duration, Value, Struct and ListValue representations selected through extern paths. Borrowed JSON export avoids building an owned tree while preserving sorted keys, duplicate handling, representation failures and deferred wire-error precedence. Ordinary WKT APIs and default generation remain unchanged."
+time: 2026-11-18T22:00:00+01:00

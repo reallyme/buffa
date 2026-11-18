@@ -125,6 +125,8 @@
 //!   it does not enable automatic cleanup on drop. Current vector allocations
 //!   are wiped, but earlier growth allocations and vacated `Struct` hash-table
 //!   buckets remain outside that guarantee.
+//! - **`sensitive`** — separate wipe-owning WKTs, including collections that
+//!   wipe their outgrown buffers; see the `sensitive` module.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -299,5 +301,8 @@ mod full_name_tests {
     }
 }
 
+/// Wipe-owning temporal and dynamic WKTs, selected explicitly through extern paths.
+#[cfg(feature = "sensitive")]
+pub mod sensitive;
 #[cfg(feature = "zeroize")]
 mod zeroize_ext;
