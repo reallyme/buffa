@@ -33,7 +33,7 @@ chrono = ["dep:chrono"]
 jiff = ["dep:jiff"]
 
 # Explicit cleanup only; ordinary WKTs do not gain Drop implementations.
-zeroize = ["dep:zeroize", "buffa/zeroize"]
+zeroize = ["dep:zeroize", "buffa/zeroize", "buffa-descriptor?/zeroize"]
 
 [dependencies]
 zeroize = { workspace = true, optional = true }

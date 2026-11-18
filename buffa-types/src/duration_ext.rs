@@ -160,6 +160,9 @@ impl<'de> serde::Deserialize<'de> for Duration {
         use buffa::json_helpers::JsonValueError;
 
         let s = buffa::json_helpers::wkt::deserialize_string(d)?;
+        // This parsing buffer is distinct from any accepted owned payload.
+        #[cfg(feature = "zeroize")]
+        let s = zeroize::Zeroizing::new(s);
         let (seconds, nanos) = parse_duration_string(&s)
             .ok_or_else(|| serde::de::Error::custom(JsonValueError::Duration))?;
         Ok(Self {
