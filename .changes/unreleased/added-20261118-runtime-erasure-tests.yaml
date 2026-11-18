@@ -1,0 +1,3 @@
+kind: Added
+body: "Execute registered-allocation cleanup observers in native Miri and real debug/release WebAssembly, including deliberate unwiped controls and memory-growth checks. The unpublished fixture adds no default runtime dependency and records counts rather than buffer contents."
+time: 2026-11-18T22:00:00+01:00

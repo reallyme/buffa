@@ -1144,6 +1144,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-erasure-tests"
+version = "0.9.2"
+dependencies = [
+ "buffa",
+ "buffa-types",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "wasm-metadata"
 version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -315,9 +315,9 @@ jobs:
   # cache key follows it. `cargo +<toolchain>` overrides rust-toolchain.toml.
   miri:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
-      MIRI_TOOLCHAIN: nightly-2026-02-27
+      MIRI_TOOLCHAIN: nightly-2026-11-10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
 
@@ -369,6 +369,56 @@ jobs:
         run: >-
           cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa --
           owned_view_drop owned_view_into_bytes owned_view_lifetime_parametric_contract
+
+      - name: Miri (zeroization cleanup ordering and niche validity)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p buffa --features zeroize --test zeroize_vec
+
+      - name: Miri (allocation wipe observer, including negative controls)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p buffa-types --features zeroize --test zeroized_vec_slots
+
+      - name: Miri (allocation observer used by Wasm fixtures)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p wasm-erasure-tests --features runtime-tests
+
+      # Cleanup moves values out of MaybeUninit slots and wipes vacated storage.
+      # Exercise allocation ownership and nonzero niches, not just scalar values.
+      - name: Miri (guarded storage soundness)
+        run: >-
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa
+          --no-default-features --features std,json,zeroize --lib --
+          sensitive:: erasing::
+
+      - name: Miri (borrowed guarded WKT JSON compatibility and scratch ownership)
+        run: cargo +${{ env.MIRI_TOOLCHAIN }} miri test --locked -p buffa-types --features sensitive,json --test borrowed_sensitive_json
+
+      - name: Miri (borrowed inspection scalar slots)
+        run: >-
+          cargo +${{ env.MIRI_TOOLCHAIN }} miri test -p buffa-descriptor
+          --no-default-features --features std,reflect,zeroize --lib --
+          reflect::inspect::tests
+
+  # Execute the actual browser-target module, not only a cross-compilation.
+  wasm-erasure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 (sha-pinned)
+
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # 1.95.0 (sha-pinned)
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (sha-pinned)
+        with:
+          node-version: '26'
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1 (sha-pinned)
+
+      - name: Clippy (Wasm allocation observer)
+        run: cargo clippy --locked -p wasm-erasure-tests --features runtime-tests --lib --target wasm32-unknown-unknown -- -D warnings
+
+      - name: Execute Wasm cleanup and residue controls (debug and release)
+        run: scripts/test-wasm-erasure.sh
 
   # ── no_std and 32-bit compilation checks ─────────────────────────────────
   check-nostd:

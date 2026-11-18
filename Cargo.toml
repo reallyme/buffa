@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "tests/wasm-erasure",
     "buffa",
     "buffa-types",
     "buffa-descriptor",
