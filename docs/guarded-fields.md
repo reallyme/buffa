@@ -450,6 +450,12 @@ Ordinary WKTs remain source-compatible and do not gain `Drop`. The lighter
 five ordinary WKTs; that alone is insufficient for a cleanup-profile child,
 which also requires `ZeroizeOnDrop`.
 
+For ordinary `Struct`, explicit cleanup covers current reachable values and
+String buffers; it does not cover vacated table storage, previously released
+growth allocations, or values removed before the call. The public map remains
+unchanged. See [the ordinary Struct cleanup decision](ordinary-struct-wiping.md)
+for the precise guarantee and compatibility options.
+
 ## Reject unknown wire fields
 
 A zero unknown-field allowance applies independently of storage. It

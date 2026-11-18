@@ -1,0 +1,3 @@
+kind: Changed
+body: Clarify the ordinary Struct cleanup guarantee and the compatibility decision to retain its public HashMap field. Add pre-deallocation regression observations for current key and nested String buffers, including spare capacity, with ordinary destruction as a negative control. Vacated table storage and previously released ordinary allocations remain outside the guarantee; secret-bearing trees require guarded ownership from ingestion. No runtime API or cleanup behavior changes.
+time: 2026-11-18T18:00:00+01:00

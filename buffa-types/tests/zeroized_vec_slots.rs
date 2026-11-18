@@ -1,12 +1,13 @@
 // Modified by ReallyMe Technologies Limited.
-//! Observe released storage using an element with no padding or invalid bits.
+//! Observe released storage using fully initialized, padding-free allocations.
 //!
 //! Allocation-time initialization alone cannot make a scan of arbitrary Rust
 //! structs sound: subsequent typed moves can leave padding uninitialized again.
 //! The watched vector therefore contains only byte arrays. Its destructor writes
 //! a marker after cleanup, making the missing final wipe observable even on a
 //! failing run. Production containers are checked separately without reading
-//! their representation or relying on their private layout.
+//! their representation or relying on their private layout. Ordinary Struct
+//! payload checks register only String byte buffers, never hash-table buckets.
 
 #![cfg(feature = "zeroize")]
 
@@ -30,10 +31,11 @@ static DROPPED: AtomicUsize = AtomicUsize::new(0);
 static BAD_DROP: AtomicBool = AtomicBool::new(false);
 
 // SAFETY: every operation forwards the original layout to System. Only the
-// explicitly registered byte-array vector is inspected, before deallocation.
-// Its complete allocation is initialized before insertion, and byte-array moves
-// and destructor writes cannot introduce padding or uninitialized bytes. This
-// remains true if the zeroization under test fails to wipe any part of it.
+// explicitly registered byte-array vector or String byte buffer is inspected,
+// before deallocation. Each complete allocation is initialized before use;
+// byte-array moves/destructors and String ownership transfers cannot introduce
+// padding or uninitialized bytes into those buffers. This also holds when the
+// cleanup under test fails. No container or String header is inspected.
 unsafe impl GlobalAlloc for ObservedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // SAFETY: the allocator caller supplies a valid layout.
@@ -131,9 +133,63 @@ fn watched_buffer() -> Vec<Slot> {
     values
 }
 
+fn watched_text() -> String {
+    const CAPACITY: usize = 97;
+    const LENGTH: usize = 33;
+    assert!(WATCHED.load(Ordering::SeqCst).is_null());
+    RELEASED.store(false, Ordering::SeqCst);
+    REALLOCATED.store(false, Ordering::SeqCst);
+    RESIDUE.store(0, Ordering::SeqCst);
+    let mut bytes = vec![b'Q'; CAPACITY];
+    // Fill even an allocator-granted excess capacity before watching it.
+    bytes.resize(bytes.capacity(), b'Q');
+    let mut text = String::from_utf8(bytes).unwrap();
+    text.truncate(LENGTH);
+    WATCHED_SIZE.store(text.capacity(), Ordering::SeqCst);
+    WATCHED.store(text.as_ptr().cast_mut(), Ordering::SeqCst);
+    text
+}
+
+enum StringPayload {
+    Key,
+    NestedValue,
+}
+
+fn value(kind: Kind) -> Value {
+    Value {
+        kind: Some(kind),
+        ..Default::default()
+    }
+}
+
+fn ordinary_struct(payload: StringPayload) -> Struct {
+    let mut outer = Struct::default();
+    match payload {
+        StringPayload::Key => {
+            outer
+                .fields
+                .insert(watched_text(), value(Kind::NumberValue(1234.5)));
+        }
+        StringPayload::NestedValue => {
+            let list = ListValue {
+                values: vec![value(Kind::StringValue(watched_text()))],
+                ..Default::default()
+            };
+            let mut child = Struct::default();
+            child
+                .fields
+                .insert("list".into(), value(Kind::ListValue(Box::new(list))));
+            outer
+                .fields
+                .insert("child".into(), value(Kind::StructValue(Box::new(child))));
+        }
+    }
+    outer
+}
+
 // Keep one observer test function: it deliberately watches one allocation.
 #[test]
-fn final_wipe_covers_dropped_slots_and_spare_capacity() {
+fn allocation_cleanup_and_negative_controls() {
     for (elements, helper) in [(2usize, false), (2, true), (0, true)] {
         let mut values = watched_buffer();
         for _ in 0..elements {
@@ -167,6 +223,37 @@ fn final_wipe_covers_dropped_slots_and_spare_capacity() {
                 RESIDUE.load(Ordering::SeqCst),
                 capacity.checked_mul(core::mem::size_of::<Slot>()).unwrap()
             );
+        }
+    }
+
+    for erase in [false, true] {
+        for payload in [StringPayload::Key, StringPayload::NestedValue] {
+            let mut message = ordinary_struct(payload);
+            let capacity = message.fields.capacity();
+            if erase {
+                message.zeroize();
+                assert!(message.fields.is_empty());
+                // Explicit cleanup keeps the ordinary public map reusable.
+                // This says nothing about erasure of its retained buckets.
+                assert_eq!(message.fields.capacity(), capacity);
+                assert!(RELEASED.load(Ordering::SeqCst));
+                message
+                    .fields
+                    .insert("reused".into(), value(Kind::BoolValue(true)));
+            }
+            drop(message);
+            assert!(RELEASED.load(Ordering::SeqCst));
+            assert!(!REALLOCATED.load(Ordering::SeqCst));
+            if erase {
+                assert_eq!(RESIDUE.load(Ordering::SeqCst), 0);
+            } else {
+                // Ordinary Drop is deliberately the negative control. It must
+                // leave both the initialized live and spare payload bytes.
+                assert_eq!(
+                    RESIDUE.load(Ordering::SeqCst),
+                    WATCHED_SIZE.load(Ordering::SeqCst)
+                );
+            }
         }
     }
 }
