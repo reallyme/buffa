@@ -1,3 +1,4 @@
+// Modified by ReallyMe Technologies Limited.
 //! Unit tests for the `repeated_type` custom-collection template handling
 //! (`parse_custom_list_path` + the `RepeatedRepr` knob), and for the scalar
 //! custom-type path parser (`parse_custom_type_path`) the same rules share.
@@ -58,7 +59,7 @@ fn non_path_collection_is_invalid_type_path() {
         "(*,)",
         "&'static [*]",
         "impl Iterator<Item = *>",
-        "<* as X>::L",
+        "([*; 4])",
     ] {
         let err = parse_custom_list_path(template, &quote! { u32 }).unwrap_err();
         assert!(
@@ -69,15 +70,30 @@ fn non_path_collection_is_invalid_type_path() {
 }
 
 #[test]
-fn custom_type_path_accepts_plain_paths() {
-    for path in [
-        "crate::SecretBytes",
-        "::smol_str::SmolStr",
-        "Local",
-        "crate::Wrap<u8>",
+fn custom_type_path_accepts_paths_including_projections_and_parentheses() {
+    for (path, expected) in [
+        ("crate::SecretBytes", "crate::SecretBytes"),
+        ("::smol_str::SmolStr", "::smol_str::SmolStr"),
+        ("Local", "Local"),
+        ("crate::Wrap<u8>", "crate::Wrap<u8>"),
+        ("<crate::A as crate::B>::C", "<crate::A as crate::B>::C"),
+        ("(crate::SecretBytes)", "crate::SecretBytes"),
+        ("((<crate::A as crate::B>::C))", "<crate::A as crate::B>::C"),
+        ("crate::Wrap::<(u8)>", "crate::Wrap<u8>"),
+        ("crate::r#type", "crate::r#type"),
+        (
+            "crate::Wrap<&'static (dyn core::fmt::Debug + Sync)>",
+            "crate::Wrap<&'static (dyn core::fmt::Debug + Sync)>",
+        ),
+        (
+            "crate::Wrap<{crate::size::<u8>()}>",
+            "crate::Wrap<{crate::size::<u8>()}>",
+        ),
     ] {
         let got = parse_custom_type_path(path).unwrap();
-        let expected: syn::Type = syn::parse_str(path).unwrap();
+        // Canonical emission avoids downstream unused-parentheses warnings,
+        // while expression turbofish and raw keywords remain valid Rust.
+        let expected: syn::Type = syn::parse_str(expected).unwrap();
         assert_eq!(got.to_string(), quote! { #expected }.to_string());
     }
 }
@@ -92,7 +108,8 @@ fn custom_type_path_rejects_types_that_cannot_be_a_field_representation() {
         "impl AsRef<[u8]>",
         "dyn AsRef<[u8]>",
         "fn() -> u8",
-        "<crate::A as crate::B>::C",
+        "(())",
+        "([u8; 4])",
         "crate::",
     ] {
         let err = parse_custom_type_path(path).unwrap_err();
@@ -100,6 +117,20 @@ fn custom_type_path_rejects_types_that_cannot_be_a_field_representation() {
             matches!(&err, CodeGenError::InvalidTypePath(msg) if msg.contains(path)),
             "{path}: {err:?}"
         );
+    }
+}
+
+#[test]
+fn custom_list_path_accepts_projections_and_parentheses() {
+    for template in [
+        "<crate::A as crate::B>::List<*>",
+        "<* as crate::B>::List",
+        "(crate::List<*>)",
+        "((<crate::A as crate::B>::List<*>))",
+    ] {
+        let got = parse_custom_list_path(template, &quote! { u32 }).unwrap();
+        let expected = crate::context::normalized_rust_type(&template.replace('*', "u32")).unwrap();
+        assert_eq!(got.to_string(), quote! { #expected }.to_string());
     }
 }
 

@@ -429,16 +429,18 @@ pub enum GeneratedFileKind {
 /// token stream, validating it as a Rust type so a malformed path surfaces as a
 /// codegen error rather than unparseable generated output.
 ///
-/// The type must be a plain type path (`crate::Name`, `::a::B<C>`). Other Rust
-/// types such as `_`, `()`, `[u8; 4]`, `&'static [u8]` or `impl Trait` parse,
+/// The type must be a Rust type path (`crate::Name`, `::a::B<C>`), optionally
+/// parenthesized. Associated type projections such as `<T as Trait>::Value`
+/// are also supported. Other Rust types such as `_`, `()`, `[u8; 4]`,
+/// `&'static [u8]` or `impl Trait` parse,
 /// but are not supported as a custom representation (most cannot implement
 /// `ProtoString` / `ProtoBytes` in the consumer crate, or appear in a struct
 /// field at all), so they are rejected here rather than surfacing as a compile
 /// error inside generated code. A type alias names anything else.
 pub(crate) fn parse_custom_type_path(path: &str) -> Result<proc_macro2::TokenStream, CodeGenError> {
-    let ty: syn::Type =
-        syn::parse_str(path).map_err(|_| CodeGenError::InvalidTypePath(path.to_string()))?;
-    if !is_plain_type_path(&ty) {
+    let ty: syn::Type = context::normalized_rust_type(path)
+        .map_err(|_| CodeGenError::InvalidTypePath(path.to_string()))?;
+    if !is_type_path(&ty) {
         return Err(CodeGenError::InvalidTypePath(format!(
             "{path} (a custom type must be a type path such as `crate::Name`)"
         )));
@@ -446,10 +448,14 @@ pub(crate) fn parse_custom_type_path(path: &str) -> Result<proc_macro2::TokenStr
     Ok(quote::quote! { #ty })
 }
 
-/// Whether `ty` is a type path with no qualified-self (`<T as Trait>::X`)
-/// prefix: the shape codegen accepts for a custom field representation.
-fn is_plain_type_path(ty: &syn::Type) -> bool {
-    matches!(ty, syn::Type::Path(tp) if tp.qself.is_none())
+/// Parentheses and associated type projections can name the same supported
+/// representations as ordinary paths; rejecting either would break working
+/// custom-type configurations without making generated code safer.
+fn is_type_path(mut ty: &syn::Type) -> bool {
+    while let syn::Type::Paren(inner) = ty {
+        ty = &inner.elem;
+    }
+    matches!(ty, syn::Type::Path(_))
 }
 
 /// Parse a custom **map** container path, which is applied as `path<K, V>`.
@@ -512,7 +518,8 @@ pub(crate) fn parse_wildcard_type_path(
 /// element's token text before the whole string is parsed. The template must
 /// contain at least one `*`, otherwise the element type would have nowhere to
 /// go and the field would silently drop its element type. As with
-/// [`parse_custom_type_path`], the substituted type must be a plain type path.
+/// [`parse_custom_type_path`], the substituted type must be a Rust type path,
+/// optionally parenthesized, and may name an associated type.
 pub(crate) fn parse_custom_list_path(
     template: &str,
     elem: &proc_macro2::TokenStream,
@@ -521,9 +528,9 @@ pub(crate) fn parse_custom_list_path(
         return Err(CodeGenError::MissingListPlaceholder(template.to_string()));
     }
     let substituted = template.replace('*', &elem.to_string());
-    let ty: syn::Type = syn::parse_str(&substituted)
+    let ty: syn::Type = context::normalized_rust_type(&substituted)
         .map_err(|_| CodeGenError::InvalidTypePath(format!("{template} (as {substituted})")))?;
-    if !is_plain_type_path(&ty) {
+    if !is_type_path(&ty) {
         return Err(CodeGenError::InvalidTypePath(format!(
             "{template} (as {substituted}; a custom collection must be a type path \
              such as `crate::List<*>`)"
@@ -576,9 +583,10 @@ pub enum StringRepr {
     ///   goes through its `ProtoStringJson` policy in every generated JSON
     ///   position; codegen emits no JSON trait impl for such a type, so under
     ///   JSON it may be foreign.
-    /// - A path that is not a plain type path like `crate::Name` (for example
+    /// - A type that is not a type path like `crate::Name` (for example
     ///   `_`, `()` or `&'static [u8]`) surfaces as
     ///   [`CodeGenError::InvalidTypePath`] at generation (`.compile()`) time.
+    ///   Associated type projections and parenthesized type paths are supported.
     /// - The per-element impls are deduplicated within a single generation, but
     ///   the *same* crate-local type used as a `repeated` element or `map` key
     ///   or value across two separate `compile()` invocations in one crate
@@ -671,9 +679,10 @@ pub enum BytesRepr {
     ///   `ProtoBytes` and `ProtoBytesJson` impls, in another crate. Vtable
     ///   reflection still emits `ReflectElement`, and reflection with message
     ///   cleanup `InspectElement`, for it.
-    /// - A path that is not a plain type path like `crate::Name` (for example
+    /// - A type that is not a type path like `crate::Name` (for example
     ///   `_`, `()` or `&'static [u8]`) surfaces as
     ///   [`CodeGenError::InvalidTypePath`] at generation (`.compile()`) time.
+    ///   Associated type projections and parenthesized type paths are supported.
     /// - The per-element impls are deduplicated within a single generation, but
     ///   the *same* crate-local type used as a `repeated` element or `map`
     ///   value across two separate `compile()` invocations in one crate emits
@@ -991,9 +1000,10 @@ impl PointerRepr {
 /// **template** containing a `*` placeholder where the element type is
 /// substituted (e.g. `"::my_crate::SmallList<*>"`).
 ///
-/// Because `buffa::ProtoList` is buffa-owned, a *foreign* collection cannot
-/// implement it directly (orphan rule) — the template must always name a
-/// crate-local newtype, mirroring the `ProtoString` newtype expectation.
+/// The resolved collection must implement `buffa::ProtoList<T>`. Existing
+/// implementations, including `Vec<T>`, work through aliases and associated
+/// types. If neither buffa nor the collection's defining crate supplies that
+/// implementation, use a crate-local newtype to satisfy the orphan rule.
 ///
 /// Select a representation through `buffa_build`'s `repeated_type_custom`
 /// builder method. The wire format is identical regardless of the collection;
@@ -1009,9 +1019,9 @@ pub enum RepeatedRepr {
     Vec,
     /// A custom collection named by a Rust type-path **template** with a `*`
     /// placeholder for the element type (e.g. `"::my_crate::SmallList<*>"`). The
-    /// named type must satisfy `buffa::ProtoList<T>` and be a **crate-local
-    /// newtype** (a foreign collection cannot implement the buffa-owned
-    /// `ProtoList`).
+    /// named type must satisfy `buffa::ProtoList<T>`, whether through an existing
+    /// implementation or a **crate-local newtype** when the orphan rule
+    /// prevents adding that implementation directly.
     ///
     /// # Limitations
     ///
@@ -1019,17 +1029,22 @@ pub enum RepeatedRepr {
     ///   substituted for every `*` before the result is parsed as a Rust type.
     ///   A template that omits `*` surfaces as
     ///   [`CodeGenError::MissingListPlaceholder`], and one whose substitution
-    ///   is not a plain type path as [`CodeGenError::InvalidTypePath`], at generation
+    ///   is not a type path as [`CodeGenError::InvalidTypePath`], at generation
     ///   (`.compile()`) time.
-    /// - A custom collection always needs a crate-local newtype — this is not
-    ///   limited to the reflection path. The generated decode and clear code
-    ///   require `Field: ProtoList`, so even a binary-only build cannot use a
-    ///   foreign collection directly.
-    /// - Under reflection / vtable the newtype must implement
-    ///   `buffa_descriptor`'s `ReflectList` (a `Vec`-backed newtype can delegate
-    ///   to the inner `Vec<T>: ReflectList`). Under JSON it must implement
-    ///   `serde::Serialize` / `Deserialize`; under the `arbitrary` feature,
-    ///   `arbitrary::Arbitrary` (derivable on a newtype).
+    /// - Generated decode and clear code require `Field: ProtoList<T>`.
+    ///   An associated type resolving to `Vec<T>` already satisfies this;
+    ///   a foreign collection without an existing implementation needs a
+    ///   crate-local newtype even for binary-only generation.
+    /// - Vtable reflection requires `buffa_descriptor`'s `ReflectList` on the
+    ///   selected collection; cleanup-profile borrowed inspection requires
+    ///   `InspectList` instead. Ordinary bridge reflection needs neither on
+    ///   the owned collection. JSON scalar, enum and policy helpers decode
+    ///   through `ProtoList<T>` and the element's JSON traits, without
+    ///   requiring the collection's `Deserialize`. Positions using ordinary
+    ///   serde instead, including message elements and unlisted custom string
+    ///   elements, require the collection's `Serialize` / `Deserialize`.
+    ///   Arbitrary generation requires the selected field or builder's
+    ///   corresponding `arbitrary` integration.
     /// - A `repeated <self-type>` field becomes `Collection<Self>`, so the
     ///   collection must be heap-backed; an inline collection (`SmallVec<[Self;
     ///   N]>`) would be infinitely sized and fail to compile.
@@ -1565,8 +1580,8 @@ pub struct CodeGenConfig {
     /// reflection is generated) encodes the field as standard base64 or a
     /// plain string, so a policy that refuses export does not stop it, and its
     /// import checks do not run. With `generate_json` and
-    /// [`generate_reflection`](Self::generate_reflection) both on, a non-empty
-    /// list produces [`CodeGenWarning::JsonPolicyTypesBypassedByReflection`].
+    /// [`generate_reflection`](Self::generate_reflection) both on, selected policy
+    /// fields produce [`CodeGenWarning::JsonPolicyReflectionBypass`].
     pub json_policy_types: Vec<String>,
     /// Emit element JSON/reflection impls for custom bytes/string types.
     ///
@@ -2536,8 +2551,7 @@ pub enum CodeGenWarning {
     /// JSON generation is off, so no field uses a policy.
     #[non_exhaustive]
     JsonPolicyTypesRequireJson,
-    /// [`json_policy_types`](CodeGenConfig::json_policy_types) is non-empty
-    /// while JSON and [`generate_reflection`](CodeGenConfig::generate_reflection)
+    /// A generated field selects a listed JSON policy type while JSON and [`generate_reflection`](CodeGenConfig::generate_reflection)
     /// are both on. JSON policies govern only the generated `serde` impls:
     /// descriptor-driven reflection (a generated message converted with
     /// `to_dynamic` or `DynamicMessage::try_from_message`, then serialized or
@@ -2545,17 +2559,16 @@ pub enum CodeGenWarning {
     /// listed types as standard base64 or plain strings and never calls the
     /// policy, so a policy that refuses export does not stop it and its import
     /// checks do not run. Generated reflection only makes that one call away:
-    /// `try_from_message` works without it, including for messages whose
-    /// reflection is borrowed inspection only, and binary encoding and text
-    /// format never call the policy either, so a policy is not a
-    /// confidentiality boundary in any configuration. The warning is a standing
-    /// reminder where the bypass is a single method call, not a risk check:
-    /// without reflection there is no warning, but the bypass remains.
-    /// Emitted once per generation run whenever policy types are listed;
-    /// buffa-build and protoc-gen-buffa always print it. Match it as
-    /// `JsonPolicyTypesBypassedByReflection { .. }`.
+    /// `try_from_message` works without it, and binary encoding and text format
+    /// never call the policy either, so a policy is not a confidentiality
+    /// boundary in any configuration. Emitted once per generation run for the
+    /// types selected by its generated fields, not unused configuration rules.
     #[non_exhaustive]
-    JsonPolicyTypesBypassedByReflection,
+    JsonPolicyReflectionBypass {
+        /// Canonical syntactic paths of policy types selected by generated fields,
+        /// sorted and deduplicated for deterministic diagnostics.
+        policy_types: Vec<String>,
+    },
     /// `idiomatic_field_names` found two or more members of one message whose
     /// snake_case conversions collide, and adjusted the affected Rust names
     /// deterministically (`_f<number>` suffix for fields, verbatim fallback
@@ -2829,10 +2842,10 @@ impl core::fmt::Display for CodeGenWarning {
                      (collides with a reserved wrapper method); use `.view().{field_name}` instead"
                 )
             }
-            Self::JsonPolicyTypesBypassedByReflection => {
+            Self::JsonPolicyReflectionBypass { policy_types } => {
                 write!(
                     f,
-                    "json_policy_type governs only the generated serde impls: \
+                    "json_policy_type for {} governs only the generated serde impls: \
                      with reflection generated, `to_dynamic` (like \
                      `DynamicMessage::try_from_message`, which works without it) \
                      gives `DynamicMessage` JSON that prints and reads fields of \
@@ -2841,7 +2854,8 @@ impl core::fmt::Display for CodeGenWarning {
                      not stop it and its import checks do not run; a policy is \
                      not a confidentiality boundary, so keep reflective JSON, \
                      text format and binary output of these messages away from \
-                     sinks that must not see the values"
+                     sinks that must not see the values",
+                    policy_types.join(", ")
                 )
             }
             Self::JsonPolicyTypesRequireJson => {
@@ -3977,13 +3991,6 @@ pub fn generate_with_diagnostics(
     if !config.json_policy_types.is_empty() && !config.generate_json {
         ctx.warn(CodeGenWarning::JsonPolicyTypesRequireJson);
     }
-    // Reflection's descriptor-driven JSON never consults a policy.
-    if !config.json_policy_types.is_empty()
-        && config.generate_json
-        && (config.generate_reflection || config.generate_reflection_vtable)
-    {
-        ctx.warn(CodeGenWarning::JsonPolicyTypesBypassedByReflection);
-    }
     // Validate configuration bindings, not just fields in this invocation.
     // Buf's directory strategy gives each process only that directory's files;
     // policy types used by another directory must still be accepted here.
@@ -4267,6 +4274,15 @@ pub fn generate_with_diagnostics(
             &mut output_names,
             &mut output,
         )?;
+    }
+
+    // Shared configurations can list policies belonging to other directory
+    // requests. Warn only for fields this invocation actually generated.
+    if config.generate_json && config.generate_reflection {
+        let policy_types = ctx.used_json_policy_types();
+        if !policy_types.is_empty() {
+            ctx.warn(CodeGenWarning::JsonPolicyReflectionBypass { policy_types });
+        }
     }
 
     let mut native_config = config.adapters.clone();
@@ -6155,7 +6171,7 @@ pub enum CodeGenError {
     #[error("missing required descriptor field: {0}")]
     MissingField(&'static str),
     /// A resolved type path string could not be parsed as a Rust type, or is
-    /// not a plain type path where a custom field representation requires one.
+    /// not a type path where a custom field representation requires one.
     #[error("invalid Rust type path: '{0}'")]
     InvalidTypePath(String),
     /// A [`json_policy_types`](CodeGenConfig::json_policy_types) `string`

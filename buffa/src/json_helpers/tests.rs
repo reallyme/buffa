@@ -2628,3 +2628,24 @@ fn bool_and_string_null_elements_keep_the_native_diagnostic() {
         "{ours}"
     );
 }
+
+#[test]
+fn handwritten_enum_without_null_metadata_rejects_sequence_nulls() {
+    for ignore in [false, true] {
+        crate::json::with_json_parse_options(
+            &crate::json::JsonParseOptions::new().ignore_unknown_enum_values(ignore),
+            || {
+                for input in ["[null]", "[1,null,0]"] {
+                    let open = repeated_enum::deserialize::<Color, Vec<_>, _>(
+                        &mut serde_json::Deserializer::from_str(input),
+                    );
+                    assert!(open.is_err());
+                    let closed = repeated_closed_enum::deserialize::<Color, Vec<_>, _>(
+                        &mut serde_json::Deserializer::from_str(input),
+                    );
+                    assert!(closed.is_err());
+                }
+            },
+        );
+    }
+}

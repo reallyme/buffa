@@ -437,3 +437,38 @@ fn policy_key_errors_propagate_and_duplicates_keep_the_last_entry() {
     assert_eq!(value.keyed.len(), 1);
     assert_eq!(value.keyed.get(&Tilde("a".to_string())), Some(&2));
 }
+
+/// A user-supplied parser can put its rejected key in its error's Display
+/// output. The generic map helper must not forward that output to JSON errors.
+#[test]
+fn container_map_keys_do_not_forward_custom_parser_errors() {
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct RejectedKey;
+
+    #[derive(Debug, thiserror::Error)]
+    enum KeyErrorReason {
+        #[error("private-map-key")]
+        Rejected,
+    }
+
+    impl core::fmt::Display for RejectedKey {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("unused")
+        }
+    }
+
+    impl core::str::FromStr for RejectedKey {
+        type Err = KeyErrorReason;
+
+        fn from_str(_: &str) -> Result<Self, Self::Err> {
+            Err(KeyErrorReason::Rejected)
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str(r#"{"private-map-key":"00"}"#);
+    let error = map_bytes_policy::deserialize::<BTreeMap<RejectedKey, Hex>, _>(&mut deserializer)
+        .unwrap_err()
+        .to_string();
+    assert!(error.starts_with("invalid protobuf map key"), "{error}");
+    assert!(!error.contains("private-map-key"), "{error}");
+}

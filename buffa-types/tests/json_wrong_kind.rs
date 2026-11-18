@@ -142,3 +142,12 @@ fn non_human_readable_formats_keep_the_typed_request() {
     let mask = wkt::FieldMask::deserialize(Typed("fooBar")).unwrap();
     assert_eq!(mask.paths, ["foo_bar"]);
 }
+
+#[test]
+fn value_accepts_in_range_128_bit_integers() {
+    use serde::de::value::{Error, I128Deserializer, U128Deserializer};
+    let value = <wkt::Value as serde::Deserialize>::deserialize(I128Deserializer::<Error>::new(-7));
+    assert_eq!(value.unwrap(), wkt::Value::from(-7.0));
+    let value = <wkt::Value as serde::Deserialize>::deserialize(U128Deserializer::<Error>::new(7));
+    assert_eq!(value.unwrap(), wkt::Value::from(7.0));
+}

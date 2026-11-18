@@ -48,11 +48,13 @@ impl JsonPolicyKind {
             (Type::TYPE_BYTES, crate::BytesRepr::Custom(path), _)
                 if ctx.is_json_policy_type(path) =>
             {
+                ctx.record_json_policy_type(path);
                 Some(Self::Bytes)
             }
             (Type::TYPE_STRING, _, crate::StringRepr::Custom(path))
                 if ctx.is_json_policy_type(path) =>
             {
+                ctx.record_json_policy_type(path);
                 Some(Self::String)
             }
             _ => None,
@@ -134,6 +136,7 @@ pub(crate) fn of_view_field(
     if !ctx.is_json_policy_type(&path) {
         return Ok(None);
     }
+    ctx.record_json_policy_type(&path);
     Ok(Some((kind, crate::parse_custom_type_path(&path)?)))
 }
 
@@ -146,6 +149,7 @@ pub(crate) fn of_map_slot(
 ) -> Result<Option<(JsonPolicyKind, TokenStream)>, CodeGenError> {
     match repr_path {
         Some(path) if ctx.is_json_policy_type(path) => {
+            ctx.record_json_policy_type(path);
             Ok(Some((kind, crate::parse_custom_type_path(path)?)))
         }
         _ => Ok(None),

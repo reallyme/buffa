@@ -1,0 +1,22 @@
+[package]
+name = "wasm-erasure-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Keep the default workspace feature graph unchanged. This test-only feature
+# is explicit in the Wasm runner and included by workspace --all-features.
+runtime-tests = ["dep:buffa", "dep:buffa-types", "dep:serde", "dep:thiserror"]
+
+[dependencies]
+buffa = { workspace = true, optional = true, features = ["zeroize", "json"] }
+# The workspace default enables std for other consumers. This fixture must
+# build the same alloc-only libraries used by browser applications.
+buffa-types = { package = "reallyme-buffa-types", path = "../../buffa-types", version = "=0.1.3", default-features = false, optional = true, features = ["sensitive", "json"] }
+serde = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }

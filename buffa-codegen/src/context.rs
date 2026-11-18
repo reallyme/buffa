@@ -127,6 +127,8 @@ pub struct CodeGenContext<'a> {
     ///
     /// [`generate_with_diagnostics`]: crate::generate_with_diagnostics
     warnings: std::cell::RefCell<Vec<crate::CodeGenWarning>>,
+    /// Policies selected by fields emitted in this generation request.
+    used_json_policy_types: std::cell::RefCell<std::collections::BTreeSet<String>>,
     /// The messages generated with the table codec, planned by
     /// [`plan_table_codec`](Self::plan_table_codec). Unset, which is the same
     /// as empty, unless a table codec was requested.
@@ -680,6 +682,7 @@ impl<'a> CodeGenContext<'a> {
             keyword_field_renames: keyword_plan.field_renames,
             keyword_oneof_renames: keyword_plan.oneof_renames,
             warnings: std::cell::RefCell::new(plan_warnings),
+            used_json_policy_types: Default::default(),
             imports: std::cell::RefCell::new(crate::imports::ImportsPhase::Off),
         }
     }
@@ -1641,15 +1644,6 @@ impl<'a> CodeGenContext<'a> {
         self.unboxed_oneof_variants.contains(variant_fqn)
     }
 
-    /// Resolve the [`StringRepr`](crate::StringRepr) for a `string` field at the
-    /// given proto path.
-    ///
-    /// `field_fqn` is the fully-qualified proto field path, e.g.
-    /// `".my.pkg.MyMessage.name"`. Rules in `config.string_fields` are matched
-    /// with the same proto-segment-aware prefix logic as
-    /// [`bytes_repr`](Self::bytes_repr); the **last** matching rule wins,
-    /// letting a specific override follow a broad default. Fields matching no
-    /// rule use [`StringRepr::String`](crate::StringRepr::String).
     /// Whether the custom representation `rust_type` is listed in
     /// [`json_policy_types`](CodeGenConfig::json_policy_types) and JSON is
     /// generated.
@@ -1664,6 +1658,31 @@ impl<'a> CodeGenContext<'a> {
             .any(|listed| rust_type_key(listed) == key)
     }
 
+    /// Record a policy selected while emitting JSON for a generated field.
+    pub(crate) fn record_json_policy_type(&self, rust_type: &str) {
+        self.used_json_policy_types
+            .borrow_mut()
+            .insert(rust_type_key(rust_type));
+    }
+
+    /// Deterministic diagnostic payload, independent of rendering order.
+    pub(crate) fn used_json_policy_types(&self) -> Vec<String> {
+        self.used_json_policy_types
+            .borrow()
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Resolve the [`StringRepr`](crate::StringRepr) for a `string` field at the
+    /// given proto path.
+    ///
+    /// `field_fqn` is the fully-qualified proto field path, e.g.
+    /// `".my.pkg.MyMessage.name"`. Rules in `config.string_fields` are matched
+    /// with the same proto-segment-aware prefix logic as
+    /// [`bytes_repr`](Self::bytes_repr); the **last** matching rule wins,
+    /// letting a specific override follow a broad default. Fields matching no
+    /// rule use [`StringRepr::String`](crate::StringRepr::String).
     pub fn string_repr(&self, field_fqn: &str) -> crate::StringRepr {
         self.config
             .string_fields
@@ -2359,12 +2378,12 @@ fn register_nested_enum_closedness(
     }
 }
 
-/// A whitespace-insensitive key for a Rust type path, for comparing the paths
+/// A syntax-normalized key for a Rust type path, for comparing the paths
 /// in [`json_policy_types`](CodeGenConfig::json_policy_types) with those in
 /// representation rules. A path that does not parse is compared verbatim; its
 /// representation rule reports the parse error.
 pub(crate) fn rust_type_key(path: &str) -> String {
-    match syn::parse_str::<syn::Type>(path) {
+    match normalized_rust_type(path) {
         Ok(ty) => quote::ToTokens::to_token_stream(&ty).to_string(),
         Err(_) => path.to_owned(),
     }
@@ -2372,7 +2391,7 @@ pub(crate) fn rust_type_key(path: &str) -> String {
 
 /// Final path segment used to detect a policy-list spelling mismatch.
 pub(crate) fn rust_type_name(path: &str) -> Option<String> {
-    match syn::parse_str::<syn::Type>(path).ok()? {
+    match normalized_rust_type(path).ok()? {
         syn::Type::Path(path) => path
             .path
             .segments
@@ -2380,6 +2399,52 @@ pub(crate) fn rust_type_name(path: &str) -> Option<String> {
             .map(|segment| segment.ident.to_string()),
         _ => None,
     }
+}
+
+/// Normalize syntax only; resolving aliases or associated types requires the
+/// consumer's Rust type checker. Preserve grouping that can be required by
+/// references to trait objects; only type-path parentheses are redundant here.
+pub(crate) fn normalized_rust_type(path: &str) -> syn::Result<syn::Type> {
+    use syn::visit_mut::VisitMut;
+
+    struct Normalize;
+    impl VisitMut for Normalize {
+        fn visit_type_mut(&mut self, ty: &mut syn::Type) {
+            while let syn::Type::Paren(inner) = ty {
+                if !crate::is_type_path(&inner.elem) {
+                    break;
+                }
+                *ty = inner.elem.as_ref().clone();
+            }
+            syn::visit_mut::visit_type_mut(self, ty);
+        }
+
+        fn visit_type_path_mut(&mut self, ty: &mut syn::TypePath) {
+            // Turbofish is optional in types but required in expression paths
+            // inside const arguments, which the default expression visitor keeps.
+            for segment in &mut ty.path.segments {
+                if let syn::PathArguments::AngleBracketed(args) = &mut segment.arguments {
+                    args.colon2_token = None;
+                }
+            }
+            syn::visit_mut::visit_type_path_mut(self, ty);
+        }
+
+        fn visit_ident_mut(&mut self, ident: &mut proc_macro2::Ident) {
+            let name = ident.to_string();
+            if let Some(unescaped) = name.strip_prefix("r#") {
+                // Keywords still need their raw spelling in copyable paths.
+                if let Ok(mut plain) = syn::parse_str::<syn::Ident>(unescaped) {
+                    plain.set_span(ident.span());
+                    *ident = plain;
+                }
+            }
+        }
+    }
+
+    let mut ty = syn::parse_str(path)?;
+    Normalize.visit_type_mut(&mut ty);
+    Ok(ty)
 }
 
 #[cfg(test)]
@@ -4204,5 +4269,36 @@ mod tests {
             &["test.Keep", "test.Drop", "test.Drop.Child"],
         );
         assert_eq!(got, [true, false, false]);
+    }
+}
+
+#[cfg(test)]
+mod rust_type_syntax_tests {
+    use super::{rust_type_key, rust_type_name};
+
+    #[test]
+    fn equivalent_type_syntax_shares_a_key_without_resolving_aliases() {
+        for (left, right) in [
+            ("crate::Secret", "((crate :: r#Secret))"),
+            ("crate::Store<u8>", "crate :: Store :: <(u8)>"),
+            (
+                "<crate::Owner as crate::Trait<(u8)>>::Value",
+                "((<crate :: Owner as crate :: Trait<u8>>::r#Value))",
+            ),
+        ] {
+            assert_eq!(rust_type_key(left), rust_type_key(right));
+            assert_eq!(rust_type_name(left), rust_type_name(right));
+        }
+        assert_ne!(rust_type_key("crate::A"), rust_type_key("crate::B"));
+        assert_ne!(
+            rust_type_key("crate::Store<u8>"),
+            rust_type_key("crate::Store<u16>")
+        );
+        assert_eq!(rust_type_key("not a type!"), "not a type!");
+        let keyword = rust_type_key("crate::r#type");
+        assert!(keyword.contains("r#type"));
+        assert!(syn::parse_str::<syn::Type>(&keyword).is_ok());
+        let constant = rust_type_key("crate::Blob<{ crate::size::<u8>() }>");
+        assert!(constant.contains("size :: < u8 >"), "{constant}");
     }
 }

@@ -548,7 +548,9 @@ fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
     let (_, warnings) = generate_policy(&config).unwrap();
     assert_eq!(
         warnings,
-        [CodeGenWarning::JsonPolicyTypesBypassedByReflection]
+        [CodeGenWarning::JsonPolicyReflectionBypass {
+            policy_types: vec!["crate :: Secret".into()],
+        }]
     );
     let text = warnings[0].to_string();
     assert!(text.contains("DynamicMessage"), "{text}");
@@ -561,7 +563,9 @@ fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
     config.generate_reflection_vtable = true;
     assert_eq!(
         generate_policy(&config).unwrap().1,
-        [CodeGenWarning::JsonPolicyTypesBypassedByReflection]
+        [CodeGenWarning::JsonPolicyReflectionBypass {
+            policy_types: vec!["crate :: Secret".into()],
+        }]
     );
     config.generate_reflection_vtable = false;
 
@@ -577,5 +581,126 @@ fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
     assert_eq!(
         generate_policy(&config).unwrap().1,
         [CodeGenWarning::JsonPolicyTypesRequireJson]
+    );
+}
+
+#[test]
+fn equivalent_custom_type_spellings_emit_one_impl_per_trait() {
+    for policy in [false, true] {
+        let mut config = containers_config("pa");
+        config.generate_reflection = true;
+        config.generate_reflection_vtable = true;
+        config.bytes_fields.push((
+            ".pa.Box.chain".into(),
+            BytesRepr::Custom("crate :: Secret".into()),
+        ));
+        config.string_fields.push((
+            ".pa.Box.pairs".into(),
+            StringRepr::Custom("crate :: Text".into()),
+        ));
+        config.bytes_fields.push((
+            ".pa.Box.by_name".into(),
+            BytesRepr::Custom("((crate::r#Secret))".into()),
+        ));
+        config.string_fields.push((
+            ".pa.Box.keyed".into(),
+            StringRepr::Custom("(crate::Text)".into()),
+        ));
+        if !policy {
+            config.json_policy_types.clear();
+        }
+        let generated = generate(&[containers_file("pa")], &["pa.proto".into()], &config).unwrap();
+        fn count_impls(items: &[syn::Item], trait_name: &str, type_key: &str) -> usize {
+            items
+                .iter()
+                .map(|item| match item {
+                    syn::Item::Mod(module) => module
+                        .content
+                        .as_ref()
+                        .map_or(0, |(_, items)| count_impls(items, trait_name, type_key)),
+                    syn::Item::Impl(implementation) => {
+                        let matches_trait = implementation
+                            .trait_
+                            .as_ref()
+                            .and_then(|(path, _)| path.segments.last())
+                            .is_some_and(|segment| segment.ident == trait_name);
+                        let ty = &implementation.self_ty;
+                        usize::from(
+                            matches_trait
+                                && crate::context::rust_type_key(&quote::quote!(#ty).to_string())
+                                    == type_key,
+                        )
+                    }
+                    _ => 0,
+                })
+                .sum()
+        }
+        let parsed = syn::parse_file(&joined(&generated)).unwrap();
+        for (trait_name, ty, expected) in [
+            ("ProtoElemJson", "crate::Secret", usize::from(!policy)),
+            ("ReflectElement", "crate::Secret", 1),
+            ("ReflectElement", "crate::Text", 1),
+            ("ReflectMapKey", "crate::Text", 1),
+            ("ReflectMapKey", "crate::Tag", 1),
+        ] {
+            assert_eq!(
+                count_impls(
+                    &parsed.items,
+                    trait_name,
+                    &crate::context::rust_type_key(ty)
+                ),
+                expected,
+                "{trait_name} for {ty}"
+            );
+        }
+    }
+}
+
+#[test]
+fn unused_policy_rules_do_not_warn_about_reflection() {
+    let mut config = policy_config();
+    config.generate_reflection = true;
+    config.bytes_fields = vec![(
+        ".another.Directory".into(),
+        BytesRepr::Custom("crate::Secret".into()),
+    )];
+    config.json_policy_types = vec!["crate::Secret".into()];
+    let (_, warnings) = generate_policy(&config).unwrap();
+    assert!(!warnings
+        .iter()
+        .any(|warning| matches!(warning, CodeGenWarning::JsonPolicyReflectionBypass { .. })));
+}
+
+#[test]
+fn reflection_warning_names_only_selected_policy_types_once() {
+    let mut config = policy_config();
+    config.generate_reflection = true;
+    config.generate_views = false;
+    config.json_policy_types = vec!["crate::Text".into(), "((crate::Secret))".into()];
+    let (_, warnings) = generate_policy(&config).unwrap();
+    assert_eq!(
+        warnings,
+        [CodeGenWarning::JsonPolicyReflectionBypass {
+            policy_types: vec!["crate :: Secret".into(), "crate :: Text".into()],
+        }]
+    );
+
+    // Oneof-only use is tracked even with borrowed-view generation disabled.
+    let mut file = policy_file();
+    file.message_type[0]
+        .oneof_decl
+        .push(crate::generated::descriptor::OneofDescriptorProto {
+            name: Some("choice".into()),
+            ..Default::default()
+        });
+    file.message_type[0].field[0].oneof_index = Some(0);
+    config.json_policy_types = vec!["crate::Secret".into()];
+    let (_, warnings) =
+        generate_with_diagnostics(&[file], &["policy.proto".into()], &config).unwrap();
+    assert_eq!(
+        warnings,
+        [CodeGenWarning::JsonPolicyReflectionBypass {
+            policy_types: vec!["crate :: Secret".into()],
+        }]
     );
 }

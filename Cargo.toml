@@ -13,6 +13,8 @@ members = [
     "buffa-yaml",
     "protoc-gen-buffa",
     "protoc-gen-buffa-packaging",
+    # Executes cleanup fixtures as an actual Wasm module; never published.
+    "tests/wasm-erasure",
     # Example/reference crate, not published; kept as a workspace member so
     # buffa-test can depend on it and it inherits the workspace version.
     "examples/buffa-smolstr",

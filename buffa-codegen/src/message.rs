@@ -1642,6 +1642,7 @@ fn custom_deser_regular_field(
 
     let field_features = crate::features::resolve_field(ctx, field, features);
     let (with_module, null_deser) = field_deser_modules(
+        ctx,
         crate::impl_message::effective_type(ctx, field, features),
         &info,
         &field_features,
@@ -1993,6 +1994,8 @@ pub(crate) struct FieldInfo {
     /// Whether this non-map `bytes` or `string` field's custom type is listed
     /// in `json_policy_types`, so its JSON goes through the type's policy.
     json_policy: bool,
+    /// Effective policy types selected by this field or its map slots.
+    json_policy_types: Vec<String>,
     /// Whether a map's `string` key type is listed in `json_policy_types`.
     map_key_json_policy: bool,
     /// Whether a map's `bytes` or `string` value type is listed in
@@ -2245,6 +2248,27 @@ pub(crate) fn classify_field(
             &map_value_bytes_repr,
             crate::BytesRepr::Custom(path) if ctx.is_json_policy_type(path)
         );
+    // Track effective field/slot choices, not every matching configuration
+    // rule: a map's string rule need not apply to either of its slot types.
+    let mut json_policy_types = Vec::new();
+    if json_policy {
+        match (&bytes_repr, &string_repr) {
+            (crate::BytesRepr::Custom(path), _) | (_, crate::StringRepr::Custom(path)) => {
+                json_policy_types.push(path.clone());
+            }
+            _ => {}
+        }
+    }
+    if map_key_json_policy || (map_value_type == Some(Type::TYPE_STRING) && map_value_json_policy) {
+        if let crate::StringRepr::Custom(path) = &map_string_repr {
+            json_policy_types.push(path.clone());
+        }
+    }
+    if map_value_json_policy && map_value_type == Some(Type::TYPE_BYTES) {
+        if let crate::BytesRepr::Custom(path) = &map_value_bytes_repr {
+            json_policy_types.push(path.clone());
+        }
+    }
     // A policy key with a non-policy value routes the map through
     // `policy_str_key_map`, whose values use `ProtoElemJson`. Enum values would
     // lose `map_enum`'s unknown-value handling there, so that combination is
@@ -2274,6 +2298,7 @@ pub(crate) fn classify_field(
         map_key_custom_string,
         map_value_custom_string,
         json_policy,
+        json_policy_types,
         map_key_json_policy,
         map_value_json_policy,
         inner_opt_type,
@@ -3107,10 +3132,14 @@ fn scalar_rust_type(
 /// deserialization) and `generate_custom_deserialize` (for hand-generated
 /// Deserialize impls on messages with oneofs).
 fn field_deser_modules(
+    ctx: &CodeGenContext<'_>,
     field_type: Type,
     info: &FieldInfo,
     features: &ResolvedFeatures,
 ) -> (Option<&'static str>, Option<&'static str>) {
+    for path in &info.json_policy_types {
+        ctx.record_json_policy_type(path);
+    }
     // A JSON policy type owns its encoding in every shape. buffa's policy
     // with-modules handle `null` before calling the policy, so codegen
     // implements no JSON trait for the (possibly foreign) policy type. A
@@ -3578,7 +3607,7 @@ fn serde_field_attr(
     let field_type = crate::impl_message::effective_type(ctx, field, features);
     let field_features = crate::features::resolve_field(ctx, field, features);
     let json_name = field.json_name.as_deref().unwrap_or(field_name);
-    let (with_module, null_deser) = field_deser_modules(field_type, info, &field_features);
+    let (with_module, null_deser) = field_deser_modules(ctx, field_type, info, &field_features);
 
     let skip_if = skip_serializing_predicate(field_type, info, &field_features);
 

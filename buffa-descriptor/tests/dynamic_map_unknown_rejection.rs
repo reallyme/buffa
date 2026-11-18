@@ -166,3 +166,93 @@ fn positive_allowance_counts_only_preserved_entries() {
     assert_eq!(msg.merge_with_options(&wire[..], &opts), Ok(()));
     assert_eq!(msg.unknown_fields().len(), 1);
 }
+
+#[test]
+fn exhausted_positive_allowances_still_discard_entry_metadata_and_validate_groups() {
+    // The first closed-enum entry spends the only preservation slot. The
+    // following group is discarded entry metadata and must not spend another.
+    let wire = [0x12, 2, 0x10, 7, 0x0a, 4, 0x10, 1, 0x1b, 0x1c];
+    let positive = DecodeOptions::new().with_unknown_field_limit(1);
+    assert_eq!(decode(&wire, &positive), Ok(()));
+    assert_eq!(
+        decode(&wire, &DecodeOptions::new().reject_unknown_fields()),
+        Err(DecodeError::UnknownFieldLimitExceeded)
+    );
+    for (wire, error) in [
+        (&[0x0a, 2, 0x1b, 0x24][..], DecodeError::InvalidEndGroup(4)),
+        (&[0x0a, 1, 0x1b][..], DecodeError::UnexpectedEof),
+    ] {
+        assert_eq!(decode(wire, &positive), Err(error));
+    }
+    assert_eq!(
+        decode(
+            &[0x0a, 2, 0x1b, 0x1c],
+            &positive.clone().with_recursion_limit(0)
+        ),
+        Err(DecodeError::RecursionLimitExceeded)
+    );
+    // A second preserved entry still exceeds the positive storage allowance.
+    assert_eq!(
+        decode(&[0x12, 2, 0x10, 7, 0x12, 2, 0x10, 8], &positive),
+        Err(DecodeError::UnknownFieldLimitExceeded)
+    );
+}
+
+#[test]
+fn overwritten_unknown_enum_values_do_not_consume_a_positive_storage_allowance() {
+    use buffa_descriptor::reflect::Value;
+    // The first entry ends with a known value, so its earlier unknown value
+    // costs no preservation slot. The second entry needs the one allowed slot.
+    let wire = [0x12, 4, 0x10, 7, 0x10, 0, 0x12, 2, 0x10, 8];
+    let mut msg = DynamicMessage::new_by_name(pool(), "dyn.map.Holder").unwrap();
+    msg.merge_with_options(&wire, &DecodeOptions::new().with_unknown_field_limit(1))
+        .unwrap();
+    let Some(Value::Map(map)) = msg.field_by_number(2) else {
+        panic!("expected enum map");
+    };
+    assert_eq!(map.get_str(""), Some(&Value::EnumNumber(0)));
+    assert_eq!(msg.unknown_fields().len(), 1);
+}
+
+#[test]
+fn rejecting_an_entry_preserves_prior_values_and_restores_map_order() {
+    use buffa_descriptor::reflect::Value;
+    let mut msg = DynamicMessage::new_by_name(pool(), "dyn.map.Holder").unwrap();
+    msg.merge(&[0x0a, 5, 0x0a, 1, b'a', 0x10, 1]).unwrap();
+    // Commit key z first, then attempt an overwrite of a containing an
+    // unknown field. Failure must leave a unchanged and z discoverable.
+    let wire = [
+        0x0a, 5, 0x0a, 1, b'z', 0x10, 2, 0x0a, 7, 0x0a, 1, b'a', 0x10, 9, 0x18, 1,
+    ];
+    assert_eq!(
+        msg.merge_with_options(&wire, &DecodeOptions::new().reject_unknown_fields()),
+        Err(DecodeError::UnknownFieldLimitExceeded)
+    );
+    let Some(Value::Map(map)) = msg.field_by_number(1) else {
+        panic!("expected int map");
+    };
+    assert_eq!(map.get_str("a"), Some(&Value::I32(1)));
+    assert_eq!(map.get_str("z"), Some(&Value::I32(2)));
+    assert_eq!(map.len(), 2);
+    assert!(msg.unknown_fields().is_empty());
+    assert_eq!(decode(&msg.encode_to_vec(), &DecodeOptions::new()), Ok(()));
+}
+
+#[test]
+fn discarded_entry_metadata_does_not_consume_the_element_budget() {
+    use buffa_descriptor::reflect::{MapKey, Value};
+    let footprint = core::mem::size_of::<MapKey>()
+        .checked_add(core::mem::size_of::<Value>())
+        .unwrap();
+    let exact = DecodeOptions::new().with_element_memory_limit(footprint);
+    for wire in [&[0x0a, 0][..], &[0x0a, 2, 0x18, 1][..]] {
+        assert_eq!(decode(wire, &exact), Ok(()));
+        assert_eq!(
+            decode(
+                wire,
+                &DecodeOptions::new().with_element_memory_limit(footprint.checked_sub(1).unwrap())
+            ),
+            Err(DecodeError::ElementMemoryLimitExceeded)
+        );
+    }
+}

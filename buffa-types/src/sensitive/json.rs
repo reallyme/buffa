@@ -1,8 +1,10 @@
 // Modified by ReallyMe Technologies Limited.
 use super::__buffa::oneof::value::Kind;
+use super::__buffa::view::oneof::value::Kind as ViewKind;
 use super::{Duration, ListValue, SecretString, Struct, Timestamp, Value};
-use alloc::borrow::ToOwned;
-use buffa::sensitive::Zeroizing;
+use alloc::{borrow::ToOwned, vec::Vec};
+use buffa::sensitive::{Zeroize, ZeroizeOnDrop, Zeroizing};
+use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, thiserror::Error)]
@@ -235,6 +237,164 @@ macro_rules! views {
 }
 views!(TimestampView, TimestampLazyView);
 views!(DurationView, DurationLazyView);
-views!(ValueView, ValueLazyView);
-views!(StructView, StructLazyView);
-views!(ListValueView, ListValueLazyView);
+
+// Retain the representation's policy for both string values and object keys.
+// Borrowing must not introduce an export path that bypasses SecretString.
+struct StringRef<'a>(&'a str);
+
+impl Serialize for StringRef<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        <SecretString as buffa::json_helpers::ProtoStringJson>::serialize_json(self.0, serializer)
+    }
+}
+
+fn serialize_value<S: Serializer>(
+    kind: Option<&ViewKind<'_>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match kind {
+        None => Err(serde::ser::Error::custom(ErrorReason::MissingKind)),
+        Some(ViewKind::NullValue(_)) => serializer.serialize_unit(),
+        Some(ViewKind::NumberValue(value)) if value.is_finite() => serializer.serialize_f64(*value),
+        Some(ViewKind::NumberValue(_)) => Err(serde::ser::Error::custom(ErrorReason::NonFinite)),
+        Some(ViewKind::BoolValue(value)) => serializer.serialize_bool(*value),
+        Some(ViewKind::StringValue(value)) => StringRef(value).serialize(serializer),
+        Some(ViewKind::StructValue(value)) => value.serialize(serializer),
+        Some(ViewKind::ListValue(value)) => value.serialize(serializer),
+    }
+}
+
+impl Serialize for super::ValueView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_value(self.kind.as_ref(), serializer)
+    }
+}
+
+impl Serialize for super::ValueLazyView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Value's oneof message variants are eager even in its lazy view.
+        serialize_value(self.kind.as_ref(), serializer)
+    }
+}
+
+struct FieldRef<'view, 'wire> {
+    occurrence: usize,
+    entry: &'view (&'wire str, super::ValueView<'wire>),
+}
+
+// Only ordering metadata is copied. The guarded map produced by conversion
+// used sorted keys and the last value for each duplicate; wire-order iteration
+// (including MapView::iter_unique) would change the previous JSON byte order.
+struct OrderedFields<'view, 'wire>(Vec<FieldRef<'view, 'wire>>);
+
+impl<'view, 'wire> OrderedFields<'view, 'wire> {
+    fn new(
+        fields: &'view buffa::sensitive::MapView<'wire, &'wire str, super::ValueView<'wire>>,
+    ) -> Self {
+        let mut entries = Vec::new();
+        if entries.try_reserve_exact(fields.len()).is_err() {
+            // Match the collections' infallible allocation contract, including
+            // capacity overflow, without a new panic or input-bearing error.
+            alloc::alloc::handle_alloc_error(alloc::alloc::Layout::new::<FieldRef<'view, 'wire>>());
+        }
+        entries.extend(
+            fields
+                .iter()
+                .enumerate()
+                .map(|(occurrence, entry)| FieldRef { occurrence, entry }),
+        );
+        entries.sort_unstable_by(|a, b| {
+            a.entry
+                .0
+                .cmp(b.entry.0)
+                .then_with(|| b.occurrence.cmp(&a.occurrence))
+        });
+        // Descending occurrence puts the last wire value first in each run.
+        // Keep it without exporting an overwritten invalid JSON value.
+        entries.dedup_by(|later, earlier| later.entry.0 == earlier.entry.0);
+        Self(entries)
+    }
+}
+
+impl Zeroize for OrderedFields<'_, '_> {
+    fn zeroize(&mut self) {
+        // End the references' lifetimes before wiping their vacated storage.
+        // MaybeUninit permits wiping metadata and spare capacity without ever
+        // constructing invalid references or touching the borrowed payloads.
+        self.0.clear();
+        self.0.spare_capacity_mut().zeroize();
+    }
+}
+
+impl Drop for OrderedFields<'_, '_> {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+impl ZeroizeOnDrop for OrderedFields<'_, '_> {}
+
+fn serialize_fields<S: Serializer>(
+    fields: &buffa::sensitive::MapView<'_, &str, super::ValueView<'_>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    // Empty and singleton maps already have the required order and uniqueness.
+    if fields.len() <= 1 {
+        let mut map = serializer.serialize_map(Some(fields.len()))?;
+        for (key, value) in fields.iter() {
+            map.serialize_entry(&StringRef(key), value)?;
+        }
+        return map.end();
+    }
+    let ordered = OrderedFields::new(fields);
+    let mut map = serializer.serialize_map(Some(ordered.0.len()))?;
+    for field in &ordered.0 {
+        map.serialize_entry(&StringRef(field.entry.0), &field.entry.1)?;
+    }
+    map.end()
+}
+
+impl Serialize for super::StructView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_fields(&self.fields, serializer)
+    }
+}
+
+impl Serialize for super::StructLazyView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Map values are eager views, including on StructLazyView.
+        serialize_fields(&self.fields, serializer)
+    }
+}
+
+impl Serialize for super::ListValueView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut sequence = serializer.serialize_seq(Some(self.values.len()))?;
+        for value in self.values.iter() {
+            sequence.serialize_element(value)?;
+        }
+        sequence.end()
+    }
+}
+
+impl Serialize for super::ListValueLazyView<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Previously conversion validated every deferred child before invoking
+        // the serializer. Keep that error priority and zero-output-on-wire-error
+        // behavior with a validation pass, before writing any JSON.
+        // ValueLazyView has only eager oneof children, so decoding it completes
+        // wire validation for that element under its recorded resource limits.
+        for value in self.values.iter() {
+            value.map_err(|_| serde::ser::Error::custom(ErrorReason::View))?;
+        }
+        // Each access uses a fresh copy of the recorded budgets. Re-decoding
+        // immutable input preserves those limits and holds only one temporary
+        // child, including when many wire entries collapse to duplicate keys.
+        let mut sequence = serializer.serialize_seq(Some(self.values.len()))?;
+        for value in self.values.iter() {
+            let value = value.map_err(|_| serde::ser::Error::custom(ErrorReason::View))?;
+            sequence.serialize_element(&value)?;
+        }
+        sequence.end()
+    }
+}
