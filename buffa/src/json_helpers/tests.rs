@@ -508,7 +508,7 @@ fn decode_base64_two_pass(v: &str) -> Result<Vec<u8>, base64::DecodeError> {
 fn decode_base64_accepts_exactly_what_two_pass_decoding_accepted() {
     use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
     use base64::Engine as _;
-    let symbols = [b'A', b'Q', b'w', b'+', b'/', b'-', b'_', b'='];
+    let symbols = *b"AQw+/-_=";
     let mut checked = 0usize;
     for len in 0..=6u32 {
         for mut n in 0..symbols.len().pow(len) {
@@ -559,10 +559,14 @@ fn bytes_decode_into_writes_caller_storage() {
         }
     }
     let mut short = [0u8; 2];
-    assert!(bytes::decode_into::<serde_json::Error>("AAAAAAAA", &mut short).is_err());
+    let error = bytes::decode_into::<serde_json::Error>("AAAAAAAA", &mut short).unwrap_err();
+    assert_eq!(error.to_string(), "invalid base64");
+    // Errors never quote a symbol or an offset from the input.
     let mut out = [0u8; 8];
-    assert!(bytes::decode_into::<serde_json::Error>("!!!", &mut out).is_err());
-    assert!(bytes::decode_into::<serde_json::Error>("A+-A", &mut out).is_err());
+    for text in ["!!!", "A+-A", "QUJD#", "QU*D"] {
+        let error = bytes::decode_into::<serde_json::Error>(text, &mut out).unwrap_err();
+        assert_eq!(error.to_string(), "invalid base64", "{text:?}");
+    }
 }
 
 /// `decode_base64` leaves the output buffer's size to the `base64` crate,
@@ -1043,6 +1047,96 @@ fn repeated_enum_modules_deserialize_into_a_custom_list() {
     let closed: List<Color> =
         repeated_closed_enum::deserialize(&mut serde_json::Deserializer::from_str(json)).unwrap();
     assert_eq!(closed, List(vec![Color::Red, Color::Blue]));
+}
+
+#[test]
+fn streaming_enum_collections_reject_null_elements() {
+    for source in ["null", "[]", "[1,0]"] {
+        let ordinary: Vec<crate::EnumValue<Color>> =
+            repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source)).unwrap();
+        let streaming: Vec<crate::EnumValue<Color>> =
+            enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source)).unwrap();
+        assert_eq!(ordinary, streaming);
+    }
+    for source in ["[null]", "[1,null]"] {
+        let ordinary: Result<Vec<crate::EnumValue<Color>>, _> =
+            repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source));
+        let streaming: Result<Vec<crate::EnumValue<Color>>, _> =
+            enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source));
+        assert!(ordinary.is_err());
+        assert!(streaming.is_err());
+        let ordinary: Result<Vec<Color>, _> =
+            repeated_closed_enum::deserialize(&mut serde_json::Deserializer::from_str(source));
+        let streaming: Result<Vec<Color>, _> =
+            enum_list::closed::deserialize(&mut serde_json::Deserializer::from_str(source));
+        assert!(ordinary.is_err());
+        assert!(streaming.is_err());
+    }
+    #[cfg(feature = "std")]
+    crate::json::with_json_parse_options(
+        &crate::json::JsonParseOptions::new().ignore_unknown_enum_values(true),
+        || {
+            let source = r#"["UNKNOWN",1]"#;
+            let ordinary: Vec<crate::EnumValue<Color>> =
+                repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source))
+                    .unwrap();
+            let streaming: Vec<crate::EnumValue<Color>> =
+                enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source))
+                    .unwrap();
+            assert_eq!(ordinary, streaming);
+            assert_eq!(streaming.len(), 1);
+        },
+    );
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn streaming_closed_enum_null_marker_requires_a_known_zero() {
+    // Handwritten enums can claim the NullValue marker without declaring zero.
+    // Lenient parsing must not turn that inconsistent marker into a lost element.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+    struct MissingZero;
+    impl crate::Enumeration for MissingZero {
+        const IS_NULL_VALUE: bool = true;
+        fn from_i32(value: i32) -> Option<Self> {
+            (value == 1).then_some(Self)
+        }
+        fn to_i32(&self) -> i32 {
+            1
+        }
+        fn proto_name(&self) -> &'static str {
+            "ONE"
+        }
+        fn from_proto_name(value: &str) -> Option<Self> {
+            (value == "ONE").then_some(Self)
+        }
+    }
+
+    for ignore_unknown in [false, true] {
+        let options =
+            crate::json::JsonParseOptions::new().ignore_unknown_enum_values(ignore_unknown);
+        crate::json::with_json_parse_options(&options, || {
+            for source in ["[null]", "[1,null]"] {
+                let ordinary: Result<Vec<MissingZero>, _> = repeated_closed_enum::deserialize(
+                    &mut serde_json::Deserializer::from_str(source),
+                );
+                let streaming: Result<Vec<MissingZero>, _> =
+                    enum_list::closed::deserialize(&mut serde_json::Deserializer::from_str(source));
+                assert!(ordinary.is_err());
+                assert!(streaming.is_err());
+            }
+            for source in ["null", "[]", "[1]"] {
+                let ordinary: Vec<MissingZero> = repeated_closed_enum::deserialize(
+                    &mut serde_json::Deserializer::from_str(source),
+                )
+                .unwrap();
+                let streaming: Vec<MissingZero> =
+                    enum_list::closed::deserialize(&mut serde_json::Deserializer::from_str(source))
+                        .unwrap();
+                assert_eq!(ordinary, streaming);
+            }
+        });
+    }
 }
 
 #[test]

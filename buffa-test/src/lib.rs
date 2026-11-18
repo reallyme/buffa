@@ -1414,3 +1414,79 @@ pub mod guarded {
 pub mod enum_nulls {
     buffa::include_proto!("enum_nulls");
 }
+
+/// Views selected by the borrowed-only rule do not expose a standard handle.
+///
+/// ```compile_fail,E0277
+/// use buffa_test::borrowed_only::PrivateRecord;
+/// type Raw = <PrivateRecord as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
+///
+/// ```compile_fail,E0277
+/// use buffa_test::borrowed_only::Envelope;
+/// type Raw = <Envelope as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod borrowed_only {
+    buffa::include_proto!("borrowed_only");
+}
+
+/// Messages exercising serde defaults in the presence of Drop.
+pub mod drop_defaults {
+    buffa::include_proto!("drop_defaults");
+    pub(crate) fn custom_label() -> String {
+        "caller-default".to_owned()
+    }
+    pub(crate) fn custom_values() -> Vec<i32> {
+        vec![37]
+    }
+}
+
+/// Caller JSON input policies must survive selecting recursive cleanup.
+pub mod cleanup_input {
+    buffa::include_proto!("cleanup_input");
+    pub(crate) fn custom_count() -> i32 {
+        17
+    }
+}
+
+/// Independent cleanup fixture; no standard owned-view handle is generated.
+/// ```compile_fail,E0277
+/// type Raw = <buffa_test::cleanup_core::Core as buffa::HasMessageView>::ViewHandle;
+/// fn raw(_: Raw) {}
+/// ```
+#[allow(clippy::derivable_impls)]
+pub mod cleanup_core {
+    buffa::include_proto!("cleanup_core");
+}
+/// Nominally distinct local types avoid duplicate integration impls from runs.
+#[allow(clippy::duplicate_mod)]
+#[path = "guarded_repr.rs"]
+pub mod cleanup_core_repr;
+
+/// User helper constructors must not capture generated Result constructors.
+#[allow(clippy::derivable_impls)]
+pub mod cleanup_hygiene {
+    buffa::include_proto!("cleanup_hygiene");
+    pub struct Ok;
+    pub struct Err;
+}
+
+/// Cleanup's no-oneof JSON visitor preserves consumer value namespaces.
+// The empty schema uses the same single-binding codec match as other empty fixtures.
+#[allow(clippy::derivable_impls, clippy::match_single_binding)]
+pub mod cleanup_json_hygiene {
+    buffa::include_proto!("cleanup_json_hygiene");
+    pub struct Ok;
+    pub struct Err;
+    pub struct Some;
+}
+
+/// Consumer helpers must not capture cleanup oneof setter constructors.
+#[allow(clippy::derivable_impls)]
+pub mod cleanup_setter_hygiene {
+    buffa::include_proto!("cleanup_setter_hygiene");
+    pub struct Some;
+}

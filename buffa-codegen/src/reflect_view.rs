@@ -80,6 +80,65 @@ pub(crate) fn enum_default_number(
     Ok(quote! { ::buffa::Enumeration::to_i32(&#first) })
 }
 
+/// The payload an unset explicit-presence field inspects as when it declares
+/// `[default = ...]`, or `None` to keep the type default.
+///
+/// Guarded inspection promises protobuf default semantics, so it reads the
+/// declared default the owned accessors use. Ordinary vtable reflection keeps
+/// its documented type-default contract and does not call this. The payload
+/// matches the `InspectValueRef` variant for `ty`: a `&'static str` for
+/// strings, a `&'static [u8]` for bytes, an `i32` for enums and the scalar
+/// itself otherwise.
+pub(crate) fn inspect_declared_default(
+    ctx: &CodeGenContext,
+    field: &FieldDescriptorProto,
+    ty: Type,
+    field_features: &crate::features::ResolvedFeatures,
+    current_package: &str,
+    nesting: usize,
+) -> Result<Option<TokenStream>, CodeGenError> {
+    let Some(text) = field
+        .default_value
+        .as_deref()
+        .filter(|text| !text.is_empty())
+    else {
+        return Ok(None);
+    };
+    match ty {
+        Type::TYPE_STRING => Ok(Some(quote! { #text })),
+        Type::TYPE_BYTES => {
+            // A string field normalized to bytes keeps its raw default text;
+            // a bytes default is C-escaped.
+            let bytes = if field.r#type == Some(Type::TYPE_STRING) {
+                text.as_bytes().to_vec()
+            } else {
+                crate::defaults::unescape_c_escape_string(text)?
+            };
+            let literal = proc_macro2::Literal::byte_string(&bytes);
+            Ok(Some(quote! { &#literal[..] }))
+        }
+        _ => {
+            let Some(value) = crate::defaults::parse_default_value(
+                field,
+                ctx,
+                current_package,
+                field_features,
+                nesting,
+                crate::StringRepr::String,
+                &crate::BytesRepr::Vec,
+            )?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(match ty {
+                Type::TYPE_ENUM if !is_closed_enum(field_features) => quote! { #value.to_i32() },
+                Type::TYPE_ENUM => quote! { ::buffa::Enumeration::to_i32(&#value) },
+                _ => value,
+            }))
+        }
+    }
+}
+
 /// Generate the vtable reflection impls for a single view type.
 ///
 /// `view_scope` is the view struct's scope (`nesting + 2` below the package
@@ -97,8 +156,17 @@ pub(crate) fn reflect_view_impls(
 ) -> Result<TokenStream, CodeGenError> {
     let MessageScope { ctx, .. } = view_scope;
     let features = view_scope.features;
-    let vr = quote! { ::buffa_descriptor::reflect::ValueRef };
-    let cow = quote! { ::buffa_descriptor::reflect::ReflectCow };
+    let guarded = ctx.zeroizes_message(view_scope.proto_fqn);
+    let vr = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectValueRef }
+    } else {
+        quote! { ::buffa_descriptor::reflect::ValueRef }
+    };
+    let cow = if guarded {
+        quote! { ::buffa_descriptor::reflect::InspectMessageRef }
+    } else {
+        quote! { ::buffa_descriptor::reflect::ReflectCow }
+    };
 
     let mut get_arms: Vec<TokenStream> = Vec::new();
     let mut has_arms: Vec<TokenStream> = Vec::new();
@@ -124,34 +192,64 @@ pub(crate) fn reflect_view_impls(
 
         if is_repeated && is_map_field(msg, field) {
             get_arms.push(quote! { #number => #vr::Map(&self.#id), });
-            has_arms.push(quote! { #number => !::buffa::MapView::is_empty(&self.#id), });
+            has_arms.push(if guarded {
+                quote! { #number => !self.#id.is_empty(), }
+            } else {
+                quote! { #number => !::buffa::MapView::is_empty(&self.#id), }
+            });
             continue;
         }
         if is_repeated {
             get_arms.push(quote! { #number => #vr::List(&self.#id), });
-            has_arms.push(quote! { #number => !::buffa::RepeatedView::is_empty(&self.#id), });
+            has_arms.push(if guarded {
+                quote! { #number => !self.#id.is_empty(), }
+            } else {
+                quote! { #number => !::buffa::RepeatedView::is_empty(&self.#id), }
+            });
             continue;
         }
 
         let f_features = resolve_field(ctx, field, features);
         let (get_val, has_val) = if is_explicit_presence_scalar(field, ty, &f_features) {
-            // Stored as `Option<T>`; absent singular returns the type default.
+            // Stored as `Option<T>`. An absent singular returns the type
+            // default, or for guarded inspection its declared default.
+            let declared = if guarded {
+                inspect_declared_default(
+                    ctx,
+                    field,
+                    ty,
+                    &f_features,
+                    view_scope.current_package,
+                    view_scope.nesting,
+                )?
+            } else {
+                None
+            };
             match ty {
-                Type::TYPE_STRING => (
-                    quote! { #vr::String(self.#id.unwrap_or("")) },
-                    quote! { self.#id.is_some() },
-                ),
-                Type::TYPE_BYTES => (
-                    quote! { #vr::Bytes(self.#id.unwrap_or(&[])) },
-                    quote! { self.#id.is_some() },
-                ),
+                Type::TYPE_STRING => {
+                    let default = declared.unwrap_or_else(|| quote! { "" });
+                    (
+                        quote! { #vr::String(self.#id.unwrap_or(#default)) },
+                        quote! { self.#id.is_some() },
+                    )
+                }
+                Type::TYPE_BYTES => {
+                    let default = declared.unwrap_or_else(|| quote! { &[] });
+                    (
+                        quote! { #vr::Bytes(self.#id.unwrap_or(#default)) },
+                        quote! { self.#id.is_some() },
+                    )
+                }
                 Type::TYPE_ENUM => {
-                    let default = enum_default_number(
-                        ctx,
-                        field,
-                        view_scope.current_package,
-                        view_scope.nesting,
-                    )?;
+                    let default = match declared {
+                        Some(default) => default,
+                        None => enum_default_number(
+                            ctx,
+                            field,
+                            view_scope.current_package,
+                            view_scope.nesting,
+                        )?,
+                    };
                     (
                         quote! {
                             #vr::EnumNumber(self.#id.map_or_else(|| #default, |e| e.to_i32()))
@@ -161,7 +259,7 @@ pub(crate) fn reflect_view_impls(
                 }
                 _ => {
                     let variant = scalar_variant(ty);
-                    let def = scalar_default(ty);
+                    let def = declared.unwrap_or_else(|| scalar_default(ty));
                     (
                         quote! { #vr::#variant(self.#id.unwrap_or(#def)) },
                         quote! { self.#id.is_some() },
@@ -318,6 +416,16 @@ pub(crate) fn reflect_view_impls(
 
     let deprecated_field_allow =
         crate::message::deprecated_field_allow(ctx, msg, view_scope.proto_fqn);
+    if guarded {
+        return Ok(crate::inspect::message_impl(
+            &quote! { <'a> },
+            &quote! { #view_ident<'a> },
+            &pool,
+            &get_arms,
+            &has_arms,
+            &deprecated_field_allow,
+        ));
+    }
     Ok(quote! {
         #deprecated_field_allow
         impl<'a> ::buffa_descriptor::reflect::ReflectMessage for #view_ident<'a> {

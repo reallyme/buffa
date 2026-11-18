@@ -295,7 +295,6 @@ impl ::buffa::Enumeration for SymbolVisibility {
 /// files it parses.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FileDescriptorSet {
     /// Field 1: `file`
@@ -307,6 +306,7 @@ pub struct FileDescriptorSet {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub file: ::buffa::alloc::vec::Vec<FileDescriptorProto>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -480,9 +480,6 @@ impl<'de> ::serde::Deserialize<'de> for FileDescriptorSet {
             ) -> ::core::fmt::Result {
                 f.write_str("struct FileDescriptorSet")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<FileDescriptorSet, __E> {
@@ -505,16 +502,18 @@ impl<'de> ::serde::Deserialize<'de> for FileDescriptorSet {
                     ::buffa::alloc::vec::Vec<FileDescriptorProto>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "file" => {
                             __f_file = Some({
                                 struct _S;
@@ -570,8 +569,11 @@ impl<'de> ::serde::Deserialize<'de> for FileDescriptorSet {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -654,7 +656,6 @@ pub const __FILE_DESCRIPTOR_SET_TEXT_ANY: ::buffa::type_registry::TextAnyEntry =
 /// Describes a complete .proto file.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FileDescriptorProto {
     /// file name, relative to root of source tree
@@ -668,6 +669,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// e.g. "foo", "foo.bar", etc.
     ///
@@ -680,6 +682,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub package: ::core::option::Option<::buffa::alloc::string::String>,
     /// Names of files imported by this file.
     ///
@@ -692,6 +695,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub dependency: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// Indexes of the public imported files in the dependency list above.
     ///
@@ -705,6 +709,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub public_dependency: ::buffa::alloc::vec::Vec<i32>,
     /// Indexes of the weak imported files in the dependency list.
     /// For Google-internal migration only. Do not use.
@@ -719,6 +724,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub weak_dependency: ::buffa::alloc::vec::Vec<i32>,
     /// Names of files imported by this file purely for the purpose of providing
     /// option extensions. These are excluded from the dependency list above.
@@ -733,6 +739,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub option_dependency: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// All top-level definitions in this file.
     ///
@@ -746,6 +753,7 @@ pub struct FileDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub message_type: ::buffa::alloc::vec::Vec<DescriptorProto>,
     /// Field 5: `enum_type`
     #[cfg_attr(
@@ -757,6 +765,7 @@ pub struct FileDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub enum_type: ::buffa::alloc::vec::Vec<EnumDescriptorProto>,
     /// Field 6: `service`
     #[cfg_attr(
@@ -767,6 +776,7 @@ pub struct FileDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub service: ::buffa::alloc::vec::Vec<ServiceDescriptorProto>,
     /// Field 7: `extension`
     #[cfg_attr(
@@ -777,6 +787,7 @@ pub struct FileDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub extension: ::buffa::alloc::vec::Vec<FieldDescriptorProto>,
     /// Field 8: `options`
     #[cfg_attr(
@@ -786,6 +797,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<FileOptions, ::buffa::Inline<FileOptions>>,
     /// This field contains optional information about the original source code.
     /// You may safely remove this entire field without harming runtime
@@ -801,6 +813,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source_code_info: ::buffa::MessageField<
         SourceCodeInfo,
         ::buffa::Inline<SourceCodeInfo>,
@@ -822,6 +835,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub syntax: ::core::option::Option<::buffa::alloc::string::String>,
     /// The edition of the proto file.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -837,6 +851,7 @@ pub struct FileDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub edition: ::core::option::Option<Edition>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -1551,7 +1566,6 @@ pub const __FILE_DESCRIPTOR_PROTO_TEXT_ANY: ::buffa::type_registry::TextAnyEntry
 /// Describes a message type.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct DescriptorProto {
     /// Field 1: `name`
@@ -1563,6 +1577,7 @@ pub struct DescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 2: `field`
     #[cfg_attr(
@@ -1573,6 +1588,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub field: ::buffa::alloc::vec::Vec<FieldDescriptorProto>,
     /// Field 6: `extension`
     #[cfg_attr(
@@ -1583,6 +1599,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub extension: ::buffa::alloc::vec::Vec<FieldDescriptorProto>,
     /// Field 3: `nested_type`
     #[cfg_attr(
@@ -1594,6 +1611,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub nested_type: ::buffa::alloc::vec::Vec<Self>,
     /// Field 4: `enum_type`
     #[cfg_attr(
@@ -1605,6 +1623,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub enum_type: ::buffa::alloc::vec::Vec<EnumDescriptorProto>,
     /// Field 5: `extension_range`
     #[cfg_attr(
@@ -1616,6 +1635,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub extension_range: ::buffa::alloc::vec::Vec<descriptor_proto::ExtensionRange>,
     /// Field 8: `oneof_decl`
     #[cfg_attr(
@@ -1627,6 +1647,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub oneof_decl: ::buffa::alloc::vec::Vec<OneofDescriptorProto>,
     /// Field 7: `options`
     #[cfg_attr(
@@ -1636,6 +1657,7 @@ pub struct DescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<MessageOptions, ::buffa::Inline<MessageOptions>>,
     /// Field 9: `reserved_range`
     #[cfg_attr(
@@ -1647,6 +1669,7 @@ pub struct DescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub reserved_range: ::buffa::alloc::vec::Vec<descriptor_proto::ReservedRange>,
     /// Reserved field names, which may not be used by fields in the same message.
     /// A given name may only be reserved once.
@@ -1661,6 +1684,7 @@ pub struct DescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub reserved_name: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// Support for `export` and `local` keywords on enums.
     ///
@@ -1673,6 +1697,7 @@ pub struct DescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub visibility: ::core::option::Option<SymbolVisibility>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -2269,7 +2294,6 @@ pub mod descriptor_proto {
     use super::*;
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct ExtensionRange {
         /// Inclusive.
@@ -2283,6 +2307,7 @@ pub mod descriptor_proto {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub start: ::core::option::Option<i32>,
         /// Exclusive.
         ///
@@ -2295,6 +2320,7 @@ pub mod descriptor_proto {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub end: ::core::option::Option<i32>,
         /// Field 3: `options`
         #[cfg_attr(
@@ -2304,6 +2330,7 @@ pub mod descriptor_proto {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub options: ::buffa::MessageField<
             super::ExtensionRangeOptions,
             ::buffa::Inline<super::ExtensionRangeOptions>,
@@ -2541,7 +2568,6 @@ pub mod descriptor_proto {
     /// not overlap.
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct ReservedRange {
         /// Inclusive.
@@ -2555,6 +2581,7 @@ pub mod descriptor_proto {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub start: ::core::option::Option<i32>,
         /// Exclusive.
         ///
@@ -2567,6 +2594,7 @@ pub mod descriptor_proto {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub end: ::core::option::Option<i32>,
         #[cfg_attr(feature = "json", serde(skip))]
         #[doc(hidden)]
@@ -2777,7 +2805,6 @@ pub mod descriptor_proto {
 }
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct ExtensionRangeOptions {
     /// The parser stores options it doesn't recognize here. See above.
@@ -2792,6 +2819,7 @@ pub struct ExtensionRangeOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     /// For external users: DO NOT USE. We are in the process of open sourcing
     /// extension declaration and executing internal cleanups before it can be
@@ -2806,6 +2834,7 @@ pub struct ExtensionRangeOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub declaration: ::buffa::alloc::vec::Vec<extension_range_options::Declaration>,
     /// Any features defined in the specific edition.
     ///
@@ -2817,6 +2846,7 @@ pub struct ExtensionRangeOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// The verification state of the range.
     /// TODO: flip the default to DECLARATION once all empty ranges
@@ -2831,6 +2861,7 @@ pub struct ExtensionRangeOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub verification: ::core::option::Option<extension_range_options::VerificationState>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -3135,9 +3166,6 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionRangeOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct ExtensionRangeOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<ExtensionRangeOptions, __E> {
@@ -3169,16 +3197,18 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionRangeOptions {
                     ::core::option::Option<extension_range_options::VerificationState>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "uninterpretedOption" | "uninterpreted_option" => {
                             __f_uninterpreted_option = Some({
                                 struct _S;
@@ -3298,8 +3328,11 @@ impl<'de> ::serde::Deserialize<'de> for ExtensionRangeOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -3466,7 +3499,6 @@ pub mod extension_range_options {
     }
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct Declaration {
         /// The extension number declared within the extension range.
@@ -3480,6 +3512,7 @@ pub mod extension_range_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub number: ::core::option::Option<i32>,
         /// The fully-qualified name of the extension field. There must be a leading
         /// dot in front of the full name.
@@ -3494,6 +3527,7 @@ pub mod extension_range_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub full_name: ::core::option::Option<::buffa::alloc::string::String>,
         /// The fully-qualified type name of the extension field. Unlike
         /// Metadata.type, Declaration.type must have a leading dot for messages
@@ -3508,6 +3542,7 @@ pub mod extension_range_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub r#type: ::core::option::Option<::buffa::alloc::string::String>,
         /// If true, indicates that the number is reserved in the extension range,
         /// and any extension field with the number will fail to compile. Set this
@@ -3522,6 +3557,7 @@ pub mod extension_range_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub reserved: ::core::option::Option<bool>,
         /// If true, indicates that the extension must be defined as repeated.
         /// Otherwise the extension must be defined as optional.
@@ -3535,6 +3571,7 @@ pub mod extension_range_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub repeated: ::core::option::Option<bool>,
         #[cfg_attr(feature = "json", serde(skip))]
         #[doc(hidden)]
@@ -3853,7 +3890,6 @@ pub mod extension_range_options {
 /// Describes a field within a message.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FieldDescriptorProto {
     /// Field 1: `name`
@@ -3865,6 +3901,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 3: `number`
     #[cfg_attr(
@@ -3875,6 +3912,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub number: ::core::option::Option<i32>,
     /// Field 4: `label`
     #[cfg_attr(
@@ -3885,6 +3923,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub label: ::core::option::Option<field_descriptor_proto::Label>,
     /// If type_name is set, this need not be set.  If both this and type_name
     /// are set, this must be one of TYPE_ENUM, TYPE_MESSAGE or TYPE_GROUP.
@@ -3898,6 +3937,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub r#type: ::core::option::Option<field_descriptor_proto::Type>,
     /// For message and enum types, this is the name of the type.  If the name
     /// starts with a '.', it is fully-qualified.  Otherwise, C++-like scoping
@@ -3915,6 +3955,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub type_name: ::core::option::Option<::buffa::alloc::string::String>,
     /// For extensions, this is the name of the type being extended.  It is
     /// resolved in the same manner as type_name.
@@ -3928,6 +3969,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub extendee: ::core::option::Option<::buffa::alloc::string::String>,
     /// For numeric types, contains the original text representation of the value.
     /// For booleans, "true" or "false".
@@ -3944,6 +3986,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub default_value: ::core::option::Option<::buffa::alloc::string::String>,
     /// If set, gives the index of a oneof in the containing type's oneof_decl
     /// list.  This field is a member of that oneof.
@@ -3958,6 +4001,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub oneof_index: ::core::option::Option<i32>,
     /// JSON name of this field. The value is set by protocol compiler. If the
     /// user has set a "json_name" option on this field, that option's value
@@ -3974,6 +4018,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub json_name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 8: `options`
     #[cfg_attr(
@@ -3983,6 +4028,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<FieldOptions, ::buffa::Inline<FieldOptions>>,
     /// If true, this is a proto3 "optional". When a proto3 field is optional, it
     /// tracks presence regardless of field type.
@@ -4016,6 +4062,7 @@ pub struct FieldDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub proto3_optional: ::core::option::Option<bool>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -4887,7 +4934,6 @@ pub mod field_descriptor_proto {
 /// Describes a oneof.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct OneofDescriptorProto {
     /// Field 1: `name`
@@ -4899,6 +4945,7 @@ pub struct OneofDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 2: `options`
     #[cfg_attr(
@@ -4908,6 +4955,7 @@ pub struct OneofDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<OneofOptions, ::buffa::Inline<OneofOptions>>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -5119,7 +5167,6 @@ pub const __ONEOF_DESCRIPTOR_PROTO_TEXT_ANY: ::buffa::type_registry::TextAnyEntr
 /// Describes an enum type.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumDescriptorProto {
     /// Field 1: `name`
@@ -5131,6 +5178,7 @@ pub struct EnumDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 2: `value`
     #[cfg_attr(
@@ -5141,6 +5189,7 @@ pub struct EnumDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub value: ::buffa::alloc::vec::Vec<EnumValueDescriptorProto>,
     /// Field 3: `options`
     #[cfg_attr(
@@ -5150,6 +5199,7 @@ pub struct EnumDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<EnumOptions, ::buffa::Inline<EnumOptions>>,
     /// Range of reserved numeric values. Reserved numeric values may not be used
     /// by enum values in the same enum declaration. Reserved ranges may not
@@ -5165,6 +5215,7 @@ pub struct EnumDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub reserved_range: ::buffa::alloc::vec::Vec<
         enum_descriptor_proto::EnumReservedRange,
     >,
@@ -5181,6 +5232,7 @@ pub struct EnumDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub reserved_name: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// Support for `export` and `local` keywords on enums.
     ///
@@ -5193,6 +5245,7 @@ pub struct EnumDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub visibility: ::core::option::Option<SymbolVisibility>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -5575,7 +5628,6 @@ pub mod enum_descriptor_proto {
     /// domain.
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct EnumReservedRange {
         /// Inclusive.
@@ -5589,6 +5641,7 @@ pub mod enum_descriptor_proto {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub start: ::core::option::Option<i32>,
         /// Inclusive.
         ///
@@ -5601,6 +5654,7 @@ pub mod enum_descriptor_proto {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub end: ::core::option::Option<i32>,
         #[cfg_attr(feature = "json", serde(skip))]
         #[doc(hidden)]
@@ -5806,7 +5860,6 @@ pub mod enum_descriptor_proto {
 /// Describes a value within an enum.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumValueDescriptorProto {
     /// Field 1: `name`
@@ -5818,6 +5871,7 @@ pub struct EnumValueDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 2: `number`
     #[cfg_attr(
@@ -5828,6 +5882,7 @@ pub struct EnumValueDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub number: ::core::option::Option<i32>,
     /// Field 3: `options`
     #[cfg_attr(
@@ -5837,6 +5892,7 @@ pub struct EnumValueDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<
         EnumValueOptions,
         ::buffa::Inline<EnumValueOptions>,
@@ -6080,7 +6136,6 @@ pub const __ENUM_VALUE_DESCRIPTOR_PROTO_TEXT_ANY: ::buffa::type_registry::TextAn
 /// Describes a service.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct ServiceDescriptorProto {
     /// Field 1: `name`
@@ -6092,6 +6147,7 @@ pub struct ServiceDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 2: `method`
     #[cfg_attr(
@@ -6102,6 +6158,7 @@ pub struct ServiceDescriptorProto {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub method: ::buffa::alloc::vec::Vec<MethodDescriptorProto>,
     /// Field 3: `options`
     #[cfg_attr(
@@ -6111,6 +6168,7 @@ pub struct ServiceDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<ServiceOptions, ::buffa::Inline<ServiceOptions>>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -6367,7 +6425,6 @@ pub const __SERVICE_DESCRIPTOR_PROTO_TEXT_ANY: ::buffa::type_registry::TextAnyEn
 /// Describes a method of a service.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct MethodDescriptorProto {
     /// Field 1: `name`
@@ -6379,6 +6436,7 @@ pub struct MethodDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     /// Input and output type names.  These are resolved in the same way as
     /// FieldDescriptorProto.type_name, but must refer to a message type.
@@ -6393,6 +6451,7 @@ pub struct MethodDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub input_type: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 3: `output_type`
     #[cfg_attr(
@@ -6404,6 +6463,7 @@ pub struct MethodDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub output_type: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 4: `options`
     #[cfg_attr(
@@ -6413,6 +6473,7 @@ pub struct MethodDescriptorProto {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub options: ::buffa::MessageField<MethodOptions, ::buffa::Inline<MethodOptions>>,
     /// Identifies if client streams multiple client messages
     ///
@@ -6426,6 +6487,7 @@ pub struct MethodDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub client_streaming: ::core::option::Option<bool>,
     /// Identifies if server streams multiple server messages
     ///
@@ -6439,6 +6501,7 @@ pub struct MethodDescriptorProto {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub server_streaming: ::core::option::Option<bool>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -6824,7 +6887,6 @@ pub const __METHOD_DESCRIPTOR_PROTO_TEXT_ANY: ::buffa::type_registry::TextAnyEnt
 ///   to automatically assign option numbers.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FileOptions {
     /// Sets the Java package where classes generated from this .proto will be
@@ -6842,6 +6904,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub java_package: ::core::option::Option<::buffa::alloc::string::String>,
     /// Controls the name of the wrapper Java class generated for the .proto file.
     /// That class will always contain the .proto file's getDescriptor() method as
@@ -6859,6 +6922,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub java_outer_classname: ::core::option::Option<::buffa::alloc::string::String>,
     /// If enabled, then the Java code generator will generate a separate .java
     /// file for each top-level message, enum, and service defined in the .proto
@@ -6877,6 +6941,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub java_multiple_files: ::core::option::Option<bool>,
     /// This option does nothing.
     ///
@@ -6891,6 +6956,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub java_generate_equals_and_hash: ::core::option::Option<bool>,
     /// A proto2 file can set this to true to opt in to UTF-8 checking for Java,
     /// which will throw an exception if invalid UTF-8 is parsed from the wire or
@@ -6913,6 +6979,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub java_string_check_utf8: ::core::option::Option<bool>,
     /// Field 9: `optimize_for`
     #[cfg_attr(
@@ -6924,6 +6991,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub optimize_for: ::core::option::Option<file_options::OptimizeMode>,
     /// Sets the Go package where structs generated from this .proto will be
     /// placed. If omitted, the Go package will be derived from the following:
@@ -6941,6 +7009,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub go_package: ::core::option::Option<::buffa::alloc::string::String>,
     /// Should generic services be generated in each language?  "Generic" services
     /// are not specific to any particular RPC system.  They are generated by the
@@ -6963,6 +7032,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub cc_generic_services: ::core::option::Option<bool>,
     /// Field 17: `java_generic_services`
     #[cfg_attr(
@@ -6974,6 +7044,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub java_generic_services: ::core::option::Option<bool>,
     /// Field 18: `py_generic_services`
     #[cfg_attr(
@@ -6985,6 +7056,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub py_generic_services: ::core::option::Option<bool>,
     /// Is this file deprecated?
     /// Depending on the target platform, this can emit Deprecated annotations
@@ -7000,6 +7072,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// Enables the use of arenas for the proto messages in this file. This applies
     /// only to generated classes for C++.
@@ -7014,6 +7087,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub cc_enable_arenas: ::core::option::Option<bool>,
     /// Sets the objective c class prefix which is prepended to all objective c
     /// generated classes from this .proto. There is no default.
@@ -7028,6 +7102,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub objc_class_prefix: ::core::option::Option<::buffa::alloc::string::String>,
     /// Namespace for generated classes; defaults to the package.
     ///
@@ -7041,6 +7116,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub csharp_namespace: ::core::option::Option<::buffa::alloc::string::String>,
     /// By default Swift generators will take the proto package and CamelCase it
     /// replacing '.' with underscore and use that to prefix the types/symbols
@@ -7057,6 +7133,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub swift_prefix: ::core::option::Option<::buffa::alloc::string::String>,
     /// Sets the php class prefix which is prepended to all php generated classes
     /// from this .proto. Default is empty.
@@ -7071,6 +7148,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub php_class_prefix: ::core::option::Option<::buffa::alloc::string::String>,
     /// Use this option to change the namespace of php generated classes. Default
     /// is empty. When this option is empty, the package name will be used for
@@ -7086,6 +7164,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub php_namespace: ::core::option::Option<::buffa::alloc::string::String>,
     /// Use this option to change the namespace of php generated metadata classes.
     /// Default is empty. When this option is empty, the proto file name will be
@@ -7101,6 +7180,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub php_metadata_namespace: ::core::option::Option<::buffa::alloc::string::String>,
     /// Use this option to change the package of ruby generated classes. Default
     /// is empty. When this option is not set, the package name will be used for
@@ -7116,6 +7196,7 @@ pub struct FileOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub ruby_package: ::core::option::Option<::buffa::alloc::string::String>,
     /// Any features defined in the specific edition.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -7130,6 +7211,7 @@ pub struct FileOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// The parser stores options it doesn't recognize here.
     /// See the documentation for the "Options" section above.
@@ -7144,6 +7226,7 @@ pub struct FileOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -8060,9 +8143,6 @@ impl<'de> ::serde::Deserialize<'de> for FileOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct FileOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<FileOptions, __E> {
@@ -8145,16 +8225,18 @@ impl<'de> ::serde::Deserialize<'de> for FileOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "javaPackage" | "java_package" => {
                             __f_java_package = Some({
                                 struct _S;
@@ -8646,8 +8728,11 @@ impl<'de> ::serde::Deserialize<'de> for FileOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -8826,7 +8911,6 @@ pub mod file_options {
 }
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct MessageOptions {
     /// Set true to use the old proto1 MessageSet wire format for extensions.
@@ -8860,6 +8944,7 @@ pub struct MessageOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub message_set_wire_format: ::core::option::Option<bool>,
     /// Disables the generation of the standard "descriptor()" accessor, which can
     /// conflict with a field of the same name.  This is meant to make migration
@@ -8875,6 +8960,7 @@ pub struct MessageOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub no_standard_descriptor_accessor: ::core::option::Option<bool>,
     /// Is this message deprecated?
     /// Depending on the target platform, this can emit Deprecated annotations
@@ -8890,6 +8976,7 @@ pub struct MessageOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// Whether the message is an automatically generated map entry type for the
     /// maps field.
@@ -8927,6 +9014,7 @@ pub struct MessageOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub map_entry: ::core::option::Option<bool>,
     /// Enable the legacy handling of JSON field name conflicts.  This lowercases
     /// and strips underscored from the fields before comparison in proto3 only.
@@ -8950,6 +9038,7 @@ pub struct MessageOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated_legacy_json_field_conflicts: ::core::option::Option<bool>,
     /// Any features defined in the specific edition.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -8964,6 +9053,7 @@ pub struct MessageOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// The parser stores options it doesn't recognize here. See above.
     ///
@@ -8977,6 +9067,7 @@ pub struct MessageOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -9365,9 +9456,6 @@ impl<'de> ::serde::Deserialize<'de> for MessageOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct MessageOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<MessageOptions, __E> {
@@ -9408,16 +9496,18 @@ impl<'de> ::serde::Deserialize<'de> for MessageOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "messageSetWireFormat" | "message_set_wire_format" => {
                             __f_message_set_wire_format = Some({
                                 struct _S;
@@ -9594,8 +9684,11 @@ impl<'de> ::serde::Deserialize<'de> for MessageOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -9677,7 +9770,6 @@ pub const __MESSAGE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::b
 };
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FieldOptions {
     /// NOTE: ctype is deprecated. Use `features.(pb.cpp).string_type` instead.
@@ -9697,6 +9789,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub ctype: ::core::option::Option<field_options::CType>,
     /// The packed option can be enabled for repeated primitive fields to enable
     /// a more efficient representation on the wire. Rather than repeatedly
@@ -9715,6 +9808,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub packed: ::core::option::Option<bool>,
     /// The jstype option determines the JavaScript type used for values of the
     /// field.  The option is permitted only for 64 bit integral and fixed types
@@ -9737,6 +9831,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub jstype: ::core::option::Option<field_options::JSType>,
     /// Should this field be parsed lazily?  Lazy applies only to message-type
     /// fields.  It means that when the outer message is initially parsed, the
@@ -9770,6 +9865,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub lazy: ::core::option::Option<bool>,
     /// unverified_lazy does no correctness checks on the byte stream. This should
     /// only be used where lazy with verification is prohibitive for performance
@@ -9785,6 +9881,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub unverified_lazy: ::core::option::Option<bool>,
     /// Is this field deprecated?
     /// Depending on the target platform, this can emit Deprecated annotations
@@ -9800,6 +9897,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// DEPRECATED. DO NOT USE!
     /// For Google-internal migration only. Do not use.
@@ -9814,6 +9912,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub weak: ::core::option::Option<bool>,
     /// Indicate that the field value should not be printed out when using debug
     /// formats, e.g. when the field contains sensitive credentials.
@@ -9828,6 +9927,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub debug_redact: ::core::option::Option<bool>,
     /// Field 17: `retention`
     #[cfg_attr(
@@ -9838,6 +9938,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub retention: ::core::option::Option<field_options::OptionRetention>,
     /// Field 19: `targets`
     #[cfg_attr(
@@ -9848,6 +9949,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub targets: ::buffa::alloc::vec::Vec<field_options::OptionTargetType>,
     /// Field 20: `edition_defaults`
     #[cfg_attr(
@@ -9859,6 +9961,7 @@ pub struct FieldOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub edition_defaults: ::buffa::alloc::vec::Vec<field_options::EditionDefault>,
     /// Any features defined in the specific edition.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -9873,6 +9976,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// Field 22: `feature_support`
     #[cfg_attr(
@@ -9883,6 +9987,7 @@ pub struct FieldOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub feature_support: ::buffa::MessageField<
         field_options::FeatureSupport,
         ::buffa::Inline<field_options::FeatureSupport>,
@@ -9899,6 +10004,7 @@ pub struct FieldOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -10591,9 +10697,6 @@ impl<'de> ::serde::Deserialize<'de> for FieldOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct FieldOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<FieldOptions, __E> {
@@ -10654,16 +10757,18 @@ impl<'de> ::serde::Deserialize<'de> for FieldOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "ctype" => {
                             __f_ctype = Some({
                                 struct _S;
@@ -10984,8 +11089,11 @@ impl<'de> ::serde::Deserialize<'de> for FieldOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -11518,7 +11626,6 @@ pub mod field_options {
     }
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct EditionDefault {
         /// Field 3: `edition`
@@ -11530,6 +11637,7 @@ pub mod field_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub edition: ::core::option::Option<super::Edition>,
         /// Textproto value.
         ///
@@ -11542,6 +11650,7 @@ pub mod field_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub value: ::core::option::Option<::buffa::alloc::string::String>,
         #[cfg_attr(feature = "json", serde(skip))]
         #[doc(hidden)]
@@ -11767,7 +11876,6 @@ pub mod field_options {
     /// Information about the support window of a feature.
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct FeatureSupport {
         /// The edition that this feature was first available in.  In editions
@@ -11784,6 +11892,7 @@ pub mod field_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub edition_introduced: ::core::option::Option<super::Edition>,
         /// The edition this feature becomes deprecated in.  Using this after this
         /// edition may trigger warnings.
@@ -11798,6 +11907,7 @@ pub mod field_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub edition_deprecated: ::core::option::Option<super::Edition>,
         /// The deprecation warning text if this feature is used after the edition it
         /// was marked deprecated in.
@@ -11812,6 +11922,7 @@ pub mod field_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub deprecation_warning: ::core::option::Option<::buffa::alloc::string::String>,
         /// The edition this feature is no longer available in.  In editions after
         /// this one, the last default assigned will be used, and proto files will
@@ -11827,6 +11938,7 @@ pub mod field_options {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub edition_removed: ::core::option::Option<super::Edition>,
         #[cfg_attr(feature = "json", serde(skip))]
         #[doc(hidden)]
@@ -12156,7 +12268,6 @@ pub mod field_options {
 }
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct OneofOptions {
     /// Any features defined in the specific edition.
@@ -12172,6 +12283,7 @@ pub struct OneofOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// The parser stores options it doesn't recognize here. See above.
     ///
@@ -12185,6 +12297,7 @@ pub struct OneofOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -12394,9 +12507,6 @@ impl<'de> ::serde::Deserialize<'de> for OneofOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct OneofOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<OneofOptions, __E> {
@@ -12422,16 +12532,18 @@ impl<'de> ::serde::Deserialize<'de> for OneofOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "features" => {
                             __f_features = Some(
                                 map
@@ -12501,8 +12613,11 @@ impl<'de> ::serde::Deserialize<'de> for OneofOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -12584,7 +12699,6 @@ pub const __ONEOF_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buf
 };
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumOptions {
     /// Set this option to true to allow mapping different tag names to the same
@@ -12600,6 +12714,7 @@ pub struct EnumOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub allow_alias: ::core::option::Option<bool>,
     /// Is this enum deprecated?
     /// Depending on the target platform, this can emit Deprecated annotations
@@ -12615,6 +12730,7 @@ pub struct EnumOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// Enable the legacy handling of JSON field name conflicts.  This lowercases
     /// and strips underscored from the fields before comparison in proto3 only.
@@ -12634,6 +12750,7 @@ pub struct EnumOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated_legacy_json_field_conflicts: ::core::option::Option<bool>,
     /// Any features defined in the specific edition.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -12648,6 +12765,7 @@ pub struct EnumOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// The parser stores options it doesn't recognize here. See above.
     ///
@@ -12661,6 +12779,7 @@ pub struct EnumOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -12977,9 +13096,6 @@ impl<'de> ::serde::Deserialize<'de> for EnumOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct EnumOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<EnumOptions, __E> {
@@ -13014,16 +13130,18 @@ impl<'de> ::serde::Deserialize<'de> for EnumOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "allowAlias" | "allow_alias" => {
                             __f_allow_alias = Some({
                                 struct _S;
@@ -13157,8 +13275,11 @@ impl<'de> ::serde::Deserialize<'de> for EnumOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -13240,7 +13361,6 @@ pub const __ENUM_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buff
 };
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumValueOptions {
     /// Is this enum value deprecated?
@@ -13257,6 +13377,7 @@ pub struct EnumValueOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// Any features defined in the specific edition.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -13271,6 +13392,7 @@ pub struct EnumValueOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// Indicate that fields annotated with this enum value should not be printed
     /// out when using debug formats, e.g. when the field contains sensitive
@@ -13286,6 +13408,7 @@ pub struct EnumValueOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub debug_redact: ::core::option::Option<bool>,
     /// Information about the support window of a feature value.
     ///
@@ -13298,6 +13421,7 @@ pub struct EnumValueOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub feature_support: ::buffa::MessageField<
         field_options::FeatureSupport,
         ::buffa::Inline<field_options::FeatureSupport>,
@@ -13314,6 +13438,7 @@ pub struct EnumValueOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -13623,9 +13748,6 @@ impl<'de> ::serde::Deserialize<'de> for EnumValueOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct EnumValueOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<EnumValueOptions, __E> {
@@ -13663,16 +13785,18 @@ impl<'de> ::serde::Deserialize<'de> for EnumValueOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "deprecated" => {
                             __f_deprecated = Some({
                                 struct _S;
@@ -13798,8 +13922,11 @@ impl<'de> ::serde::Deserialize<'de> for EnumValueOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -13881,7 +14008,6 @@ pub const __ENUM_VALUE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = 
 };
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct ServiceOptions {
     /// Any features defined in the specific edition.
@@ -13897,6 +14023,7 @@ pub struct ServiceOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// Note:  Field numbers 1 through 32 are reserved for Google's internal RPC
     ///   framework.  We apologize for hoarding these numbers to ourselves, but
@@ -13917,6 +14044,7 @@ pub struct ServiceOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// The parser stores options it doesn't recognize here. See above.
     ///
@@ -13930,6 +14058,7 @@ pub struct ServiceOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -14172,9 +14301,6 @@ impl<'de> ::serde::Deserialize<'de> for ServiceOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct ServiceOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<ServiceOptions, __E> {
@@ -14203,16 +14329,18 @@ impl<'de> ::serde::Deserialize<'de> for ServiceOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "features" => {
                             __f_features = Some(
                                 map
@@ -14303,8 +14431,11 @@ impl<'de> ::serde::Deserialize<'de> for ServiceOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -14386,7 +14517,6 @@ pub const __SERVICE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::b
 };
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct MethodOptions {
     /// Note:  Field numbers 1 through 32 are reserved for Google's internal RPC
@@ -14408,6 +14538,7 @@ pub struct MethodOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub deprecated: ::core::option::Option<bool>,
     /// Field 34: `idempotency_level`
     #[cfg_attr(
@@ -14419,6 +14550,7 @@ pub struct MethodOptions {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub idempotency_level: ::core::option::Option<method_options::IdempotencyLevel>,
     /// Any features defined in the specific edition.
     /// WARNING: This field should only be used by protobuf plugins or special
@@ -14433,6 +14565,7 @@ pub struct MethodOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub features: ::buffa::MessageField<FeatureSet, ::buffa::Inline<FeatureSet>>,
     /// The parser stores options it doesn't recognize here. See above.
     ///
@@ -14446,6 +14579,7 @@ pub struct MethodOptions {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub uninterpreted_option: ::buffa::alloc::vec::Vec<UninterpretedOption>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -14737,9 +14871,6 @@ impl<'de> ::serde::Deserialize<'de> for MethodOptions {
             ) -> ::core::fmt::Result {
                 f.write_str("struct MethodOptions")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<MethodOptions, __E> {
@@ -14771,16 +14902,18 @@ impl<'de> ::serde::Deserialize<'de> for MethodOptions {
                     ::buffa::alloc::vec::Vec<UninterpretedOption>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "deprecated" => {
                             __f_deprecated = Some({
                                 struct _S;
@@ -14894,8 +15027,11 @@ impl<'de> ::serde::Deserialize<'de> for MethodOptions {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -15081,7 +15217,6 @@ pub mod method_options {
 /// in them.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct UninterpretedOption {
     /// Field 2: `name`
@@ -15093,6 +15228,7 @@ pub struct UninterpretedOption {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::vec::Vec<uninterpreted_option::NamePart>,
     /// The value of the uninterpreted option, in whatever type the tokenizer
     /// identified it as during parsing. Exactly one of these should be set.
@@ -15107,6 +15243,7 @@ pub struct UninterpretedOption {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub identifier_value: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 4: `positive_int_value`
     #[cfg_attr(
@@ -15118,6 +15255,7 @@ pub struct UninterpretedOption {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub positive_int_value: ::core::option::Option<u64>,
     /// Field 5: `negative_int_value`
     #[cfg_attr(
@@ -15129,6 +15267,7 @@ pub struct UninterpretedOption {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub negative_int_value: ::core::option::Option<i64>,
     /// Field 6: `double_value`
     #[cfg_attr(
@@ -15140,6 +15279,7 @@ pub struct UninterpretedOption {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub double_value: ::core::option::Option<f64>,
     /// Field 7: `string_value`
     #[cfg_attr(
@@ -15151,6 +15291,7 @@ pub struct UninterpretedOption {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub string_value: ::core::option::Option<::buffa::alloc::vec::Vec<u8>>,
     /// Field 8: `aggregate_value`
     #[cfg_attr(
@@ -15162,6 +15303,7 @@ pub struct UninterpretedOption {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub aggregate_value: ::core::option::Option<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -15563,7 +15705,6 @@ pub mod uninterpreted_option {
     /// "foo.(bar.baz).moo".
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct NamePart {
         /// Field 1: `name_part`
@@ -15575,6 +15716,7 @@ pub mod uninterpreted_option {
                 with = "::buffa::json_helpers::proto_string"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub name_part: ::buffa::alloc::string::String,
         /// Field 2: `is_extension`
         #[cfg_attr(
@@ -15585,6 +15727,7 @@ pub mod uninterpreted_option {
                 with = "::buffa::json_helpers::proto_bool"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub is_extension: bool,
         #[cfg_attr(feature = "json", serde(skip))]
         #[doc(hidden)]
@@ -15766,7 +15909,6 @@ pub mod uninterpreted_option {
 /// conflict here.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FeatureSet {
     /// Field 1: `field_presence`
@@ -15779,6 +15921,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub field_presence: ::core::option::Option<feature_set::FieldPresence>,
     /// Field 2: `enum_type`
     #[cfg_attr(
@@ -15790,6 +15933,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub enum_type: ::core::option::Option<feature_set::EnumType>,
     /// Field 3: `repeated_field_encoding`
     #[cfg_attr(
@@ -15801,6 +15945,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub repeated_field_encoding: ::core::option::Option<
         feature_set::RepeatedFieldEncoding,
     >,
@@ -15814,6 +15959,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub utf8_validation: ::core::option::Option<feature_set::Utf8Validation>,
     /// Field 5: `message_encoding`
     #[cfg_attr(
@@ -15825,6 +15971,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub message_encoding: ::core::option::Option<feature_set::MessageEncoding>,
     /// Field 6: `json_format`
     #[cfg_attr(
@@ -15836,6 +15983,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub json_format: ::core::option::Option<feature_set::JsonFormat>,
     /// Field 7: `enforce_naming_style`
     #[cfg_attr(
@@ -15847,6 +15995,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub enforce_naming_style: ::core::option::Option<feature_set::EnforceNamingStyle>,
     /// Field 8: `default_symbol_visibility`
     #[cfg_attr(
@@ -15858,6 +16007,7 @@ pub struct FeatureSet {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub default_symbol_visibility: ::core::option::Option<
         feature_set::visibility_feature::DefaultSymbolVisibility,
     >,
@@ -16371,9 +16521,6 @@ impl<'de> ::serde::Deserialize<'de> for FeatureSet {
             ) -> ::core::fmt::Result {
                 f.write_str("struct FeatureSet")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<FeatureSet, __E> {
@@ -16419,16 +16566,18 @@ impl<'de> ::serde::Deserialize<'de> for FeatureSet {
                     >,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "fieldPresence" | "field_presence" => {
                             __f_field_presence = Some({
                                 struct _S;
@@ -16647,8 +16796,11 @@ impl<'de> ::serde::Deserialize<'de> for FeatureSet {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -17374,7 +17526,6 @@ pub mod feature_set {
     }
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct VisibilityFeature {
         #[cfg_attr(feature = "json", serde(skip))]
@@ -17650,7 +17801,6 @@ pub mod feature_set {
 /// for the closest matching edition, followed by proto merges.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FeatureSetDefaults {
     /// Field 1: `defaults`
@@ -17662,6 +17812,7 @@ pub struct FeatureSetDefaults {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub defaults: ::buffa::alloc::vec::Vec<
         feature_set_defaults::FeatureSetEditionDefault,
     >,
@@ -17678,6 +17829,7 @@ pub struct FeatureSetDefaults {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub minimum_edition: ::core::option::Option<Edition>,
     /// The maximum known edition (inclusive) when this was constructed. Editions
     /// after this will not have reliable defaults.
@@ -17692,6 +17844,7 @@ pub struct FeatureSetDefaults {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub maximum_edition: ::core::option::Option<Edition>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -17974,7 +18127,6 @@ pub mod feature_set_defaults {
     /// be used.  This field must be in strict ascending order by edition.
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct FeatureSetEditionDefault {
         /// Field 3: `edition`
@@ -17986,6 +18138,7 @@ pub mod feature_set_defaults {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub edition: ::core::option::Option<super::Edition>,
         /// Defaults of features that can be overridden in this edition.
         ///
@@ -17998,6 +18151,7 @@ pub mod feature_set_defaults {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub overridable_features: ::buffa::MessageField<
             super::FeatureSet,
             ::buffa::Inline<super::FeatureSet>,
@@ -18013,6 +18167,7 @@ pub mod feature_set_defaults {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub fixed_features: ::buffa::MessageField<
             super::FeatureSet,
             ::buffa::Inline<super::FeatureSet>,
@@ -18297,7 +18452,6 @@ pub mod feature_set_defaults {
 /// FileDescriptorProto was generated.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct SourceCodeInfo {
     /// A Location identifies a piece of source code in a .proto file which
@@ -18355,6 +18509,7 @@ pub struct SourceCodeInfo {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub location: ::buffa::alloc::vec::Vec<source_code_info::Location>,
     #[cfg_attr(feature = "json", serde(flatten))]
     #[doc(hidden)]
@@ -18528,9 +18683,6 @@ impl<'de> ::serde::Deserialize<'de> for SourceCodeInfo {
             ) -> ::core::fmt::Result {
                 f.write_str("struct SourceCodeInfo")
             }
-            ::buffa::json_helpers::reject_other_json_kinds!(
-                bool, i64, u64, i128, u128, f64, str, bytes
-            );
             fn visit_none<__E: ::serde::de::Error>(
                 self,
             ) -> ::core::result::Result<SourceCodeInfo, __E> {
@@ -18553,16 +18705,18 @@ impl<'de> ::serde::Deserialize<'de> for SourceCodeInfo {
                     ::buffa::alloc::vec::Vec<source_code_info::Location>,
                 > = None;
                 let mut __ext_records: ::buffa::alloc::vec::Vec<::buffa::UnknownField> = ::buffa::alloc::vec::Vec::new();
-                while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
+                while let ::core::option::Option::Some(key) = map
+                    .next_key::<::buffa::alloc::string::String>()?
+                {
+                    if key.as_str() == ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY {
+                        return ::core::result::Result::Err(
+                            <__A::Error as ::serde::de::Error>::invalid_type(
+                                ::serde::de::Unexpected::Other("number"),
+                                &self,
+                            ),
+                        );
+                    }
                     match key.as_str() {
-                        ::buffa::json_helpers::SERDE_JSON_NUMBER_KEY => {
-                            return ::core::result::Result::Err(
-                                <__A::Error as ::serde::de::Error>::invalid_type(
-                                    ::serde::de::Unexpected::Other("number"),
-                                    &self,
-                                ),
-                            );
-                        }
                         "location" => {
                             __f_location = Some({
                                 struct _S;
@@ -18620,8 +18774,11 @@ impl<'de> ::serde::Deserialize<'de> for SourceCodeInfo {
                 for __rec in __ext_records {
                     __r.__buffa_unknown_fields.push(__rec);
                 }
-                Ok(__r)
+                ::core::result::Result::Ok(__r)
             }
+            ::buffa::json_helpers::reject_other_json_kinds!(
+                bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
+            );
         }
         if d.is_human_readable() { d.deserialize_any(_V) } else { d.deserialize_map(_V) }
     }
@@ -18706,7 +18863,6 @@ pub mod source_code_info {
     use super::*;
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct Location {
         /// Identifies which part of the FileDescriptorProto was defined at this
@@ -18744,6 +18900,7 @@ pub mod source_code_info {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub path: ::buffa::alloc::vec::Vec<i32>,
         /// Always has exactly three or four elements: start line, start column,
         /// end line (optional, otherwise assumed same as start line), end column.
@@ -18760,6 +18917,7 @@ pub mod source_code_info {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub span: ::buffa::alloc::vec::Vec<i32>,
         /// If this SourceCodeInfo represents a complete declaration, these are any
         /// comments appearing before and after the declaration which appear to be
@@ -18823,6 +18981,7 @@ pub mod source_code_info {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub leading_comments: ::core::option::Option<::buffa::alloc::string::String>,
         /// Field 4: `trailing_comments`
         #[cfg_attr(
@@ -18834,6 +18993,7 @@ pub mod source_code_info {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub trailing_comments: ::core::option::Option<::buffa::alloc::string::String>,
         /// Field 6: `leading_detached_comments`
         #[cfg_attr(
@@ -18845,6 +19005,7 @@ pub mod source_code_info {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub leading_detached_comments: ::buffa::alloc::vec::Vec<
             ::buffa::alloc::string::String,
         >,
@@ -19247,7 +19408,6 @@ pub mod source_code_info {
 /// source file, but may contain references to different source .proto files.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct GeneratedCodeInfo {
     /// An Annotation connects some span of text in generated code to an element
@@ -19262,6 +19422,7 @@ pub struct GeneratedCodeInfo {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub annotation: ::buffa::alloc::vec::Vec<generated_code_info::Annotation>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -19446,7 +19607,6 @@ pub mod generated_code_info {
     use super::*;
     #[derive(Clone, PartialEq, Default)]
     #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-    #[cfg_attr(feature = "json", serde(default))]
     #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
     pub struct Annotation {
         /// Identifies the element in the original source .proto file. This field
@@ -19461,6 +19621,7 @@ pub mod generated_code_info {
                 skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub path: ::buffa::alloc::vec::Vec<i32>,
         /// Identifies the filesystem path to the original source .proto.
         ///
@@ -19474,6 +19635,7 @@ pub mod generated_code_info {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub source_file: ::core::option::Option<::buffa::alloc::string::String>,
         /// Identifies the starting offset in bytes in the generated code
         /// that relates to the identified object.
@@ -19487,6 +19649,7 @@ pub mod generated_code_info {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub begin: ::core::option::Option<i32>,
         /// Identifies the ending offset in bytes in the generated code that
         /// relates to the identified object. The end offset should be one past
@@ -19501,6 +19664,7 @@ pub mod generated_code_info {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub end: ::core::option::Option<i32>,
         /// Field 5: `semantic`
         #[cfg_attr(
@@ -19511,6 +19675,7 @@ pub mod generated_code_info {
                 skip_serializing_if = "::core::option::Option::is_none"
             )
         )]
+        #[cfg_attr(feature = "json", serde(default))]
         pub semantic: ::core::option::Option<
             super::generated_code_info::annotation::Semantic,
         >,

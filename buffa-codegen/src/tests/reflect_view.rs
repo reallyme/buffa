@@ -284,3 +284,78 @@ fn bridge_mode_enums_get_element_impl() {
         );
     }
 }
+
+#[test]
+fn guarded_enums_get_inspect_element_impl_regardless_of_openness() {
+    // Borrowed inspection follows the `ReflectElement` rule: a generation that
+    // reaches an open enum through `extern_path` may type it bare in a guarded
+    // list or map, and only the owning crate can provide the impl.
+    let mut config = vtable_config();
+    config.generate_zeroize = true;
+    config.preserve_unknown_fields = false;
+    let files = generate(
+        &[editions_enum_override_file()],
+        &["ed_enum.proto".to_string()],
+        &config,
+    )
+    .expect("should generate");
+    let content = joined(&files);
+    for name in ["Closed", "Open"] {
+        assert!(
+            content.contains(&format!(
+                "impl ::buffa_descriptor::reflect::InspectElement for {name}"
+            )),
+            "cleanup generation must emit InspectElement for enum {name}: {content}"
+        );
+    }
+
+    // The trait needs `buffa-descriptor`'s `zeroize` feature, so a generation
+    // that selects no cleanup does not emit it.
+    let plain = joined(
+        &generate(
+            &[editions_enum_override_file()],
+            &["ed_enum.proto".to_string()],
+            &vtable_config(),
+        )
+        .expect("should generate"),
+    );
+    assert!(!plain.contains("InspectElement"), "{plain}");
+
+    // Any `zeroize_in` rule selects cleanup for the generation, even one that
+    // names a message rather than the enum.
+    let mut selected = vtable_config();
+    selected.zeroize_messages = vec![".ed.Holder".into()];
+    selected.preserve_unknown_fields = false;
+    let selected = joined(
+        &generate(
+            &[editions_enum_override_file()],
+            &["ed_enum.proto".to_string()],
+            &selected,
+        )
+        .expect("should generate"),
+    );
+    for name in ["Closed", "Open"] {
+        assert!(
+            selected.contains(&format!(
+                "impl ::buffa_descriptor::reflect::InspectElement for {name}"
+            )),
+            "a zeroize_in generation must emit InspectElement for enum {name}: {selected}"
+        );
+    }
+
+    // Without reflection there is no inspection surface to support.
+    let unreflected = CodeGenConfig {
+        generate_zeroize: true,
+        preserve_unknown_fields: false,
+        ..Default::default()
+    };
+    let unreflected = joined(
+        &generate(
+            &[editions_enum_override_file()],
+            &["ed_enum.proto".to_string()],
+            &unreflected,
+        )
+        .expect("should generate"),
+    );
+    assert!(!unreflected.contains("InspectElement"), "{unreflected}");
+}

@@ -128,7 +128,7 @@ fn custom_list_path_accepts_projections_and_parentheses() {
         "((<crate::A as crate::B>::List<*>))",
     ] {
         let got = parse_custom_list_path(template, &quote! { u32 }).unwrap();
-        let expected: syn::Type = syn::parse_str(&template.replace('*', "u32")).unwrap();
+        let expected = crate::context::normalized_rust_type(&template.replace('*', "u32")).unwrap();
         assert_eq!(got.to_string(), quote! { #expected }.to_string());
     }
 }

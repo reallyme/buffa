@@ -346,7 +346,6 @@ impl ::buffa_descriptor::reflect::ReflectElement for NativeBorrowedSourceKind {
 /// Settings for the code generated from one `.proto` file.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FileOptions {
     /// Native adapters are emitted only when the generator explicitly enables
@@ -360,6 +359,7 @@ pub struct FileOptions {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub adapters: ::buffa::MessageField<NativeAdapters, ::buffa::Inline<NativeAdapters>>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -633,7 +633,6 @@ pub const __FILE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buff
 /// Settings for the code generated from one message.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct MessageOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -865,7 +864,6 @@ pub const __MESSAGE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::b
 /// Settings for the code generated from one field.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct FieldOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -1097,7 +1095,6 @@ pub const __FIELD_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buf
 /// Settings for the code generated from one oneof.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct OneofOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -1329,7 +1326,6 @@ pub const __ONEOF_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buf
 /// Settings for the code generated from one enum.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -1561,7 +1557,6 @@ pub const __ENUM_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::buff
 /// Settings for the code generated from one enum value.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct EnumValueOptions {
     #[cfg_attr(feature = "json", serde(skip))]
@@ -1793,7 +1788,6 @@ pub const __ENUM_VALUE_OPTIONS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = 
 /// Explicit native API declarations; read only with adapters=true.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeAdapters {
     /// Field 1: `version`
@@ -1801,6 +1795,7 @@ pub struct NativeAdapters {
         feature = "json",
         serde(rename = "version", with = "::buffa::json_helpers::uint32")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub version: u32,
     /// Field 2: `selectors`
     #[cfg_attr(
@@ -1811,6 +1806,7 @@ pub struct NativeAdapters {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub selectors: ::buffa::alloc::vec::Vec<NativeClosedSelector>,
     /// Field 3: `payloads`
     #[cfg_attr(
@@ -1821,6 +1817,7 @@ pub struct NativeAdapters {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub payloads: ::buffa::alloc::vec::Vec<NativePayloadSelector>,
     /// Field 4: `borrowed`
     #[cfg_attr(
@@ -1831,6 +1828,7 @@ pub struct NativeAdapters {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub borrowed: ::buffa::alloc::vec::Vec<NativeBorrowedAdapter>,
     /// Field 5: `ports`
     #[cfg_attr(
@@ -1841,6 +1839,7 @@ pub struct NativeAdapters {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub ports: ::buffa::alloc::vec::Vec<NativeCapabilityPort>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -2274,7 +2273,6 @@ pub const __NATIVE_ADAPTERS_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::b
 /// Fixed domain error construction. Both members are plain Rust paths.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeErrorMapping {
     /// Field 1: `rust_type`
@@ -2286,12 +2284,14 @@ pub struct NativeErrorMapping {
             with = "::buffa::json_helpers::proto_string"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub rust_type: ::buffa::alloc::string::String,
     /// Field 2: `value`
     #[cfg_attr(
         feature = "json",
         serde(rename = "value", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub value: ::buffa::alloc::string::String,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -2557,7 +2557,6 @@ pub const __NATIVE_ERROR_MAPPING_TEXT_ANY: ::buffa::type_registry::TextAnyEntry 
 /// Descriptor identity and an existing generated wire enum.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeWireEnum {
     /// Field 1: `source`
@@ -2565,6 +2564,7 @@ pub struct NativeWireEnum {
         feature = "json",
         serde(rename = "source", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::buffa::alloc::string::String,
     /// Field 2: `rust_type`
     #[cfg_attr(
@@ -2575,6 +2575,7 @@ pub struct NativeWireEnum {
             with = "::buffa::json_helpers::proto_string"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub rust_type: ::buffa::alloc::string::String,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -2840,7 +2841,6 @@ pub const __NATIVE_WIRE_ENUM_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::
 /// A canonical nonzero descriptor case, with optional external registration.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeSelectorVariant {
     /// Field 1: `source`
@@ -2848,12 +2848,14 @@ pub struct NativeSelectorVariant {
         feature = "json",
         serde(rename = "source", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::buffa::alloc::string::String,
     /// Field 2: `name`
     #[cfg_attr(
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 3: `aliases`
     #[cfg_attr(
@@ -2864,6 +2866,7 @@ pub struct NativeSelectorVariant {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub aliases: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// Field 4: `identifier`
     #[cfg_attr(
@@ -2874,6 +2877,7 @@ pub struct NativeSelectorVariant {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub identifier: ::core::option::Option<i64>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -3209,7 +3213,6 @@ pub const __NATIVE_SELECTOR_VARIANT_TEXT_ANY: ::buffa::type_registry::TextAnyEnt
 /// Explicit compatibility normalization, never inferred from names.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeNormalization {
     /// Field 1: `source`
@@ -3217,12 +3220,14 @@ pub struct NativeNormalization {
         feature = "json",
         serde(rename = "source", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::buffa::alloc::string::String,
     /// Field 2: `target`
     #[cfg_attr(
         feature = "json",
         serde(rename = "target", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub target: ::buffa::alloc::string::String,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -3488,11 +3493,11 @@ pub const __NATIVE_NORMALIZATION_TEXT_ANY: ::buffa::type_registry::TextAnyEntry 
 /// Additional checked input enum; reverse conversion stays canonical.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeLegacySelector {
     /// Field 1: `wire`
     #[cfg_attr(feature = "json", serde(rename = "wire"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub wire: ::buffa::MessageField<NativeWireEnum, ::buffa::Inline<NativeWireEnum>>,
     /// Field 2: `normalizations`
     #[cfg_attr(
@@ -3503,6 +3508,7 @@ pub struct NativeLegacySelector {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub normalizations: ::buffa::alloc::vec::Vec<NativeNormalization>,
     /// Field 3: `rejected`
     #[cfg_attr(
@@ -3513,6 +3519,7 @@ pub struct NativeLegacySelector {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub rejected: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -3863,7 +3870,6 @@ pub const __NATIVE_LEGACY_SELECTOR_TEXT_ANY: ::buffa::type_registry::TextAnyEntr
 /// Closed native enum with exhaustive metadata coverage.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeClosedSelector {
     /// Field 1: `file`
@@ -3871,18 +3877,22 @@ pub struct NativeClosedSelector {
         feature = "json",
         serde(rename = "file", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub file: ::buffa::alloc::string::String,
     /// Field 2: `name`
     #[cfg_attr(
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 3: `wire`
     #[cfg_attr(feature = "json", serde(rename = "wire"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub wire: ::buffa::MessageField<NativeWireEnum, ::buffa::Inline<NativeWireEnum>>,
     /// Field 4: `error`
     #[cfg_attr(feature = "json", serde(rename = "error"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub error: ::buffa::MessageField<
         NativeErrorMapping,
         ::buffa::Inline<NativeErrorMapping>,
@@ -3897,6 +3907,7 @@ pub struct NativeClosedSelector {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub non_exhaustive: ::core::option::Option<bool>,
     /// Field 6: `variants`
     #[cfg_attr(
@@ -3907,6 +3918,7 @@ pub struct NativeClosedSelector {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub variants: ::buffa::alloc::vec::Vec<NativeSelectorVariant>,
     /// Field 7: `normalizations`
     #[cfg_attr(
@@ -3917,6 +3929,7 @@ pub struct NativeClosedSelector {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub normalizations: ::buffa::alloc::vec::Vec<NativeNormalization>,
     /// Field 8: `rejected`
     #[cfg_attr(
@@ -3927,6 +3940,7 @@ pub struct NativeClosedSelector {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub rejected: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// Field 9: `legacy`
     #[cfg_attr(
@@ -3937,6 +3951,7 @@ pub struct NativeClosedSelector {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub legacy: ::buffa::alloc::vec::Vec<NativeLegacySelector>,
     /// Field 10: `identifier_error`
     #[cfg_attr(
@@ -3947,6 +3962,7 @@ pub struct NativeClosedSelector {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_unset_message_field"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub identifier_error: ::buffa::MessageField<
         NativeErrorMapping,
         ::buffa::Inline<NativeErrorMapping>,
@@ -4547,7 +4563,6 @@ pub const __NATIVE_CLOSED_SELECTOR_TEXT_ANY: ::buffa::type_registry::TextAnyEntr
 /// Schema field path through singular messages.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeFieldSource {
     /// Field 1: `message`
@@ -4555,6 +4570,7 @@ pub struct NativeFieldSource {
         feature = "json",
         serde(rename = "message", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub message: ::buffa::alloc::string::String,
     /// Field 2: `path`
     #[cfg_attr(
@@ -4565,6 +4581,7 @@ pub struct NativeFieldSource {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub path: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -4846,7 +4863,6 @@ pub const __NATIVE_FIELD_SOURCE_TEXT_ANY: ::buffa::type_registry::TextAnyEntry =
 /// BYTES forbids them and always means a borrowed byte slice.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativePayloadType {
     /// Field 1: `kind`
@@ -4854,6 +4870,7 @@ pub struct NativePayloadType {
         feature = "json",
         serde(rename = "kind", with = "::buffa::json_helpers::closed_enum")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub kind: NativePayloadTypeKind,
     /// Field 2: `source`
     #[cfg_attr(
@@ -4864,6 +4881,7 @@ pub struct NativePayloadType {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 3: `rust_type`
     #[cfg_attr(
@@ -4875,6 +4893,7 @@ pub struct NativePayloadType {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub rust_type: ::core::option::Option<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -5233,7 +5252,6 @@ pub const __NATIVE_PAYLOAD_TYPE_TEXT_ANY: ::buffa::type_registry::TextAnyEntry =
 /// One declared payload field.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativePayloadField {
     /// Field 1: `name`
@@ -5241,15 +5259,18 @@ pub struct NativePayloadField {
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 2: `source`
     #[cfg_attr(feature = "json", serde(rename = "source"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::buffa::MessageField<
         NativeFieldSource,
         ::buffa::Inline<NativeFieldSource>,
     >,
     /// Field 3: `representation`
     #[cfg_attr(feature = "json", serde(rename = "representation"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub representation: ::buffa::MessageField<
         NativePayloadType,
         ::buffa::Inline<NativePayloadType>,
@@ -5587,7 +5608,6 @@ pub const __NATIVE_PAYLOAD_FIELD_TEXT_ANY: ::buffa::type_registry::TextAnyEntry 
 /// field, STRUCT has named fields, PORT has only port, UNIT has neither.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativePayload {
     /// Field 1: `kind`
@@ -5595,6 +5615,7 @@ pub struct NativePayload {
         feature = "json",
         serde(rename = "kind", with = "::buffa::json_helpers::closed_enum")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub kind: NativePayloadKind,
     /// Field 2: `fields`
     #[cfg_attr(
@@ -5605,6 +5626,7 @@ pub struct NativePayload {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub fields: ::buffa::alloc::vec::Vec<NativePayloadField>,
     /// Field 3: `port`
     #[cfg_attr(
@@ -5615,6 +5637,7 @@ pub struct NativePayload {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub port: ::core::option::Option<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -5974,7 +5997,6 @@ pub const __NATIVE_PAYLOAD_TEXT_ANY: ::buffa::type_registry::TextAnyEntry = ::bu
 /// A native case covering canonical descriptor cases exactly once.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativePayloadVariant {
     /// Field 1: `name`
@@ -5982,6 +6004,7 @@ pub struct NativePayloadVariant {
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 2: `cases`
     #[cfg_attr(
@@ -5992,9 +6015,11 @@ pub struct NativePayloadVariant {
             skip_serializing_if = "::buffa::json_helpers::skip_if::is_empty_vec"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub cases: ::buffa::alloc::vec::Vec<::buffa::alloc::string::String>,
     /// Field 3: `payload`
     #[cfg_attr(feature = "json", serde(rename = "payload"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub payload: ::buffa::MessageField<NativePayload, ::buffa::Inline<NativePayload>>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -6315,7 +6340,6 @@ pub const __NATIVE_PAYLOAD_VARIANT_TEXT_ANY: ::buffa::type_registry::TextAnyEntr
 /// Copy enum with a validated payload.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativePayloadSelector {
     /// Field 1: `file`
@@ -6323,18 +6347,21 @@ pub struct NativePayloadSelector {
         feature = "json",
         serde(rename = "file", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub file: ::buffa::alloc::string::String,
     /// Field 2: `name`
     #[cfg_attr(
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 3: `source`
     #[cfg_attr(
         feature = "json",
         serde(rename = "source", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::buffa::alloc::string::String,
     /// Field 4: `variants`
     #[cfg_attr(
@@ -6345,6 +6372,7 @@ pub struct NativePayloadSelector {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub variants: ::buffa::alloc::vec::Vec<NativePayloadVariant>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -6672,7 +6700,6 @@ pub const __NATIVE_PAYLOAD_SELECTOR_TEXT_ANY: ::buffa::type_registry::TextAnyEnt
 /// ENUM uses source; ONEOF uses message and name. Extra members are rejected.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeBorrowedSource {
     /// Field 1: `kind`
@@ -6680,6 +6707,7 @@ pub struct NativeBorrowedSource {
         feature = "json",
         serde(rename = "kind", with = "::buffa::json_helpers::closed_enum")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub kind: NativeBorrowedSourceKind,
     /// Field 2: `source`
     #[cfg_attr(
@@ -6690,6 +6718,7 @@ pub struct NativeBorrowedSource {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 3: `message`
     #[cfg_attr(
@@ -6700,6 +6729,7 @@ pub struct NativeBorrowedSource {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub message: ::core::option::Option<::buffa::alloc::string::String>,
     /// Field 4: `name`
     #[cfg_attr(
@@ -6710,6 +6740,7 @@ pub struct NativeBorrowedSource {
             skip_serializing_if = "::core::option::Option::is_none"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::core::option::Option<::buffa::alloc::string::String>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -7110,7 +7141,6 @@ pub const __NATIVE_BORROWED_SOURCE_TEXT_ANY: ::buffa::type_registry::TextAnyEntr
 /// Borrowed API enum without wire, owning cleanup or diagnostic impls.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeBorrowedAdapter {
     /// Field 1: `file`
@@ -7118,15 +7148,18 @@ pub struct NativeBorrowedAdapter {
         feature = "json",
         serde(rename = "file", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub file: ::buffa::alloc::string::String,
     /// Field 2: `name`
     #[cfg_attr(
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 3: `source`
     #[cfg_attr(feature = "json", serde(rename = "source"))]
+    #[cfg_attr(feature = "json", serde(default))]
     pub source: ::buffa::MessageField<
         NativeBorrowedSource,
         ::buffa::Inline<NativeBorrowedSource>,
@@ -7140,6 +7173,7 @@ pub struct NativeBorrowedAdapter {
             deserialize_with = "::buffa::json_helpers::null_as_default"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub variants: ::buffa::alloc::vec::Vec<NativePayloadVariant>,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]
@@ -7491,7 +7525,6 @@ pub const __NATIVE_BORROWED_ADAPTER_TEXT_ANY: ::buffa::type_registry::TextAnyEnt
 /// Declared process-local object-safe capability. Never a wire field.
 #[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "json", derive(::serde::Serialize, ::serde::Deserialize))]
-#[cfg_attr(feature = "json", serde(default))]
 #[cfg_attr(feature = "arbitrary", derive(::arbitrary::Arbitrary))]
 pub struct NativeCapabilityPort {
     /// Field 1: `name`
@@ -7499,6 +7532,7 @@ pub struct NativeCapabilityPort {
         feature = "json",
         serde(rename = "name", with = "::buffa::json_helpers::proto_string")
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub name: ::buffa::alloc::string::String,
     /// Field 2: `rust_trait`
     #[cfg_attr(
@@ -7509,6 +7543,7 @@ pub struct NativeCapabilityPort {
             with = "::buffa::json_helpers::proto_string"
         )
     )]
+    #[cfg_attr(feature = "json", serde(default))]
     pub rust_trait: ::buffa::alloc::string::String,
     #[cfg_attr(feature = "json", serde(skip))]
     #[doc(hidden)]

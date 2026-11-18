@@ -195,3 +195,51 @@ JSON input needs its own size and recursion limits.
 Binding and spelling validation also runs with JSON disabled. Valid policy
 configuration then warns that its JSON behavior is inactive; invalid bindings
 remain errors. Intentional same-name types must each supply and list a policy.
+
+## Generate recursive cleanup
+
+The opt-in `generate_zeroize(true)` and `zeroize_in(&[".pkg.Private"])`
+settings generate recursive `Zeroize`, `ZeroizeOnDrop` and `Drop` for selected
+messages, oneofs and view-owned slots. Defaults remain unchanged. Select every
+containing message too; ordinary containers of guarded descendants are rejected.
+
+Enable `buffa/zeroize` and, for reflection, `buffa-descriptor/zeroize`. Disable
+unknown-field storage for selected messages. Strings and bytes require custom
+`Zeroize + ZeroizeOnDrop` owners, plus `json_policy_type` when JSON is generated.
+Repeated and map fields use wipe-owning collections; explicit ordinary
+`Vec`, `HashMap` and `BTreeMap` overrides fail closed, including prefix rules.
+Imported messages must own cleanup too. Invalid or unsupported configurations
+return typed generation errors rather than silently weakening the contract.
+
+JSON, text, view conversion and arbitrary construction fill dropping owners
+directly instead of staging ordinary growable collections. JSON honors supported
+caller defaults and input skip attributes; unsupported policies fail generation.
+Borrowed inspection reads live owners without making dynamic snapshots.
+
+Selected messages and containers have no standard owned-view wrapper or
+`HasMessageView` implementation. Their ordinary `Bytes` owner would retain an
+unwiped encoding. Borrowed views remain available with caller-owned wire storage;
+a separate guarded wire-owner contribution supplies an owning alternative.
+`borrowed_views_only_in` can also select this generation policy explicitly.
+
+`deny_view_json` rejects export of selected eager/lazy views and all containing
+views before output. It leaves owned-message JSON available. This is not a
+confidentiality boundary for binary/text encoding or explicitly copying data.
+Borrowed parser buffers and application copies remain the caller's responsibility.
+
+The runtime and fixtures retain Rust 1.75 support with the upstream-compatible
+zeroize dependency line; fork compiler and dependency policies are not required.
+
+Custom collection aliases, associated types, newtypes and other opaque
+representations are trusted integration boundaries. Codegen can reject a
+syntactically explicit ordinary container, but cannot prove an opaque owner's
+allocation behavior. `Zeroize + ZeroizeOnDrop` alone does not establish cleanup
+of allocations released during growth, replacement or removal. In particular,
+an alias to an ordinary `Vec` of guarded children does not satisfy that storage
+contract. Use the built-in `sensitive::List`/`Map` defaults, or independently
+establish the complete lifecycle behavior of a custom owner.
+
+Cleanup JSON visitors require a self-describing Serde deserializer supporting
+`deserialize_any`; binary formats such as bincode and postcard cannot decode
+through these JSON implementations. This does not change protobuf binary
+encoding or text format support.

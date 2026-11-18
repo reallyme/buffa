@@ -430,8 +430,18 @@ pub fn generate_message_impl(
     for kind in per_field {
         match kind {
             FieldKind::Scalar(f) => {
-                compute_stmts.push(scalar_compute_size_stmt(ctx, f, features)?);
-                write_stmts.push(scalar_write_to_stmt(ctx, f, features)?);
+                compute_stmts.push(scalar_compute_size_stmt(
+                    ctx,
+                    f,
+                    features,
+                    ctx.zeroizes_message(proto_fqn),
+                )?);
+                write_stmts.push(scalar_write_to_stmt(
+                    ctx,
+                    f,
+                    features,
+                    ctx.zeroizes_message(proto_fqn),
+                )?);
                 merge_arms.push(scalar_merge_arm(
                     ctx,
                     f,
@@ -587,6 +597,11 @@ pub fn generate_message_impl(
         }
     };
 
+    let sensitive_clear = if ctx.zeroizes_message(proto_fqn) {
+        quote! { ::buffa::sensitive::Zeroize::zeroize(self); }
+    } else {
+        quote! {}
+    };
     let unknown_fields_clear_stmt = if preserve_unknown_fields {
         quote! { self.__buffa_unknown_fields.clear(); }
     } else {
@@ -644,7 +659,7 @@ pub fn generate_message_impl(
         .is_some_and(|o| o.map_entry.unwrap_or(false));
     let reflectable_impl = if ctx.config.generate_reflection && !is_map_entry {
         let gate = ctx.config.feature_gates().reflect;
-        if ctx.config.generate_reflection_vtable {
+        if ctx.config.generate_reflection_vtable || ctx.zeroizes_message(proto_fqn) {
             let buffa_path = quote! { __buffa };
             let owned = crate::reflect_owned::reflect_owned_impls(
                 &crate::reflect_owned::OwnedReflectScope {
@@ -660,7 +675,11 @@ pub fn generate_message_impl(
                     nesting,
                 },
             )?;
-            let reflect_body = crate::reflect::reflectable_impl_vtable(&quote! { #name_ident });
+            let reflect_body = if ctx.zeroizes_message(proto_fqn) {
+                quote! {}
+            } else {
+                crate::reflect::reflectable_impl_vtable(&quote! { #name_ident })
+            };
             // Multiple sibling impls (ReflectMessage, ReflectElement, the memo
             // inherent impl, Reflectable) — gate them together with one cfg.
             crate::feature_gates::cfg_const_block(quote! { #owned #reflect_body }, gate)
@@ -730,6 +749,7 @@ pub fn generate_message_impl(
                 }
 
                 fn clear(&mut self) {
+                    #sensitive_clear
                     #(#clear_stmts)*
                     #unknown_fields_clear_stmt
                 }
@@ -801,6 +821,7 @@ pub(crate) fn build_view_encode_methods(
     msg: &DescriptorProto,
     preserve_unknown_fields: bool,
     features: &ResolvedFeatures,
+    cleanup: bool,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
     view_oneof_prefix: &TokenStream,
     is_lazy: Option<&dyn Fn(&FieldDescriptorProto) -> bool>,
@@ -830,8 +851,8 @@ pub(crate) fn build_view_encode_methods(
                 write_stmts.push(write);
             }
             FieldKind::Scalar(f) => {
-                compute_stmts.push(scalar_compute_size_stmt(ctx, f, features)?);
-                write_stmts.push(scalar_write_to_stmt(ctx, f, features)?);
+                compute_stmts.push(scalar_compute_size_stmt(ctx, f, features, cleanup)?);
+                write_stmts.push(scalar_write_to_stmt(ctx, f, features, cleanup)?);
             }
             FieldKind::Repeated(f) => {
                 // The view's repeated fields are always borrowed `RepeatedView`s,
@@ -1587,6 +1608,7 @@ fn scalar_compute_size_stmt(
     ctx: &CodeGenContext,
     field: &FieldDescriptorProto,
     features: &ResolvedFeatures,
+    cleanup: bool,
 ) -> Result<TokenStream, CodeGenError> {
     let field_name = field
         .name
@@ -1604,19 +1626,26 @@ fn scalar_compute_size_stmt(
     // Explicit-presence field (proto3 `optional` or proto2 `optional`): encoded as
     // Option<T>; always encode when Some regardless of the field value.
     if is_explicit_presence_scalar(field, ty, features) {
+        // Cleanup adds constructors in the consumer's module; its binary
+        // codec must use the same unambiguous Option path as its setters.
+        let some = if cleanup {
+            quote! { ::core::option::Option::Some }
+        } else {
+            quote! { Some }
+        };
         return match ty {
             Type::TYPE_STRING => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     size += #tag_len + ::buffa::types::string_encoded_len(v) as u64;
                 }
             }),
             Type::TYPE_BYTES => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     size += #tag_len + ::buffa::types::bytes_encoded_len(v) as u64;
                 }
             }),
             Type::TYPE_ENUM => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     size += #tag_len + ::buffa::types::int32_encoded_len(v.to_i32()) as u64;
                 }
             }),
@@ -1643,7 +1672,7 @@ fn scalar_compute_size_stmt(
                     })
                 } else {
                     Ok(quote! {
-                        if let Some(v) = self.#ident {
+                        if let #some(v) = self.#ident {
                             size += #tag_len + #size_expr;
                         }
                     })
@@ -1742,6 +1771,7 @@ fn scalar_write_to_stmt(
     ctx: &CodeGenContext,
     field: &FieldDescriptorProto,
     features: &ResolvedFeatures,
+    cleanup: bool,
 ) -> Result<TokenStream, CodeGenError> {
     let field_name = field
         .name
@@ -1754,26 +1784,31 @@ fn scalar_write_to_stmt(
 
     // Explicit-presence field: encoded as Option<T>; always encode when Some.
     if is_explicit_presence_scalar(field, ty, features) {
+        let some = if cleanup {
+            quote! { ::core::option::Option::Some }
+        } else {
+            quote! { Some }
+        };
         return match ty {
             Type::TYPE_STRING => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     ::buffa::types::put_string_field(#field_number, v, buf);
                 }
             }),
             Type::TYPE_BYTES => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     ::buffa::types::put_shared_bytes_field(#field_number, v, buf);
                 }
             }),
             Type::TYPE_ENUM => Ok(quote! {
-                if let Some(ref v) = self.#ident {
+                if let #some(ref v) = self.#ident {
                     ::buffa::types::put_int32_field(#field_number, v.to_i32(), buf);
                 }
             }),
             _ => {
                 let put_fn = put_field_fn_token(ty);
                 Ok(quote! {
-                    if let Some(v) = self.#ident {
+                    if let #some(v) = self.#ident {
                         #put_fn(#field_number, v, buf);
                     }
                 })
@@ -2405,7 +2440,7 @@ fn repeated_merge_arm(
     let list_use = if repr.is_default() {
         quote! {}
     } else {
-        quote! { use ::buffa::ProtoList as _; }
+        quote! { #[allow(unused_imports)] use ::buffa::ProtoList as _; }
     };
 
     if ty == Type::TYPE_MESSAGE {

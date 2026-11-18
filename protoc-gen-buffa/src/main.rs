@@ -54,6 +54,17 @@ Additionally or instead, adapter_manifest=path reads a bounded typed JSON
 manifest; with a manifest, files without adapter options are allowed.
 Native adapter files are included explicitly by their API owner.
 
+To reject JSON serialization of a message's views and containing views while
+keeping owned-message JSON, use deny_view_json (repeatable; '.' selects all):
+  --buffa_opt=json=true,deny_view_json=.my.pkg.Private
+
+For recursive owned/view cleanup, use zeroize=true or zeroize_in (repeatable;
+'.' selects all). Selected messages and their containers get no owned-view
+wrapper or HasMessageView. Guarded fields and buffa's zeroize feature are required:
+  --buffa_opt=unknown_fields=false,zeroize_in=.my.pkg.Private
+Unmatched cleanup/export selectors are errors unless scoped generation
+explicitly enables allow_unmatched_message_rules=true.
+
 To skip a package pulled in by include_imports (e.g. an option-only
 import that is never referenced as a field), use exclude_package:
   --buffa_opt=exclude_package=.buf.validate,exclude_package=.gnostic
@@ -253,6 +264,14 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
                 }
                 codegen.json_policy_types.push(rust_type.to_string());
             }
+            "zeroize" => codegen.generate_zeroize = parse_bool("zeroize", value)?,
+            "allow_unmatched_message_rules" => {
+                codegen.allow_unmatched_message_rules =
+                    parse_bool("allow_unmatched_message_rules", value)?;
+            }
+            "custom_type_impls" => {
+                codegen.emit_custom_type_impls = parse_bool("custom_type_impls", value)?;
+            }
             "json" => codegen.generate_json = parse_bool("json", value)?,
             // Reject unknown JSON keys instead of ignoring them. Without
             // `json=true` it changes nothing and codegen warns.
@@ -275,17 +294,21 @@ fn parse_config(params: &str) -> Result<PluginConfig, String> {
             // Same path grammar as `unknown_fields_in`. The option takes a
             // path where its unsuffixed siblings take a boolean, so a boolean
             // is rejected instead of becoming the rule `.true`.
-            "skip_debug" => {
+            key @ ("borrowed_views_only_in" | "deny_view_json" | "skip_debug" | "zeroize_in") => {
                 let path = value.trim();
                 if matches!(path, "true" | "false") {
                     return Err(format!(
-                        "skip_debug takes a proto path, not '{path}'; \
-                         use 'skip_debug=.' to match every message"
+                        "{key} takes a proto path, not '{path}'; \
+                         use '{key}=.' to match every message"
                     ));
                 }
-                codegen
-                    .skip_debug
-                    .push(normalize_proto_path(path, "skip_debug")?);
+                let path = normalize_proto_path(path, key)?;
+                match key {
+                    "borrowed_views_only_in" => codegen.borrowed_views_only_in.push(path),
+                    "deny_view_json" => codegen.deny_view_json.push(path),
+                    "zeroize_in" => codegen.zeroize_messages.push(path),
+                    _ => codegen.skip_debug.push(path),
+                }
             }
             "text" => codegen.generate_text = parse_bool("text", value)?,
             "arbitrary" => codegen.generate_arbitrary = parse_bool("arbitrary", value)?,
@@ -742,6 +765,20 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_options_are_explicit_and_normalized() {
+        let config =
+            parse_config("zeroize=true,zeroize_in= example.Private. ,zeroize_in=.").unwrap();
+        assert!(config.codegen.generate_zeroize);
+        assert_eq!(config.codegen.zeroize_messages, [".example.Private", "."]);
+        assert!(parse_err("zeroize=perhaps").contains("zeroize"));
+        assert!(parse_err("zeroize_in=").contains("zeroize_in"));
+        let config =
+            parse_config("custom_type_impls=false,allow_unmatched_message_rules=true").unwrap();
+        assert!(!config.codegen.emit_custom_type_impls);
+        assert!(config.codegen.allow_unmatched_message_rules);
+        assert!(parse_err("custom_type_impls=perhaps").contains("custom_type_impls"));
+    }
+    #[test]
     fn custom_type_rules_are_repeatable_and_normalized() {
         let config = parse_config(
             "bytes_type_custom_in=demo.Request.key=crate::SecretBytes,\
@@ -907,6 +944,30 @@ mod tests {
         assert!(parse_config("skip_debug=").is_err());
         let err = parse_err("skip_debug=true");
         assert!(err.contains("takes a proto path"), "{err}");
+    }
+
+    #[test]
+    fn borrowed_only_view_rules_normalize_and_accumulate() {
+        let config =
+            parse_config("borrowed_views_only_in=demo.Private,borrowed_views_only_in=.").unwrap();
+        assert_eq!(
+            config.codegen.borrowed_views_only_in,
+            [".demo.Private", "."]
+        );
+        assert!(parse_config("borrowed_views_only_in=").is_err());
+    }
+
+    #[test]
+    fn deny_view_json_is_repeatable_and_normalized() {
+        let config =
+            parse_config("deny_view_json=demo.Private,deny_view_json=.demo.Other.").unwrap();
+        assert_eq!(
+            config.codegen.deny_view_json,
+            [".demo.Private", ".demo.Other"]
+        );
+        assert!(parse_err("deny_view_json=").contains("deny_view_json"));
+        assert!(parse_err("deny_view_json=true").contains("takes a proto path"));
+        assert!(parse_err("zeroize_in=false").contains("takes a proto path"));
     }
 
     #[test]

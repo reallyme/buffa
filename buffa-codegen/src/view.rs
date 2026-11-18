@@ -216,6 +216,7 @@ pub(crate) fn generate_view_with_nesting(
         msg,
         preserve_unknown_fields,
         features,
+        ctx.zeroizes_message(proto_fqn),
         &oneof_idents,
         &view_oneof_prefix,
         None,
@@ -263,28 +264,29 @@ pub(crate) fn generate_view_with_nesting(
         .options
         .as_option()
         .is_some_and(|o| o.map_entry.unwrap_or(false));
-    let reflect_view_impls =
-        if ctx.config.generate_reflection && ctx.config.generate_reflection_vtable && !is_map_entry
-        {
-            // `reflect_view_impls` emits three sibling items (the ReflectMessage
-            // impl, the ReflectElement impl, and an inherent impl for the
-            // memoized index). `cfg_const_block` wraps them in a single
-            // `#[cfg] const _` so one gate covers all three; a bare `cfg_block`
-            // would gate only the first and leak the rest.
-            crate::feature_gates::cfg_const_block(
-                crate::reflect_view::reflect_view_impls(
-                    view_scope,
-                    msg,
-                    &view_ident,
-                    view_depth,
-                    &view_oneof_prefix,
-                    &oneof_idents,
-                )?,
-                ctx.config.feature_gates().reflect,
-            )
-        } else {
-            quote! {}
-        };
+    let reflect_view_impls = if ctx.config.generate_reflection
+        && (ctx.config.generate_reflection_vtable || ctx.zeroizes_message(proto_fqn))
+        && !is_map_entry
+    {
+        // `reflect_view_impls` emits three sibling items (the ReflectMessage
+        // impl, the ReflectElement impl, and an inherent impl for the
+        // memoized index). `cfg_const_block` wraps them in a single
+        // `#[cfg] const _` so one gate covers all three; a bare `cfg_block`
+        // would gate only the first and leak the rest.
+        crate::feature_gates::cfg_const_block(
+            crate::reflect_view::reflect_view_impls(
+                view_scope,
+                msg,
+                &view_ident,
+                view_depth,
+                &view_oneof_prefix,
+                &oneof_idents,
+            )?,
+            ctx.config.feature_gates().reflect,
+        )
+    } else {
+        quote! {}
+    };
 
     // When preserving unknowns the trait loop's `before_tag` is consumed by
     // the unknown-field arm; otherwise bind it as `_before_tag`.
@@ -337,8 +339,9 @@ pub(crate) fn generate_view_with_nesting(
         crate::comments::doc_attrs_resolved(ctx.comment(proto_fqn), proto_fqn, &ctx.type_map);
 
     // `FooOwnedView`: a `'static` OwnedView handle with per-field accessors.
-    // Skipped for map-entry synthetic messages (never decoded standalone).
-    let owned_view_wrapper = if is_map_entry {
+    // Omit the wrapper and its HasMessageView route for borrowed-only types.
+    // Synthetic map entries are also never decoded standalone.
+    let owned_view_wrapper = if is_map_entry || ctx.borrowed_views_only(proto_fqn) {
         quote! {}
     } else {
         crate::owned_view::generate_owned_view_wrapper(
@@ -354,15 +357,17 @@ pub(crate) fn generate_view_with_nesting(
 
     // Matched views keep the required Debug impl without inspecting any field
     // or formatting stored wire data, which may include unknown fields.
-    // Other views use a field-by-field formatter for `[debug_redact = true]`.
-    // Unaffected views keep their derive. View oneofs redact their own payload.
+    // Other views use a field-by-field formatter when the cleanup profile
+    // or `[debug_redact = true]` requires redaction. Unaffected views keep
+    // their derive. View-oneof enums handle their own payload redaction.
     // Like the owned message's Debug impl, the manual impl lists proto fields
     // only — `__buffa_unknown_fields` is deliberately excluded because unknown
     // fields can carry redacted data from a newer schema version.
     let custom_default_impl =
         custom_view_default_impl(view_scope, msg, &view_ident, has_phantom_field)?;
     let has_custom_default_impl = custom_default_impl.is_some();
-    let any_redacted = view_fields.iter().any(|(_, _, redacted)| *redacted);
+    let any_redacted =
+        ctx.zeroizes_message(proto_fqn) || view_fields.iter().any(|(_, _, redacted)| *redacted);
     let redacted_derive = if has_custom_default_impl {
         quote! { #[derive(Clone)] }
     } else {
@@ -390,7 +395,11 @@ pub(crate) fn generate_view_with_nesting(
         }
         for (_, ident) in &oneof_view_fields {
             debug_field_names.push(ident.to_string().trim_start_matches("r#").to_string());
-            debug_field_values.push(quote! { &self.#ident });
+            debug_field_values.push(if ctx.zeroizes_message(proto_fqn) {
+                quote! { &::core::format_args!(#placeholder) }
+            } else {
+                quote! { &self.#ident }
+            });
         }
         (
             redacted_derive,
@@ -414,6 +423,8 @@ pub(crate) fn generate_view_with_nesting(
     // Scoped #[allow(non_snake_case)] for non-snake member names (verbatim
     // camelCase protos or collision fallbacks); empty otherwise.
     let non_snake_attr = ctx.message_non_snake_attr(msg);
+    let cleanup_impl = crate::sensitive::view_impl(view_scope, msg, &view_ident, false)?;
+    let owned_body = crate::sensitive::owned_from_view(ctx, proto_fqn, &owned_path, &owned_fields);
     let top_level = quote! {
         #view_doc
         #view_debug_derive
@@ -427,6 +438,7 @@ pub(crate) fn generate_view_with_nesting(
         }
 
         #view_debug_impl
+        #cleanup_impl
 
         #custom_default_impl
 
@@ -492,7 +504,7 @@ pub(crate) fn generate_view_with_nesting(
             // useless_conversion: __buffa_unknown_fields uses `.into()` to
             // unify the `UnknownFields` (no-wrapper) and `__<Name>ExtJson`
             // (generate_json wrapper) cases; no-op in the former.
-            #[allow(clippy::useless_conversion, clippy::needless_update)]
+            #[allow(clippy::useless_conversion, clippy::needless_update, clippy::field_reassign_with_default)]
             fn to_owned_from_source(
                 &self,
                 __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -500,10 +512,7 @@ pub(crate) fn generate_view_with_nesting(
                 #[allow(unused_imports)]
                 use ::buffa::alloc::string::ToString as _;
                 let _ = __buffa_src;
-                ::core::result::Result::Ok(#owned_path {
-                    #(#owned_fields)*
-                    ..::core::default::Default::default()
-                })
+                #owned_body
             }
         }
 
@@ -737,7 +746,7 @@ fn view_struct_field(
         return Ok(Some((
             tokens,
             ident,
-            crate::message::is_debug_redacted(field),
+            crate::message::is_debug_redacted(field) || ctx.zeroizes_message(proto_fqn),
         )));
     }
 
@@ -765,7 +774,11 @@ fn view_struct_field(
     let self_fqn = format!(".{proto_fqn}");
     let struct_ty = if field.type_name.as_deref() == Some(self_fqn.as_str()) {
         if is_repeated {
-            quote! { ::buffa::RepeatedView<'a, Self> }
+            if ctx.zeroizes_message(proto_fqn) {
+                quote! { ::buffa::sensitive::RepeatedView<'a, Self> }
+            } else {
+                quote! { ::buffa::RepeatedView<'a, Self> }
+            }
         } else {
             quote! { ::buffa::MessageFieldView<Self> }
         }
@@ -782,7 +795,7 @@ fn view_struct_field(
     Ok(Some((
         tokens,
         ident,
-        crate::message::is_debug_redacted(field),
+        crate::message::is_debug_redacted(field) || ctx.zeroizes_message(proto_fqn),
     )))
 }
 
@@ -854,24 +867,29 @@ pub(crate) fn view_repeated_type(
     } = scope;
     let features = &crate::features::resolve_field(ctx, field, parent_features);
     let ty = effective_type(ctx, field, features);
+    let container = if ctx.zeroizes_message(scope.proto_fqn) {
+        quote! {::buffa::sensitive::RepeatedView}
+    } else {
+        quote! {::buffa::RepeatedView}
+    };
     match ty {
-        Type::TYPE_STRING => Ok(quote! { ::buffa::RepeatedView<#lt, &#lt str> }),
-        Type::TYPE_BYTES => Ok(quote! { ::buffa::RepeatedView<#lt, &#lt [u8]> }),
+        Type::TYPE_STRING => Ok(quote! { #container<#lt, &#lt str> }),
+        Type::TYPE_BYTES => Ok(quote! { #container<#lt, &#lt [u8]> }),
         Type::TYPE_MESSAGE | Type::TYPE_GROUP => {
             let view_ty = resolve_view_ty_tokens(scope, field, lt)?;
-            Ok(quote! { ::buffa::RepeatedView<#lt, #view_ty> })
+            Ok(quote! { #container<#lt, #view_ty> })
         }
         Type::TYPE_ENUM => {
             let et = resolve_enum_ty(scope, field)?;
             if is_closed_enum(features) {
-                Ok(quote! { ::buffa::RepeatedView<#lt, #et> })
+                Ok(quote! { #container<#lt, #et> })
             } else {
-                Ok(quote! { ::buffa::RepeatedView<#lt, ::buffa::EnumValue<#et>> })
+                Ok(quote! { #container<#lt, ::buffa::EnumValue<#et>> })
             }
         }
         _ => {
             let st = scalar_ty(ty);
-            Ok(quote! { ::buffa::RepeatedView<#lt, #st> })
+            Ok(quote! { #container<#lt, #st> })
         }
     }
 }
@@ -913,7 +931,11 @@ pub(crate) fn view_map_type(
         ty => scalar_ty(ty),
     };
 
-    Ok(quote! { ::buffa::MapView<#lt, #key_ty, #val_ty> })
+    if ctx.zeroizes_message(scope.proto_fqn) {
+        Ok(quote! { ::buffa::sensitive::MapView<#lt,#key_ty,#val_ty> })
+    } else {
+        Ok(quote! { ::buffa::MapView<#lt,#key_ty,#val_ty> })
+    }
 }
 
 /// Does the oneof's view enum need a `'a` lifetime parameter?
@@ -1082,7 +1104,12 @@ fn generate_oneof_view_enum(
     _oneof: &OneofDescriptorProto,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
 ) -> Result<TokenStream, CodeGenError> {
-    let MessageScope { ctx, features, .. } = scope;
+    let MessageScope {
+        ctx,
+        features,
+        proto_fqn,
+        ..
+    } = scope;
     let base_ident = match oneof_idents.get(&idx) {
         Some(id) => id,
         None => return Ok(TokenStream::new()),
@@ -1147,7 +1174,8 @@ fn generate_oneof_view_enum(
     // Variants whose field is `[debug_redact = true]` print a placeholder
     // instead of their payload (same rule as the owned oneof enum).
     let any_redacted = fields.iter().any(|f| crate::message::is_debug_redacted(f));
-    let (debug_derive, debug_impl) = if ctx.skip_debug(scope.proto_fqn) {
+    let (debug_derive, debug_impl) = if ctx.zeroizes_message(proto_fqn) || ctx.skip_debug(proto_fqn)
+    {
         (
             quote! { #[derive(Clone)] },
             fully_redacted_debug(base_ident, &generics),
@@ -1193,7 +1221,9 @@ fn generate_oneof_view_enum(
         (quote! { #[derive(Clone, Debug)] }, quote! {})
     };
 
+    let cleanup_impl = crate::sensitive::view_oneof_impl(scope, &fields, base_ident, &generics)?;
     Ok(quote! {
+        #cleanup_impl
         #debug_derive
         pub enum #base_ident #generics {
             #(#variants,)*
@@ -1482,6 +1512,11 @@ pub(crate) fn scalar_decode_arm(
         ..
     } = scope;
     let preserve_unknown_fields = scope.preserve_unknown_fields();
+    let some = if ctx.zeroizes_message(scope.proto_fqn) {
+        quote! { ::core::option::Option::Some }
+    } else {
+        quote! { Some }
+    };
     let features = &crate::features::resolve_field(ctx, field, parent_features);
     let field_name = field
         .name
@@ -1497,28 +1532,28 @@ pub(crate) fn scalar_decode_arm(
     if is_explicit_presence_scalar(field, ty, features) {
         let assign = match ty {
             Type::TYPE_STRING => {
-                quote! { view.#ident = Some(::buffa::types::borrow_str(&mut cur)?); }
+                quote! { view.#ident = #some(::buffa::types::borrow_str(&mut cur)?); }
             }
             Type::TYPE_BYTES => {
-                quote! { view.#ident = Some(::buffa::types::borrow_bytes(&mut cur)?); }
+                quote! { view.#ident = #some(::buffa::types::borrow_bytes(&mut cur)?); }
             }
             Type::TYPE_ENUM => {
                 if is_closed_enum(features) {
                     let unknown_route = closed_enum_view_unknown_route(preserve_unknown_fields);
                     closed_enum_decode_with_unknown(
                         &quote! { &mut cur },
-                        quote! { view.#ident = Some(__v); },
+                        quote! { view.#ident = #some(__v); },
                         unknown_route,
                     )
                 } else {
                     quote! {
-                        view.#ident = Some(::buffa::EnumValue::from(::buffa::types::decode_int32(&mut cur)?));
+                        view.#ident = #some(::buffa::EnumValue::from(::buffa::types::decode_int32(&mut cur)?));
                     }
                 }
             }
             _ => {
                 let dfn = decode_fn_token(ty);
-                quote! { view.#ident = Some(#dfn(&mut cur)?); }
+                quote! { view.#ident = #some(#dfn(&mut cur)?); }
             }
         };
         return Ok(quote! { #field_number => { #wire_check #assign } });
@@ -1552,7 +1587,7 @@ pub(crate) fn scalar_decode_arm(
                 // Proto merge semantics: if this field appeared before,
                 // merge the new bytes into the existing view.
                 match view.#ident.as_mut() {
-                    Some(existing) => {
+                    #some(existing) => {
                         ::buffa::MessageView::merge_into_view(existing, sub, __sub_ctx)?
                     }
                     None => view.#ident = ::buffa::MessageFieldView::set(
@@ -1567,7 +1602,7 @@ pub(crate) fn scalar_decode_arm(
                 let __sub_ctx = ctx.descend()?;
                 let sub = ::buffa::types::borrow_group(&mut cur, #field_number, __sub_ctx.depth())?;
                 match view.#ident.as_mut() {
-                    Some(existing) => {
+                    #some(existing) => {
                         ::buffa::MessageView::merge_into_view(existing, sub, __sub_ctx)?
                     }
                     None => view.#ident = ::buffa::MessageFieldView::set(
@@ -1743,7 +1778,13 @@ pub(crate) fn repeated_decode_arm(
     // Fixed-width and plain-varint payloads decode in one bulk call
     // (validation, exact reserve, and the element loop live inside the
     // extender); enums keep the per-element loop for unknown-value routing.
-    let packed_body = if let Some(extend_fn) = extend_packed_fn_token(ty) {
+    let packed_body = if ctx.zeroizes_message(scope.proto_fqn) {
+        quote! {
+            #reserve_stmt
+            let mut pcur: &[u8] = payload;
+            while !pcur.is_empty() { #packed_elem }
+        }
+    } else if let Some(extend_fn) = extend_packed_fn_token(ty) {
         quote! { #extend_fn(payload, view.#ident.as_mut_vec())?; }
     } else if let Some(extend_fn) = extend_packed_varint_fn_token(ty) {
         // The exact-count reserve policy this path had with the loop.
@@ -1817,17 +1858,65 @@ pub(crate) fn map_decode_arm(
     let val_features = crate::features::resolve_field(ctx, val_fd, features);
     let val_is_closed_enum = effective_type_in_map_entry(ctx, val_fd, features) == Type::TYPE_ENUM
         && is_closed_enum(&val_features);
+    let val_type = if val_is_closed_enum {
+        let ty = resolve_enum_ty(scope, val_fd)?;
+        quote! { : #ty }
+    } else {
+        quote! {}
+    };
     let closed_enum_hooks = val_is_closed_enum.then(|| {
         (
             quote! { __entry_unknown = false; },
-            quote! { ctx.check_unknown_field()?; __entry_unknown = true; },
+            quote! {ctx.check_unknown_field()?; __entry_unknown = true; },
         )
     });
-    let decode_key = map_view_entry_decode(scope, key_fd, &format_ident!("key"), None)?;
-    let decode_val =
-        map_view_entry_decode(scope, val_fd, &format_ident!("val"), closed_enum_hooks)?;
-
-    let push = quote! { view.#ident.push(key, val); };
+    let guarded = ctx.zeroizes_message(scope.proto_fqn);
+    let key_slot = if guarded {
+        quote! {*key}
+    } else {
+        quote! {key}
+    };
+    let val_slot = if guarded {
+        quote! {*val}
+    } else {
+        quote! {val}
+    };
+    let decode_key = map_view_entry_decode(scope, key_fd, &key_slot, None)?;
+    let decode_val = map_view_entry_decode(scope, val_fd, &val_slot, closed_enum_hooks)?;
+    let slot_mut = if guarded {
+        quote! {}
+    } else {
+        quote! {mut}
+    };
+    let guard_init = if guarded {
+        let key_erase = if matches!(
+            effective_type_in_map_entry(ctx, key_fd, features),
+            Type::TYPE_STRING | Type::TYPE_BYTES
+        ) {
+            quote! { |_|{} }
+        } else {
+            quote! {::buffa::sensitive::Zeroize::zeroize}
+        };
+        let val_erase = if matches!(
+            effective_type_in_map_entry(ctx, val_fd, features),
+            Type::TYPE_STRING | Type::TYPE_BYTES
+        ) {
+            quote! { |_|{} }
+        } else {
+            quote! {::buffa::sensitive::Zeroize::zeroize}
+        };
+        quote! {
+            let mut key=::buffa::sensitive::Slot::new(key,#key_erase);
+            let mut val=::buffa::sensitive::Slot::new(val,#val_erase);
+        }
+    } else {
+        quote! {}
+    };
+    let push = if guarded {
+        quote! {view.#ident.push(key.into_inner(),val.into_inner());}
+    } else {
+        quote! { view.#ident.push(key, val); }
+    };
     let (entry_unknown_decl, entry_finish) = if val_is_closed_enum {
         let finish = if preserve_unknown_fields {
             quote! {
@@ -1851,12 +1940,13 @@ pub(crate) fn map_decode_arm(
             #ld_check
             let entry_bytes = ::buffa::types::borrow_bytes(&mut cur)?;
             let mut entry_cur: &'a [u8] = entry_bytes;
-            let mut key = #key_default;
-            let mut val = #val_default;
+            let #slot_mut key = #key_default;
+            let #slot_mut val #val_type = #val_default;
             ctx.register_element_memory(
                 ::buffa::__private::element_footprint(&key)
                     + ::buffa::__private::element_footprint(&val),
             )?;
+            #guard_init
             #entry_unknown_decl
             while !entry_cur.is_empty() {
                 let entry_tag = ::buffa::encoding::Tag::decode(&mut entry_cur)?;
@@ -1878,7 +1968,7 @@ pub(crate) fn map_decode_arm(
 fn map_view_entry_decode(
     scope: MessageScope<'_>,
     fd: &FieldDescriptorProto,
-    var: &proc_macro2::Ident,
+    var: &TokenStream,
     closed_enum_hooks: Option<(TokenStream, TokenStream)>,
 ) -> Result<TokenStream, CodeGenError> {
     let MessageScope {
@@ -1939,6 +2029,11 @@ pub(crate) fn oneof_decode_arms(
 ) -> Result<Vec<TokenStream>, CodeGenError> {
     let MessageScope { ctx, features, .. } = scope;
     let preserve_unknown_fields = scope.preserve_unknown_fields();
+    let some = if ctx.zeroizes_message(scope.proto_fqn) {
+        quote! { ::core::option::Option::Some }
+    } else {
+        quote! { Some }
+    };
     let field_ident = ctx.oneof_ident(oneof_name);
     let view_enum: TokenStream = quote! { #view_oneof_prefix #base_ident };
 
@@ -1970,14 +2065,14 @@ pub(crate) fn oneof_decode_arms(
                             #wire_check
                             let __sub_ctx = ctx.descend()?;
                             let sub = ::buffa::types::borrow_bytes(&mut cur)?;
-                            if let Some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
+                            if let #some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
                                 ::buffa::MessageView::merge_into_view(
                                     &mut **existing,
                                     sub,
                                     __sub_ctx,
                                 )?;
                             } else {
-                                view.#field_ident = Some(#view_enum::#variant(
+                                view.#field_ident = #some(#view_enum::#variant(
                                     ::buffa::alloc::boxed::Box::new(
                                         <#vt as ::buffa::MessageView>::decode_view_ctx(sub, __sub_ctx)?
                                     )
@@ -1993,14 +2088,14 @@ pub(crate) fn oneof_decode_arms(
                             #wire_check
                             let __sub_ctx = ctx.descend()?;
                             let sub = ::buffa::types::borrow_group(&mut cur, #field_number, __sub_ctx.depth())?;
-                            if let Some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
+                            if let #some(#view_enum::#variant(ref mut existing)) = view.#field_ident {
                                 ::buffa::MessageView::merge_into_view(
                                     &mut **existing,
                                     sub,
                                     __sub_ctx,
                                 )?;
                             } else {
-                                view.#field_ident = Some(#view_enum::#variant(
+                                view.#field_ident = #some(#view_enum::#variant(
                                     ::buffa::alloc::boxed::Box::new(
                                         <#vt as ::buffa::MessageView>::decode_view_ctx(sub, __sub_ctx)?
                                     )
@@ -2015,7 +2110,7 @@ pub(crate) fn oneof_decode_arms(
                             closed_enum_view_unknown_route(preserve_unknown_fields);
                         let decode = closed_enum_decode_with_unknown(
                             &quote! { &mut cur },
-                            quote! { view.#field_ident = Some(#view_enum::#variant(__v)); },
+                            quote! { view.#field_ident = #some(#view_enum::#variant(__v)); },
                             unknown_route,
                         );
                         return Ok(quote! {
@@ -2036,7 +2131,7 @@ pub(crate) fn oneof_decode_arms(
             Ok(quote! {
                 #field_number => {
                     #wire_check
-                    view.#field_ident = Some(#view_enum::#variant(#value));
+                    view.#field_ident = #some(#view_enum::#variant(#value));
                 }
             })
         })
@@ -2053,7 +2148,7 @@ fn build_to_owned_fields(
     view_oneof_prefix: &TokenStream,
     owned_oneof_prefix: &TokenStream,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
-) -> Result<Vec<TokenStream>, CodeGenError> {
+) -> Result<Vec<(proc_macro2::Ident, TokenStream)>, CodeGenError> {
     let MessageScope { ctx, features, .. } = scope;
     let preserve_unknown_fields = scope.preserve_unknown_fields();
     let mut out = Vec::new();
@@ -2071,7 +2166,7 @@ fn build_to_owned_fields(
         let is_repeated = field.label.unwrap_or_default() == Label::LABEL_REPEATED;
         if is_repeated && is_map_field(msg, field) {
             let expr = map_to_owned_expr(scope, msg, field, &ident)?;
-            out.push(quote! { #ident: #expr, });
+            out.push((ident, expr));
             continue;
         }
         let ty = effective_type(ctx, field, features);
@@ -2080,7 +2175,7 @@ fn build_to_owned_fields(
         } else {
             singular_to_owned(scope, field, ty, &ident, name)?
         };
-        out.push(quote! { #ident: #init, });
+        out.push((ident, init));
     }
 
     // Oneof groups.
@@ -2130,18 +2225,24 @@ fn build_to_owned_fields(
             t == Type::TYPE_MESSAGE || t == Type::TYPE_GROUP
         });
         if has_fallible_variant {
-            out.push(quote! {
-                #field_ident: match self.#field_ident.as_ref() {
-                    ::core::option::Option::Some(v) => {
-                        ::core::option::Option::Some(match v { #(#match_arms)* })
+            out.push((
+                field_ident.clone(),
+                quote! {
+                    match self.#field_ident.as_ref() {
+                        ::core::option::Option::Some(v) => {
+                            ::core::option::Option::Some(match v { #(#match_arms)* })
+                        }
+                        ::core::option::Option::None => ::core::option::Option::None,
                     }
-                    ::core::option::Option::None => ::core::option::Option::None,
                 },
-            });
+            ));
         } else {
-            out.push(quote! {
-                #field_ident: self.#field_ident.as_ref().map(|v| match v { #(#match_arms)* }),
-            });
+            out.push((
+                field_ident.clone(),
+                quote! {
+                    self.#field_ident.as_ref().map(|v| match v { #(#match_arms)* })
+                },
+            ));
         }
     }
 
@@ -2152,9 +2253,11 @@ fn build_to_owned_fields(
     // Errors (e.g. the unknown-field limit during re-materialization)
     // propagate instead of silently dropping the fields.
     if preserve_unknown_fields {
-        out.push(quote! {
-            __buffa_unknown_fields: self.__buffa_unknown_fields.to_owned()?.into(),
-        });
+        out.push((
+            quote::format_ident!("__buffa_unknown_fields"),
+            quote! { self.__buffa_unknown_fields.to_owned()?.into()
+            },
+        ));
     }
 
     Ok(out)
@@ -2301,6 +2404,14 @@ pub(crate) fn map_to_owned_expr(
     // value to the configured owned type, matching the owned-side map type. The
     // view always yields `&str`, so custom types use their copying constructor.
     let key_string_repr = map_string_repr(ctx, key_ty, proto_fqn, field_name);
+    let owned_key_type = match (key_ty, &key_string_repr) {
+        (Type::TYPE_STRING, crate::StringRepr::Custom(path)) => {
+            crate::parse_custom_type_path(path)?
+        }
+        (Type::TYPE_STRING, _) => quote! {::buffa::alloc::string::String},
+        (Type::TYPE_BYTES, _) => quote! {::buffa::alloc::vec::Vec<u8>},
+        _ => scalar_ty(key_ty),
+    };
     let key_conv = match key_ty {
         Type::TYPE_STRING => match key_string_repr {
             crate::StringRepr::String => quote! { k.to_string() },
@@ -2341,6 +2452,15 @@ pub(crate) fn map_to_owned_expr(
     // Message values convert fallibly; collect through Result so the `?`
     // inside the closure has a Result-typed closure return to operate on.
     if val_ty == Type::TYPE_MESSAGE {
+        if ctx.zeroizes_message(proto_fqn) {
+            return Ok(quote! {
+                self.#ident.iter().map(|(k,v)| {
+                    let key: ::buffa::sensitive::Slot<#owned_key_type>=::buffa::sensitive::Slot::new(#key_conv,::buffa::sensitive::Zeroize::zeroize);
+                    let value=#val_conv;
+                    ::core::result::Result::<_,::buffa::DecodeError>::Ok((key.into_inner(),value))
+                }).collect::<::core::result::Result<_,::buffa::DecodeError>>()?
+            });
+        }
         return Ok(quote! {
             self.#ident
                 .iter()
@@ -2405,6 +2525,9 @@ fn generate_view_serialize(
     view_oneof_prefix: &TokenStream,
     oneof_idents: &std::collections::HashMap<usize, proc_macro2::Ident>,
 ) -> Result<TokenStream, CodeGenError> {
+    if scope.ctx.denies_view_json(scope.proto_fqn) {
+        return Ok(crate::json_policy::denied_view_serialize(view_ident));
+    }
     let mut stmts: Vec<TokenStream> = Vec::new();
 
     for field in &msg.field {
@@ -2616,15 +2739,20 @@ pub(crate) fn view_field_serialize_stmt(
             val_raw,
             Type::TYPE_STRING | Type::TYPE_BYTES | Type::TYPE_MESSAGE
         );
+        let container = if ctx.zeroizes_message(scope.proto_fqn) {
+            quote! {::buffa::sensitive::MapView}
+        } else {
+            quote! {::buffa::MapView}
+        };
         let (wm_struct_decl, wm_impl_hdr, wm_impl_ty) = if key_uses_a || val_uses_a {
             (
-                quote! { struct _WM<'__a, '__x>(&'__x ::buffa::MapView<'__x, #key_ty, #val_ty>); },
+                quote! { struct _WM<'__a, '__x>(&'__x #container<'__x, #key_ty, #val_ty>); },
                 quote! { impl<'__a> },
                 quote! { _WM<'__a, '_> },
             )
         } else {
             (
-                quote! { struct _WM<'__x>(&'__x ::buffa::MapView<'__x, #key_ty, #val_ty>); },
+                quote! { struct _WM<'__x>(&'__x #container<'__x, #key_ty, #val_ty>); },
                 quote! { impl },
                 quote! { _WM<'_> },
             )

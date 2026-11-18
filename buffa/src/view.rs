@@ -694,8 +694,11 @@ macro_rules! unsafe_impl_view_lifetime_parametric {
 /// # Implementing
 ///
 /// Implementations are generated alongside the view and owned-view wrapper
-/// (and are therefore gated with them). Hand-written implementations are only
-/// needed for hand-written view types and must follow the same shape.
+/// (and are therefore gated with them). Neither is generated for messages
+/// selected by `borrowed_views_only_in` or cleanup (`zeroize_in`,
+/// `generate_zeroize`), nor for messages containing them. Hand-written
+/// implementations are only needed for hand-written view types and must
+/// follow the same shape.
 #[rustversion::attr(
     since(1.78),
     diagnostic::on_unimplemented(

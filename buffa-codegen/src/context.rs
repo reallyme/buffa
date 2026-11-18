@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::features::{self, ResolvedFeatures};
+use crate::generated::descriptor::field_descriptor_proto::Type;
 use crate::generated::descriptor::{DescriptorProto, EnumDescriptorProto, FileDescriptorProto};
 use crate::oneof::to_snake_case;
 use crate::CodeGenConfig;
@@ -50,6 +51,9 @@ pub struct CodeGenContext<'a> {
     pub files: &'a [FileDescriptorProto],
     /// Code generation configuration.
     pub config: &'a CodeGenConfig,
+    denied_view_json: std::cell::OnceCell<HashSet<String>>,
+    borrowed_views_only: std::cell::OnceCell<HashSet<String>>,
+    guarded_containing_messages: std::cell::OnceCell<HashSet<String>>,
     /// Map from fully-qualified protobuf name (e.g., ".my.package.MyMessage")
     /// to Rust type path (e.g., "my::package::MyMessage").
     ///
@@ -122,8 +126,7 @@ pub struct CodeGenContext<'a> {
     ///
     /// [`generate_with_diagnostics`]: crate::generate_with_diagnostics
     warnings: std::cell::RefCell<Vec<crate::CodeGenWarning>>,
-    /// Policies selected by fields that this invocation actually generates.
-    /// Global rules may belong to a different directory's generation request.
+    /// Policies selected by fields emitted in this generation request.
     used_json_policy_types: std::cell::RefCell<std::collections::BTreeSet<String>>,
     /// The messages generated with the table codec, planned by
     /// [`plan_table_codec`](Self::plan_table_codec). Unset, which is the same
@@ -653,6 +656,9 @@ impl<'a> CodeGenContext<'a> {
         Self {
             files,
             config,
+            denied_view_json: std::cell::OnceCell::new(),
+            borrowed_views_only: std::cell::OnceCell::new(),
+            guarded_containing_messages: std::cell::OnceCell::new(),
             type_map,
             package_of,
             enum_closedness,
@@ -1310,6 +1316,148 @@ impl<'a> CodeGenContext<'a> {
             .map_or(crate::BytesRepr::default(), |(_, repr)| repr.clone())
     }
 
+    pub(crate) fn zeroizes_message(&self, msg_fqn: &str) -> bool {
+        let dotted = if msg_fqn.starts_with('.') {
+            Cow::Borrowed(msg_fqn)
+        } else {
+            Cow::Owned(format!(".{msg_fqn}"))
+        };
+        self.config.generate_zeroize
+            || self
+                .config
+                .zeroize_messages
+                .iter()
+                .any(|prefix| matches_proto_prefix(prefix, &dotted))
+    }
+
+    fn containing_messages(&self, selected: impl Fn(&str) -> bool) -> HashSet<String> {
+        fn walk(
+            messages: &[DescriptorProto],
+            prefix: &str,
+            edges: &mut Vec<(String, Vec<String>)>,
+        ) {
+            for message in messages {
+                let Some(name) = message.name.as_deref() else {
+                    continue;
+                };
+                let name = format!("{prefix}.{name}");
+                let children = message
+                    .field
+                    .iter()
+                    .filter(|field| {
+                        matches!(field.r#type, Some(Type::TYPE_MESSAGE | Type::TYPE_GROUP))
+                    })
+                    .filter_map(|field| field.type_name.clone())
+                    .collect();
+                edges.push((name.clone(), children));
+                walk(&message.nested_type, &name, edges);
+            }
+        }
+        let mut edges = Vec::new();
+        for file in self.files {
+            let package = file.package.as_deref().unwrap_or_default();
+            let prefix = if package.is_empty() {
+                String::new()
+            } else {
+                format!(".{package}")
+            };
+            walk(&file.message_type, &prefix, &mut edges);
+        }
+        let mut denied = HashSet::new();
+        let mut pending = Vec::new();
+        let mut parents: HashMap<String, Vec<String>> = HashMap::new();
+        for (name, children) in edges {
+            for child in children {
+                parents.entry(child).or_default().push(name.clone());
+            }
+            if selected(&name) {
+                denied.insert(name.clone());
+                pending.push(name);
+            }
+        }
+        // Visit each denied node and ownership edge once. The visited set
+        // terminates cycles without repeatedly scanning a large schema.
+        while let Some(child) = pending.pop() {
+            if let Some(containers) = parents.get(&child) {
+                for parent in containers {
+                    if denied.insert(parent.clone()) {
+                        pending.push(parent.clone());
+                    }
+                }
+            }
+        }
+        denied
+    }
+
+    /// Whether the standard owned-view wrapper and its `HasMessageView`
+    /// binding are omitted for this message.
+    ///
+    /// Cleanup messages are always selected: the wrapper's `from_owned`
+    /// would encode the guarded owner into ordinary, clonable `Bytes`.
+    /// Containers of a selected message are selected too, so their handles
+    /// do not retain the same wire bytes.
+    pub(crate) fn borrowed_views_only(&self, msg_fqn: &str) -> bool {
+        if self.config.borrowed_views_only_in.is_empty()
+            && !self.config.generate_zeroize
+            && self.config.zeroize_messages.is_empty()
+        {
+            return false;
+        }
+        let selected = self.borrowed_views_only.get_or_init(|| {
+            self.containing_messages(|name| {
+                self.zeroizes_message(name)
+                    || self
+                        .config
+                        .borrowed_views_only_in
+                        .iter()
+                        .any(|rule| matches_proto_prefix(rule, name))
+            })
+        });
+        if msg_fqn.starts_with('.') {
+            selected.contains(msg_fqn)
+        } else {
+            selected.contains(&format!(".{msg_fqn}"))
+        }
+    }
+
+    pub(crate) fn denies_view_json(&self, msg_fqn: &str) -> bool {
+        if self.config.deny_view_json.is_empty() {
+            return false;
+        }
+        let denied = self.denied_view_json.get_or_init(|| {
+            self.containing_messages(|name| {
+                self.config
+                    .deny_view_json
+                    .iter()
+                    .any(|rule| matches_proto_prefix(rule, name))
+            })
+        });
+        let name = if msg_fqn.starts_with('.') {
+            Cow::Borrowed(msg_fqn)
+        } else {
+            Cow::Owned(format!(".{msg_fqn}"))
+        };
+        denied.contains(name.as_ref())
+    }
+
+    /// Whether a message reaches a cleanup-selected message through its
+    /// message fields, directly or transitively. A selected message reports
+    /// itself, so callers check selection first.
+    pub(crate) fn contains_guarded_message(&self, msg_fqn: &str) -> bool {
+        if !self.config.generate_zeroize && self.config.zeroize_messages.is_empty() {
+            return false;
+        }
+        let guarded = self
+            .guarded_containing_messages
+            .get_or_init(|| self.containing_messages(|name| self.zeroizes_message(name)));
+        let name = if msg_fqn.starts_with('.') {
+            Cow::Borrowed(msg_fqn)
+        } else {
+            Cow::Owned(format!(".{msg_fqn}"))
+        };
+        guarded.contains(name.as_ref())
+    }
+
     /// Whether this message stores unknown fields.
     ///
     /// Starts from [`CodeGenConfig::preserve_unknown_fields`] and applies
@@ -1558,7 +1706,19 @@ impl<'a> CodeGenContext<'a> {
             .iter()
             .rev()
             .find(|(prefix, _)| matches_proto_prefix(prefix, field_fqn))
-            .map_or(crate::MapRepr::default(), |(_, repr)| repr.clone())
+            .map_or_else(
+                || {
+                    if field_fqn
+                        .rsplit_once('.')
+                        .is_some_and(|(message, _)| self.zeroizes_message(message))
+                    {
+                        crate::MapRepr::Custom("::buffa::sensitive::Map".into())
+                    } else {
+                        crate::MapRepr::default()
+                    }
+                },
+                |(_, repr)| repr.clone(),
+            )
     }
 
     /// Resolve the [`PointerRepr`](crate::PointerRepr) for a singular message
@@ -1601,7 +1761,19 @@ impl<'a> CodeGenContext<'a> {
             .iter()
             .rev()
             .find(|(prefix, _)| matches_proto_prefix(prefix, field_fqn))
-            .map_or(crate::RepeatedRepr::default(), |(_, repr)| repr.clone())
+            .map_or_else(
+                || {
+                    if field_fqn
+                        .rsplit_once('.')
+                        .is_some_and(|(message, _)| self.zeroizes_message(message))
+                    {
+                        crate::RepeatedRepr::Custom("::buffa::sensitive::List<*>".into())
+                    } else {
+                        crate::RepeatedRepr::default()
+                    }
+                },
+                |(_, repr)| repr.clone(),
+            )
     }
 }
 
@@ -1808,7 +1980,6 @@ pub(crate) fn resolve_extern_prefix(
             // `"."` is the catch-all root; stripping it leaves no leading dot.
             if proto_prefix == "." || rest.starts_with('.') {
                 let prefix_len = proto_prefix.len();
-                // MSRV: `Option::is_none_or` requires 1.82.
                 if best.map_or(true, |(_, _, best_len)| prefix_len > best_len) {
                     best = Some((proto_prefix, rust_prefix, prefix_len));
                 }
@@ -1859,7 +2030,6 @@ pub(crate) fn resolve_extern_type(fqn: &str, extern_paths: &[(String, String)]) 
             || fqn
                 .strip_prefix(proto_prefix.as_str())
                 .is_some_and(|rest| rest.starts_with('.'));
-        // MSRV: `Option::is_none_or` requires 1.82.
         if matches && best.map_or(true, |(_, _, best_len)| proto_prefix.len() > best_len) {
             best = Some((proto_prefix, rust_prefix, proto_prefix.len()));
         }

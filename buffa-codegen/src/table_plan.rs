@@ -166,6 +166,9 @@ pub(crate) fn table_fields<'a>(
     fqn: &str,
     features: &ResolvedFeatures,
 ) -> Result<Vec<TableField<'a>>, Ineligible> {
+    if ctx.zeroizes_message(fqn) {
+        return Err(same("requires generated recursive cleanup"));
+    }
     if msg
         .options
         .as_option()

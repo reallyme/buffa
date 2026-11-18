@@ -251,6 +251,10 @@ fn rustc_minor() -> u32 {
 }
 
 fn main() {
+    compile_cleanup_fixtures();
+    compile_cleanup_hygiene();
+    compile_cleanup_json_hygiene();
+    compile_cleanup_setter_hygiene();
     // Compile ordinary vtable collections over an enum-local CLOSED override,
     // independently of the guarded inspection path.
     buffa_build::Config::new()
@@ -1613,4 +1617,155 @@ fn main() {
             println!("cargo:warning=editions_2024.proto skipped (protoc too old?): {e}");
         }
     }
+}
+
+fn compile_cleanup_fixtures() {
+    let mut cleanup_input = buffa_build::Config::new()
+        .files(&["protos/cleanup_input.proto"])
+        .includes(&["protos/"])
+        .generate_views(false)
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .zeroize_in(&[
+            ".cleanup_input.Guarded",
+            ".cleanup_input.StrictGuarded",
+            ".cleanup_input.NumericContexts",
+        ])
+        .deny_unknown_json_fields_in(&[
+            ".cleanup_input.StrictPlain",
+            ".cleanup_input.StrictGuarded",
+        ]);
+    for name in ["Plain", "Guarded", "StrictPlain", "StrictGuarded"] {
+        let prefix = format!(".cleanup_input.{name}");
+        for (field, attribute) in [
+            ("count", "#[serde(default = \"crate::cleanup_input::custom_count\")]"),
+            ("accept", "#[serde(skip_deserializing)]"),
+            ("hidden", "#[serde(skip)]"),
+            ("conditional", "#[cfg_attr(all(), cfg_attr(feature = \"arbitrary\", serde(skip_deserializing)))]"),
+            ("conditional_default", "#[cfg_attr(all(), cfg_attr(feature = \"arbitrary\", serde(default = \"crate::cleanup_input::custom_count\")))]"),
+            ("skipped_default", "#[serde(skip_deserializing, default = \"crate::cleanup_input::custom_count\")]"),
+        ] {
+            cleanup_input = cleanup_input.field_attribute(format!("{prefix}.{field}"), attribute);
+        }
+    }
+    cleanup_input = cleanup_input
+        .zeroize_in(&[
+            ".cleanup_input.SkippedGuarded",
+            ".cleanup_input.ConditionalSkippedGuarded",
+        ])
+        .deny_unknown_json_fields_in(&[
+            ".cleanup_input.SkippedGuarded",
+            ".cleanup_input.ConditionalSkippedGuarded",
+            ".cleanup_input.NumericContexts",
+        ])
+        .field_attribute(
+            ".cleanup_input.SkippedGuarded.value",
+            "#[serde(skip_deserializing)]",
+        )
+        .field_attribute(
+            ".cleanup_input.ConditionalSkippedGuarded.value",
+            "#[cfg_attr(feature = \"arbitrary\", serde(skip_deserializing))]",
+        );
+    cleanup_input
+        .compile()
+        .expect("cleanup input policy fixture failed");
+
+    buffa_build::Config::new()
+        .files(&["protos/drop_defaults.proto"])
+        .includes(&["protos/"])
+        .generate_views(false)
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .generate_text(true)
+        .generate_arbitrary(true)
+        .deny_unknown_json_fields(true)
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.label",
+            "#[serde(default = \"crate::drop_defaults::custom_label\")]",
+        )
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.values",
+            "#[serde(default = \"crate::drop_defaults::custom_values\")]",
+        )
+        .field_attribute(
+            ".drop_defaults.CallerDefaults.conditional",
+            "#[cfg_attr(feature = \"arbitrary\", serde(default = \"crate::drop_defaults::custom_label\"))]",
+        )
+        .compile()
+        .expect("drop-compatible serde fixture generation failed");
+
+    buffa_build::Config::new()
+        .files(&["protos/borrowed_only.proto"])
+        .includes(&["protos/"])
+        .borrowed_views_only_in(&[
+            ".borrowed_only.PrivateRecord",
+            ".borrowed_only.Nested.Private",
+        ])
+        .lazy_views(true)
+        .compile()
+        .expect("buffa_build failed for borrowed_only.proto");
+
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_core.proto"])
+        .includes(&["protos/"])
+        .generate_json(true)
+        .generate_text(true)
+        .generate_reflection(true)
+        .generate_arbitrary(true)
+        .lazy_views(true)
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .bytes_type_custom("crate::cleanup_core_repr::SecretBytes")
+        .string_type_custom("crate::cleanup_core_repr::SecretString")
+        .json_policy_type("crate::cleanup_core_repr::SecretBytes")
+        .json_policy_type("crate::cleanup_core_repr::SecretString")
+        .compile()
+        .expect("cleanup core fixture generation failed");
+}
+
+fn compile_cleanup_hygiene() {
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_hygiene.proto"])
+        .includes(&["protos/"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .generate_reflection(true)
+        .generate_json(false)
+        .generate_text(false)
+        .generate_arbitrary(true)
+        .lazy_views(true)
+        .compile()
+        .expect("cleanup hygiene fixture generation failed");
+}
+
+fn compile_cleanup_json_hygiene() {
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_json_hygiene.proto"])
+        .includes(&["protos/"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .generate_views(false)
+        .generate_reflection(false)
+        .generate_json(true)
+        .generate_text(false)
+        .generate_arbitrary(false)
+        .deny_unknown_json_fields(true)
+        .compile()
+        .expect("cleanup JSON hygiene fixture generation failed");
+}
+
+fn compile_cleanup_setter_hygiene() {
+    buffa_build::Config::new()
+        .files(&["protos/cleanup_setter_hygiene.proto"])
+        .includes(&["protos/"])
+        .preserve_unknown_fields(false)
+        .generate_zeroize(true)
+        .generate_with_setters(true)
+        .lazy_views(true)
+        .generate_reflection(false)
+        .generate_json(false)
+        .generate_text(false)
+        .generate_arbitrary(false)
+        .compile()
+        .expect("cleanup setter hygiene fixture generation failed");
 }

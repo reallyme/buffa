@@ -35,6 +35,7 @@ pub mod buffered;
 mod ignored_key;
 mod map_key;
 mod policy;
+pub mod proto_list;
 #[doc(hidden)]
 pub use ignored_key::IgnoredObjectKey;
 #[doc(hidden)]
@@ -42,19 +43,19 @@ pub mod wkt;
 
 #[doc(hidden)]
 pub use policy::{
-    bytes_policy, map_bytes_policy, map_bytes_policy_bytes_key, map_bytes_policy_policy_key,
-    map_bytes_policy_serde_key, map_string_policy, map_string_policy_bytes_key,
-    map_string_policy_policy_key, map_string_policy_serde_key, opt_bytes_policy, opt_string_policy,
-    policy_str_key_map, repeated_bytes_policy, repeated_string_policy, string_policy,
-    BytesPolicyJson, BytesPolicySeed, BytesPolicySeqJson, StringPolicyJson, StringPolicySeed,
-    StringPolicySeqJson,
+    bytes_policy, list_bytes_policy, list_string_policy, map_bytes_policy,
+    map_bytes_policy_bytes_key, map_bytes_policy_policy_key, map_bytes_policy_serde_key,
+    map_string_policy, map_string_policy_bytes_key, map_string_policy_policy_key,
+    map_string_policy_serde_key, opt_bytes_policy, opt_string_policy, policy_str_key_map,
+    repeated_bytes_policy, repeated_string_policy, string_policy, BytesPolicyJson, BytesPolicySeed,
+    BytesPolicySeqJson, StringPolicyJson, StringPolicySeed, StringPolicySeqJson,
+    ViewJsonErrorReason,
 };
 pub use policy::{ProtoBytesJson, ProtoStringJson};
 
-use buffered::BufferedValue;
-
 #[cfg(not(feature = "zeroize"))]
 use alloc::string::ToString;
+use buffered::BufferedValue;
 
 /// Ignore a carrier's tag and decode its payload with the same JSON-kind
 /// visitor. Typed string/map/sequence entry points historically ignored YAML
@@ -628,7 +629,9 @@ macro_rules! proto_elem_json_delegate {
 ///
 /// Each element is serialized/deserialized via [`ProtoElemJson`], applying
 /// proto3 JSON semantics (quoted int64, NaN/Inf strings, base64 bytes, etc.).
-/// JSON `null` deserializes to an empty vec.
+/// Generated code also uses it for bool and `String` elements, whose
+/// wrong-kind errors then omit the value. JSON `null` deserializes to an
+/// empty vec.
 ///
 /// Use with `#[serde(with = "::buffa::json_helpers::proto_seq")]`.
 pub mod proto_seq {
@@ -684,6 +687,20 @@ pub mod proto_seq {
         }
         d.deserialize_any(V::<T>(core::marker::PhantomData))
             .map(C::from)
+    }
+}
+
+/// Wraps a `Display`-able key as a serde string without allocating.
+///
+/// `collect_str` lets serde_json write the Display output directly to
+/// its internal buffer. For `K = String`, this is still one copy (into
+/// serde_json's buffer) but avoids the intermediate `String` allocation
+/// that `.to_string()` would create.
+struct DisplayKey<'a, K: ?Sized>(&'a K);
+impl<K: core::fmt::Display + ?Sized> serde::Serialize for DisplayKey<'_, K> {
+    #[inline]
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self.0)
     }
 }
 
@@ -746,8 +763,9 @@ pub mod native_str_key_map {
 ///
 /// Keys are stringified (via `Display`) on serialize and parsed (via `FromStr`)
 /// on deserialize — proto3 JSON uses string keys for all maps. Values use
-/// [`ProtoElemJson`] for proto-JSON encoding. JSON `null` deserializes to
-/// an empty map.
+/// [`ProtoElemJson`] for proto-JSON encoding; generated code also uses it for
+/// bool and `String` values, whose wrong-kind errors then omit the value.
+/// JSON `null` deserializes to an empty map.
 ///
 /// Use with `#[serde(with = "::buffa::json_helpers::proto_map")]`.
 pub mod proto_map {
@@ -757,20 +775,6 @@ pub mod proto_map {
     use core::fmt::Display;
     use core::str::FromStr;
     use serde::{Deserializer, Serializer};
-
-    /// Wraps a `Display`-able key as a serde string without allocating.
-    ///
-    /// `collect_str` lets serde_json write the Display output directly to
-    /// its internal buffer. For `K = String`, this is still one copy (into
-    /// serde_json's buffer) but avoids the intermediate `String` allocation
-    /// that `.to_string()` would create.
-    struct DisplayKey<'a, K: ?Sized>(&'a K);
-    impl<K: Display + ?Sized> serde::Serialize for DisplayKey<'_, K> {
-        #[inline]
-        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-            s.collect_str(self.0)
-        }
-    }
 
     pub fn serialize<C, S>(m: &C, s: S) -> Result<S::Ok, S::Error>
     where
@@ -782,7 +786,7 @@ pub mod proto_map {
         use serde::ser::SerializeMap;
         let mut map = s.serialize_map(Some(m.storage_len()))?;
         for (k, v) in m.storage_iter() {
-            map.serialize_entry(&DisplayKey(k), &ProtoJson(v))?;
+            map.serialize_entry(&super::DisplayKey(k), &ProtoJson(v))?;
         }
         map.end()
     }
@@ -819,9 +823,10 @@ pub mod proto_map {
                 while let Some(key) = map.next_key::<String>()? {
                     let k = <C::Key as FromStr>::from_str(&key)
                         .map_err(|_| serde::de::Error::custom(super::JsonValueError::MapKey))?;
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -832,7 +837,8 @@ pub mod proto_map {
 
 /// Serde with-module for `map<string, V>` fields whose **value** needs
 /// proto3-JSON encoding ([`ProtoElemJson`]: int64→quoted, float→NaN token,
-/// bytes→base64) and whose **key** is a `String` or a custom
+/// bytes→base64, or a bool or `String` whose wrong-kind errors must omit the
+/// value) and whose **key** is a `String` or a custom
 /// [`ProtoString`](crate::types::ProtoString) type.
 ///
 /// This is the string-key twin of [`proto_map`]. [`proto_map`] stringifies its
@@ -898,9 +904,10 @@ pub mod proto_str_key_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(k) = map.next_key::<C::Key>()? {
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -1292,13 +1299,6 @@ fn try_deserialize_enum<T: serde::de::DeserializeOwned>(
     }
 }
 
-/// A null element is only meaningful for an explicitly marked NullValue enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-enum EnumCollectionErrorReason {
-    #[error("null is not an enum collection element")]
-    NullElement,
-}
-
 // A handwritten Enumeration can opt into the canonical marker incorrectly.
 // Reject that contract violation without retaining input or another PR's API.
 #[derive(Debug, Clone, Copy, thiserror::Error)]
@@ -1361,18 +1361,16 @@ pub mod repeated_enum {
             }
 
             reject_container_scalar_values!(InvalidListType);
-            crate::reject_other_json_kinds!(bytes, byte_buf);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
             ) -> Result<Vec<crate::EnumValue<E>>, A::Error> {
                 let mut out = Vec::with_capacity(super::clamp_size_hint(seq.size_hint()));
                 while let Some(super::BufferedValue(raw)) = seq.next_element()? {
-                    // Scalar enum null means default; sequence null is invalid
-                    // except for the canonical WKT's explicit null sentinel.
                     if raw.is_null() && !E::IS_NULL_VALUE {
                         return Err(serde::de::Error::custom(
-                            super::EnumCollectionErrorReason::NullElement,
+                            super::enum_list::ErrorReason::Null,
                         ));
                     }
                     match super::try_deserialize_enum::<crate::EnumValue<E>>(raw) {
@@ -1444,17 +1442,18 @@ pub mod map_enum {
             }
 
             reject_container_scalar_values!(InvalidMapType);
-            crate::reject_other_json_kinds!(bytes, byte_buf);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key) = map.next_key_seed(super::map_key::KeySeed::<C::Key>::new())? {
+                    let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let super::BufferedValue(raw) = map.next_value()?;
                     match super::try_deserialize_enum::<C::Value>(raw) {
                         Ok(Some(v)) => {
-                            out.storage_insert(key, v);
+                            out.storage_insert(key.into_inner(), v);
                         }
                         Ok(None) => continue,
                         Err(e) => return Err(serde::de::Error::custom(e)),
@@ -2138,7 +2137,7 @@ proto_elem_json_delegate!(alloc::vec::Vec<u8>, bytes);
 // base64 with-module) into the generating crate, where the type is local. A
 // type listed with `json_policy_type` does not: the policy with-modules wrap
 // it in their own element adapter. An unlisted custom `string` element does
-// not either: `repeated_serde_module` returns `None` for a custom `string_type` element, so a
+// not either: `repeated_serde_module` returns `None` for `TYPE_STRING`, so a
 // repeated string serializes through the element's own native
 // `Serialize`/`Deserialize` rather than `proto_seq`/`ProtoElemJson`.
 
@@ -2229,10 +2228,13 @@ pub mod bytes_key_map {
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key_str) = map.next_key::<alloc::string::String>()? {
+                    #[cfg(feature = "zeroize")]
+                    let key_str = zeroize::Zeroizing::new(key_str);
                     let k = super::decode_base64(&key_str).map_err(serde::de::Error::custom)?;
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
                     let v =
                         map.next_value_seed(ProtoElemSeed::<C::Value>(core::marker::PhantomData))?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -2289,12 +2291,16 @@ pub mod bytes_key_bytes_val_map {
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
-                while let Some((ks, vs)) =
-                    map.next_entry::<alloc::string::String, alloc::string::String>()?
-                {
+                while let Some(ks) = map.next_key::<alloc::string::String>()? {
+                    #[cfg(feature = "zeroize")]
+                    let ks = zeroize::Zeroizing::new(ks);
                     let k = super::decode_base64(&ks).map_err(serde::de::Error::custom)?;
+                    let k = crate::erasing::Erasing::new(k, C::storage_erase_key);
+                    let vs = map.next_value::<alloc::string::String>()?;
+                    #[cfg(feature = "zeroize")]
+                    let vs = zeroize::Zeroizing::new(vs);
                     let v = super::decode_base64(&vs).map_err(serde::de::Error::custom)?;
-                    out.storage_insert(k, v);
+                    out.storage_insert(k.into_inner(), v);
                 }
                 Ok(out)
             }
@@ -2309,13 +2315,12 @@ pub mod bytes_key_bytes_val_map {
 /// uint32, uint64, bool, etc.).
 ///
 /// In proto3 JSON, all map keys are strings.  For non-string key types, the
-/// key string is parsed using `FromStr` during deserialization and converted
-/// to string using `ToString` during serialization.
+/// key string is parsed using `FromStr` during deserialization and formatted
+/// directly into the serializer during serialization.
 ///
 /// Use with `#[serde(with = "::buffa::json_helpers::string_key_map")]`.
 pub mod string_key_map {
     use crate::map_codec::MapStorage;
-    use alloc::string::ToString;
     use core::fmt::Display;
     use core::str::FromStr;
     use serde::{Deserializer, Serializer};
@@ -2330,7 +2335,7 @@ pub mod string_key_map {
         use serde::ser::SerializeMap;
         let mut map = s.serialize_map(Some(value.storage_len()))?;
         for (k, v) in value.storage_iter() {
-            map.serialize_entry(&k.to_string(), v)?;
+            map.serialize_entry(&super::DisplayKey(k), v)?;
         }
         map.end()
     }
@@ -2368,8 +2373,9 @@ pub mod string_key_map {
                     let key = key_str
                         .parse::<C::Key>()
                         .map_err(|_| serde::de::Error::custom(super::JsonValueError::MapKey))?;
+                    let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let value = map.next_value()?;
-                    out.storage_insert(key, value);
+                    out.storage_insert(key.into_inner(), value);
                 }
                 Ok(out)
             }
@@ -2520,6 +2526,11 @@ pub mod opt_string {
     }
 
     /// Deserialize an optional `string` field (JSON `null` → `None`).
+    ///
+    /// # Errors
+    ///
+    /// Returns the deserializer's `invalid_type` error, which names the JSON
+    /// kind but not the value, for any input that is not a string or `null`.
     pub fn deserialize<'de, T, D>(d: D) -> Result<Option<T>, D::Error>
     where
         T: crate::ProtoString,
@@ -2999,7 +3010,7 @@ pub mod repeated_closed_enum {
             }
 
             reject_container_scalar_values!(InvalidListType);
-            crate::reject_other_json_kinds!(bytes, byte_buf);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_seq<A: serde::de::SeqAccess<'de>>(
                 self,
                 mut seq: A,
@@ -3082,17 +3093,18 @@ pub mod map_closed_enum {
             }
 
             reject_container_scalar_values!(InvalidMapType);
-            crate::reject_other_json_kinds!(bytes, byte_buf);
+            crate::__buffa_reject_other_json_kinds!(bytes, byte_buf);
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 let mut out = C::default();
                 while let Some(key) = map.next_key_seed(super::map_key::KeySeed::<C::Key>::new())? {
+                    let key = crate::erasing::Erasing::new(key, C::storage_erase_key);
                     let super::BufferedValue(raw) = map.next_value()?;
                     match super::try_deserialize_closed_enum::<C::Value>(&raw) {
                         Ok(Some(v)) => {
-                            out.storage_insert(key, v);
+                            out.storage_insert(key.into_inner(), v);
                         }
                         Ok(None) => continue,
                         Err(e) => return Err(serde::de::Error::custom(e)),
@@ -3109,3 +3121,15 @@ pub mod map_closed_enum {
 
 #[cfg(test)]
 mod tests;
+
+/// Enum collection decoding without intermediate owned containers.
+pub mod enum_list;
+/// Streaming enum helpers for cleanup-enabled generated messages.
+#[doc(hidden)]
+#[cfg(feature = "zeroize")]
+pub mod guarded_enum;
+mod guarded_key;
+/// Direct-key map decoding for cleanup-enabled generated messages.
+#[doc(hidden)]
+#[cfg(feature = "zeroize")]
+pub mod guarded_map;

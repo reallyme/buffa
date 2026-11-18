@@ -63,8 +63,8 @@ mod secret {
 
 mod generated {
     use super::secret::Secret;
-    // Match generated code's map type even when the runtime's `std` feature
-    // is off; the test executable's own use of `std` does not enable it.
+    // Match the runtime's map when std is disabled; the test executable's
+    // own std prelude does not change the runtime's feature selection.
     use buffa::Map;
     use std::collections::BTreeMap;
 
@@ -72,6 +72,9 @@ mod generated {
     pub struct Message {
         #[serde(with = "::buffa::json_helpers::repeated_bytes_policy", default)]
         pub list: Vec<Secret>,
+        /// The module for custom collections, which pushes each element.
+        #[serde(with = "::buffa::json_helpers::list_bytes_policy", default)]
+        pub pushed: Vec<Secret>,
         #[serde(with = "::buffa::json_helpers::map_bytes_policy", default)]
         pub by_name: BTreeMap<String, Secret>,
         #[serde(with = "::buffa::json_helpers::map_bytes_policy", default)]
@@ -112,6 +115,7 @@ const _: () = {
 fn repeated_and_map_values_round_trip_through_a_foreign_policy() {
     let mut message = Message {
         list: vec![Secret(vec![1, 2, 3]), Secret(vec![])],
+        pushed: vec![Secret(vec![7])],
         ..Default::default()
     };
     message.by_name.insert("a".into(), Secret(vec![0xff]));
@@ -123,7 +127,8 @@ fn repeated_and_map_values_round_trip_through_a_foreign_policy() {
     assert_eq!(
         json,
         concat!(
-            r#"{"list":["sealed:AQID","sealed:"],"by_name":{"a":"sealed:/w=="},"#,
+            r#"{"list":["sealed:AQID","sealed:"],"pushed":["sealed:Bw=="],"#,
+            r#""by_name":{"a":"sealed:/w=="},"#,
             r#""by_id":{"9":"sealed:+w=="},"by_tag":{"t":"sealed:AA=="}}"#
         )
     );
@@ -137,6 +142,7 @@ fn repeated_and_map_values_round_trip_through_a_foreign_policy() {
 fn null_elements_and_values_are_rejected_before_the_policy() {
     for json in [
         r#"{"list":[null]}"#,
+        r#"{"pushed":[null]}"#,
         r#"{"by_name":{"a":null}}"#,
         r#"{"by_id":{"1":null}}"#,
         r#"{"by_tag":{"t":null}}"#,
@@ -147,8 +153,10 @@ fn null_elements_and_values_are_rejected_before_the_policy() {
             "{json}: {err}"
         );
     }
-    let empty: Message =
-        serde_json::from_str(r#"{"list":null,"by_name":null,"by_id":null,"by_tag":null}"#).unwrap();
+    let empty: Message = serde_json::from_str(
+        r#"{"list":null,"pushed":null,"by_name":null,"by_id":null,"by_tag":null}"#,
+    )
+    .unwrap();
     assert_eq!(empty, Message::default());
     assert!(serde_json::from_str::<Message>(r#"{"list":["AQID"]}"#).is_err());
 }

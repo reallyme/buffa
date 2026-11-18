@@ -272,12 +272,16 @@ fn container_modules_reject_null_elements_and_accept_null_containers() {
 #[test]
 fn container_map_keys_are_not_echoed_in_errors() {
     for (json, message) in [
-        (r#"{"by_int":{"secret":"00"}}"#, "invalid map key at"),
-        (r#"{"by_bool":{"secret":"00"}}"#, "invalid map key at"),
         (
-            r#"{"by_bytes":{"secret!":"00"}}"#,
-            "invalid base64 map key at",
+            r#"{"by_int":{"secret":"00"}}"#,
+            "invalid protobuf map key at",
         ),
+        (
+            r#"{"by_bool":{"secret":"00"}}"#,
+            "invalid protobuf map key at",
+        ),
+        // `s` is a valid symbol and `!` an invalid one: neither is quoted.
+        (r#"{"by_bytes":{"secret!":"00"}}"#, "invalid base64 at"),
     ] {
         let text = serde_json::from_str::<Containers>(json)
             .unwrap_err()
@@ -285,41 +289,6 @@ fn container_map_keys_are_not_echoed_in_errors() {
         assert!(text.starts_with(message), "{json}: {text}");
         assert!(!text.contains("secret"), "{json}: {text}");
     }
-}
-
-/// A user-supplied parser can put its rejected key in its error's Display
-/// output. The generic map helper must not forward that output to JSON errors.
-#[test]
-fn container_map_keys_do_not_forward_custom_parser_errors() {
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-    struct RejectedKey;
-
-    #[derive(Debug, thiserror::Error)]
-    enum KeyErrorReason {
-        #[error("private-map-key")]
-        Rejected,
-    }
-
-    impl core::fmt::Display for RejectedKey {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            f.write_str("unused")
-        }
-    }
-
-    impl core::str::FromStr for RejectedKey {
-        type Err = KeyErrorReason;
-
-        fn from_str(_: &str) -> Result<Self, Self::Err> {
-            Err(KeyErrorReason::Rejected)
-        }
-    }
-
-    let mut deserializer = serde_json::Deserializer::from_str(r#"{"private-map-key":"00"}"#);
-    let error = map_bytes_policy::deserialize::<BTreeMap<RejectedKey, Hex>, _>(&mut deserializer)
-        .unwrap_err()
-        .to_string();
-    assert!(error.starts_with("invalid map key"), "{error}");
-    assert!(!error.contains("private-map-key"), "{error}");
 }
 
 #[test]
@@ -361,6 +330,75 @@ fn remaining_key_shapes_round_trip() {
     );
 }
 
+/// A custom collection whose `From<Vec<T>>` must not be used: the `list_*`
+/// modules push each element straight into it.
+#[derive(Clone, Debug, PartialEq)]
+struct PushOnly<T>(Vec<T>);
+impl<T> Default for PushOnly<T> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+impl<T> From<Vec<T>> for PushOnly<T> {
+    fn from(_: Vec<T>) -> Self {
+        panic!("list modules must not stage elements in a Vec")
+    }
+}
+impl<T> FromIterator<T> for PushOnly<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+impl<T> core::ops::Deref for PushOnly<T> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        &self.0
+    }
+}
+impl<T: Clone + PartialEq + core::fmt::Debug + Send + Sync> crate::ProtoList<T> for PushOnly<T> {
+    fn push(&mut self, value: T) {
+        self.0.push(value);
+    }
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Default, PartialEq)]
+struct Lists {
+    #[serde(with = "list_bytes_policy", default)]
+    hexes: PushOnly<Hex>,
+    #[serde(with = "list_string_policy", default)]
+    texts: PushOnly<Tilde>,
+}
+
+#[test]
+fn list_modules_push_elements_straight_into_the_collection() {
+    let value = Lists {
+        hexes: PushOnly(alloc::vec![Hex(alloc::vec![0x0a]), Hex(alloc::vec![])]),
+        texts: PushOnly(alloc::vec![Tilde("one".to_string())]),
+    };
+    let json = serde_json::to_string(&value).unwrap();
+    assert_eq!(json, r#"{"hexes":["0a",""],"texts":["~one"]}"#);
+    assert_eq!(serde_json::from_str::<Lists>(&json).unwrap(), value);
+    assert_eq!(
+        serde_json::from_str::<Lists>(r#"{"hexes":null,"texts":null}"#).unwrap(),
+        Lists::default()
+    );
+    for json in [r#"{"hexes":["0a",null]}"#, r#"{"texts":[null]}"#] {
+        let err = serde_json::from_str::<Lists>(json).unwrap_err();
+        assert!(
+            err.to_string().contains("null is not a valid"),
+            "{json}: {err}"
+        );
+    }
+    // Other JSON kinds are rejected by kind, without echoing the value.
+    for json in [r#"{"hexes":"secret"}"#, r#"{"texts":{"secret":1}}"#] {
+        let err = serde_json::from_str::<Lists>(json).unwrap_err().to_string();
+        assert!(!err.contains("secret"), "{json}: {err}");
+    }
+}
+
 /// The policy-key path carries edge-case keys through intact, with the
 /// fixture's injective, round-tripping key policy: keys that differ only in
 /// case or in the policy's own marker stay distinct.
@@ -386,6 +424,7 @@ fn policy_key_path_preserves_distinct_keys() {
 
 #[test]
 fn policy_key_errors_propagate_and_duplicates_keep_the_last_entry() {
+    // A policy error propagates from a map key and from a singular field.
     for json in [r#"{"keyed":{"k":1}}"#, r#"{"text":"plain"}"#] {
         let err = serde_json::from_str::<Fields>(json).unwrap_err();
         assert!(
@@ -396,4 +435,39 @@ fn policy_key_errors_propagate_and_duplicates_keep_the_last_entry() {
     let value: Fields = serde_json::from_str(r#"{"keyed":{"~a":1,"~a":2}}"#).unwrap();
     assert_eq!(value.keyed.len(), 1);
     assert_eq!(value.keyed.get(&Tilde("a".to_string())), Some(&2));
+}
+
+/// A user-supplied parser can put its rejected key in its error's Display
+/// output. The generic map helper must not forward that output to JSON errors.
+#[test]
+fn container_map_keys_do_not_forward_custom_parser_errors() {
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+    struct RejectedKey;
+
+    #[derive(Debug, thiserror::Error)]
+    enum KeyErrorReason {
+        #[error("private-map-key")]
+        Rejected,
+    }
+
+    impl core::fmt::Display for RejectedKey {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("unused")
+        }
+    }
+
+    impl core::str::FromStr for RejectedKey {
+        type Err = KeyErrorReason;
+
+        fn from_str(_: &str) -> Result<Self, Self::Err> {
+            Err(KeyErrorReason::Rejected)
+        }
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str(r#"{"private-map-key":"00"}"#);
+    let error = map_bytes_policy::deserialize::<BTreeMap<RejectedKey, Hex>, _>(&mut deserializer)
+        .unwrap_err()
+        .to_string();
+    assert!(error.starts_with("invalid protobuf map key"), "{error}");
+    assert!(!error.contains("private-map-key"), "{error}");
 }

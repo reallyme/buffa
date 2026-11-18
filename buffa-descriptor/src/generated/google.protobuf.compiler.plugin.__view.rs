@@ -88,7 +88,11 @@ impl<'a> ::buffa::MessageView<'a> for VersionView<'a> {
     ) -> ::core::result::Result<super::super::Version, ::buffa::DecodeError> {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -506,7 +510,11 @@ impl<'a> ::buffa::MessageView<'a> for CodeGeneratorRequestView<'a> {
     > {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -1000,7 +1008,11 @@ impl<'a> ::buffa::MessageView<'a> for CodeGeneratorResponseView<'a> {
     > {
         self.to_owned_from_source(None)
     }
-    #[allow(clippy::useless_conversion, clippy::needless_update)]
+    #[allow(
+        clippy::useless_conversion,
+        clippy::needless_update,
+        clippy::field_reassign_with_default
+    )]
     fn to_owned_from_source(
         &self,
         __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,
@@ -1480,7 +1492,11 @@ pub mod code_generator_response {
         > {
             self.to_owned_from_source(None)
         }
-        #[allow(clippy::useless_conversion, clippy::needless_update)]
+        #[allow(
+            clippy::useless_conversion,
+            clippy::needless_update,
+            clippy::field_reassign_with_default
+        )]
         fn to_owned_from_source(
             &self,
             __buffa_src: ::core::option::Option<&::buffa::bytes::Bytes>,

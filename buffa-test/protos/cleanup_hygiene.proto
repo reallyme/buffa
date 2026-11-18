@@ -1,0 +1,3 @@
+syntax = "proto3";
+package cleanup_hygiene;
+message Record { uint32 value = 1; }

@@ -133,3 +133,6 @@ mod with_setters;
 mod wkt;
 
 mod guarded;
+
+mod borrowed_only;
+mod drop_serde;

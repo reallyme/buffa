@@ -182,6 +182,19 @@ fn policy_types_without_json_warn_and_change_nothing() {
 }
 
 #[test]
+fn custom_repeated_scalars_decode_directly_into_their_collection() {
+    let mut config = policy_config();
+    config.repeated_fields.push((
+        ".policy.test.Holder.embedding".to_string(),
+        RepeatedRepr::Custom("crate::SecretList<*>".to_string()),
+    ));
+    let (code, warnings) = generate_policy(&config).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(code.contains("json_helpers::proto_list\""), "{code}");
+    assert!(code.contains("json_helpers::proto_seq\""), "{code}");
+}
+
+#[test]
 fn a_policy_string_key_over_enum_values_is_rejected() {
     let mut config = policy_config();
     config.string_fields.push((
@@ -323,19 +336,17 @@ fn with_module_of(code: &str, field: &str) -> String {
     let at = compact
         .find(&anchor)
         .unwrap_or_else(|| panic!("no field {field} in {code}"));
-    let attr_start = compact[..at]
-        .rfind("#[serde(")
-        .unwrap_or_else(|| panic!("no serde attribute on {field}"));
-    let attr = &compact[attr_start..at];
-    // The attribute must belong to this field, not to an earlier one.
-    assert!(
-        !attr.contains("pub"),
-        "no serde attribute directly on {field}: {attr}"
-    );
-    let with = attr
+    // The field's attributes follow the previous member (or the struct's
+    // opening brace); several `#[serde(...)]` attributes may precede it.
+    let start = compact[..at]
+        .rfind("pub")
+        .or_else(|| compact[..at].rfind('{'))
+        .unwrap_or(0);
+    let attrs = &compact[start..at];
+    let with = attrs
         .find("with=\"")
-        .unwrap_or_else(|| panic!("no with module on {field}: {attr}"));
-    let rest = &attr[with + "with=\"".len()..];
+        .unwrap_or_else(|| panic!("no with module on {field}: {attrs}"));
+    let rest = &attrs[with + "with=\"".len()..];
     rest[..rest.find('"').unwrap()].to_string()
 }
 
@@ -451,6 +462,84 @@ fn a_policy_value_under_a_byte_key_keeps_its_policy() {
 }
 
 #[test]
+fn custom_and_guarded_policy_collections_receive_elements_directly() {
+    // A custom collection gets the `list_*` modules, which push each element
+    // into it instead of staging a `Vec`.
+    let mut config = containers_config("pa");
+    for field in ["chain", "labels"] {
+        config.repeated_fields.push((
+            format!(".pa.Box.{field}"),
+            RepeatedRepr::Custom("crate::SecretList<*>".to_string()),
+        ));
+    }
+    let (generated, _) =
+        generate_with_diagnostics(&[containers_file("pa")], &["pa.proto".to_string()], &config)
+            .unwrap();
+    let code = joined(&generated);
+    assert_eq!(
+        with_module_of(&code, "chain"),
+        "::buffa::json_helpers::list_bytes_policy"
+    );
+    assert_eq!(
+        with_module_of(&code, "labels"),
+        "::buffa::json_helpers::list_string_policy"
+    );
+
+    // Under message cleanup, the default `sensitive::List` / `sensitive::Map`
+    // storage also takes the policy modules: they decode straight into the
+    // wipe owner and erase a key whose value fails, so no element passes
+    // through `guarded_map`, `proto_list` or a `ProtoElemJson` impl.
+    let mut config = containers_config("pa");
+    config
+        .string_fields
+        .retain(|(path, _)| !path.ends_with(".tagged"));
+    // Guarded string slots must use a listed type, so the unlisted `Tag` key
+    // and the plain `String` key of `by_name` become `Text` here.
+    for field in ["tagged", "by_name"] {
+        config.string_fields.push((
+            format!(".pa.Box.{field}"),
+            StringRepr::Custom("crate::Text".to_string()),
+        ));
+    }
+    config.zeroize_messages = vec![".pa".to_string()];
+    config.preserve_unknown_fields = false;
+    let (generated, _) =
+        generate_with_diagnostics(&[containers_file("pa")], &["pa.proto".to_string()], &config)
+            .unwrap();
+    let code = joined(&generated);
+    for (field, module) in [
+        ("chain", "::buffa::json_helpers::list_bytes_policy"),
+        ("labels", "::buffa::json_helpers::list_string_policy"),
+        (
+            "by_name",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+        ("texts", "::buffa::json_helpers::map_string_policy"),
+        (
+            "pairs",
+            "::buffa::json_helpers::map_string_policy_policy_key",
+        ),
+        (
+            "keyed",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+        (
+            "tagged",
+            "::buffa::json_helpers::map_bytes_policy_policy_key",
+        ),
+    ] {
+        assert_eq!(with_module_of(&code, field), module, "field {field}");
+    }
+    assert!(
+        code.contains("::buffa::sensitive::List<crate::Secret>"),
+        "{code}"
+    );
+    assert!(!code.contains("ProtoElemJson for crate::"), "{code}");
+    assert!(!code.contains("guarded_map"), "{code}");
+    assert!(!code.contains("proto_list"), "{code}");
+}
+
+#[test]
 fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
     let mut config = policy_config();
     config.json_policy_types = vec!["crate::Secret".to_string()];
@@ -459,7 +548,7 @@ fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
     assert_eq!(
         warnings,
         [CodeGenWarning::JsonPolicyReflectionBypass {
-            policy_types: vec!["crate :: Secret".into()]
+            policy_types: vec!["crate :: Secret".into()],
         }]
     );
     let text = warnings[0].to_string();
@@ -474,7 +563,7 @@ fn reflection_with_policy_types_warns_that_reflective_json_bypasses_them() {
     assert_eq!(
         generate_policy(&config).unwrap().1,
         [CodeGenWarning::JsonPolicyReflectionBypass {
-            policy_types: vec!["crate :: Secret".into()]
+            policy_types: vec!["crate :: Secret".into()],
         }]
     );
     config.generate_reflection_vtable = false;

@@ -321,6 +321,39 @@ impl Config {
         self
     }
 
+    /// Reject JSON serialization of the selected messages' eager, lazy and owned
+    /// views before writing any output. Owned-message JSON remains available.
+    /// The restriction propagates to containing messages, including map values.
+    /// `.` selects every message; unmatched rules cause a code generation error.
+    /// Empty paths are errors. Disabling JSON or views warns that the rule is inactive.
+    #[must_use]
+    pub fn deny_view_json(mut self, paths: &[impl AsRef<str>]) -> Self {
+        self.codegen_config.deny_view_json.extend(
+            paths
+                .iter()
+                .map(|path| normalize_override_path(path.as_ref())),
+        );
+        self
+    }
+
+    /// Omit standard owned-view wrappers and `HasMessageView` for matching
+    /// messages and their containers. Borrowed views remain available.
+    /// Use `.` to select every message. Rules must match a known message.
+    /// Messages selected for cleanup, and their containers, are always
+    /// treated as selected.
+    ///
+    /// This controls what code is generated. It does not disable explicit
+    /// use of the public `buffa::OwnedView` runtime with a borrowed view type.
+    #[must_use]
+    pub fn borrowed_views_only_in(mut self, paths: &[impl AsRef<str>]) -> Self {
+        self.codegen_config.borrowed_views_only_in.extend(
+            paths
+                .iter()
+                .map(|path| normalize_override_path(path.as_ref())),
+        );
+        self
+    }
+
     /// Wrap generated `impl`s in `#[cfg(feature = "...")]` instead of
     /// emitting them unconditionally (default: false).
     ///
@@ -791,6 +824,32 @@ impl Config {
         self
     }
 
+    /// Generate recursive cleanup for every owned message.
+    /// Requires `buffa/zeroize` and guarded field representations; see the guarded-fields guide.
+    /// No owned-view wrapper or `HasMessageView` impl is generated, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
+    #[must_use]
+    pub fn generate_zeroize(mut self, enabled: bool) -> Self {
+        self.codegen_config.generate_zeroize = enabled;
+        self
+    }
+
+    /// Generate recursive cleanup for messages under these proto path prefixes.
+    /// `.` matches every message. Calls accumulate. Empty or unmatched paths
+    /// are errors; scoped requests can explicitly allow unmatched rules.
+    /// Selected messages and their containers get no owned-view wrapper or
+    /// `HasMessageView` impl, as with
+    /// [`borrowed_views_only_in`](Self::borrowed_views_only_in).
+    #[must_use]
+    pub fn zeroize_in(mut self, paths: &[impl AsRef<str>]) -> Self {
+        self.codegen_config.zeroize_messages.extend(
+            paths
+                .iter()
+                .map(|path| normalize_override_path(path.as_ref())),
+        );
+        self
+    }
+
     /// Enable unknown-field preservation for matching messages, on top of
     /// the global [`preserve_unknown_fields`](Self::preserve_unknown_fields)
     /// setting.
@@ -1215,10 +1274,11 @@ impl Config {
     /// ([`bytes_type_custom`](Self::bytes_type_custom)) is honored for
     /// `map<K, bytes>` values too, the same as the built-in `Bytes` — but a
     /// custom map value (like a custom `repeated` element) must be a crate-local
-    /// type, since codegen emits its `ReflectElement` / `ProtoElemJson` impls
-    /// (the orphan rule forbids them for a foreign type). A type listed with
-    /// [`json_policy_type`](Self::json_policy_type) gets no `ProtoElemJson`
-    /// impl, so only vtable reflection requires it to be local.
+    /// type, since codegen emits its `ReflectElement` / `InspectElement` /
+    /// `ProtoElemJson` impls (the orphan rule forbids them for a foreign type).
+    /// A type listed with [`json_policy_type`](Self::json_policy_type) gets no
+    /// `ProtoElemJson` impl, so only vtable reflection or reflection with
+    /// message cleanup requires it to be local.
     ///
     /// [`strict_utf8_mapping`]: Self::strict_utf8_mapping
     ///
@@ -1304,19 +1364,23 @@ impl Config {
     /// # Limitations
     ///
     /// - A **foreign** custom type used as a `repeated` element — or a
-    ///   `map<K, bytes>` value — fails to compile: codegen emits
-    ///   `ReflectElement` / `ProtoElemJson` impls for it, which the orphan rule
-    ///   forbids for a foreign type. Wrap it in a crate-local newtype for those
-    ///   cases; singular / optional / oneof uses work directly. A type listed
-    ///   with [`json_policy_type`](Self::json_policy_type) gets no
-    ///   `ProtoElemJson` impl, so only vtable reflection requires it to be
-    ///   local.
+    ///   `map<K, bytes>` value — fails to compile under JSON, vtable reflection
+    ///   or reflection with message cleanup: codegen emits `ProtoElemJson` /
+    ///   `ReflectElement` / `InspectElement` impls for it, which the orphan
+    ///   rule forbids for a foreign type. Wrap it in a crate-local newtype, or use
+    ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
+    ///   the defining crate supplies those integrations. Singular / optional /
+    ///   oneof uses work directly. A type listed with
+    ///   [`json_policy_type`](Self::json_policy_type) gets no `ProtoElemJson`
+    ///   impl, so only vtable reflection or reflection with message cleanup
+    ///   requires it to be local.
     /// - A `Custom` rule **does** apply to `map<K, bytes>` values (honored like
     ///   the built-in [`BytesRepr::Bytes`]); only the `map<bytes, bytes>`
     ///   carve-out keeps `Vec<u8>` values.
     /// - A `path` that is not a Rust type path like `crate::Name` (for
     ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
-    ///   from [`compile`](Self::compile).
+    ///   from [`compile`](Self::compile). Associated-type projections and
+    ///   parenthesized type paths are supported.
     /// - A custom bytes type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`).
     #[must_use]
@@ -1446,11 +1510,14 @@ impl Config {
     /// # Limitations
     ///
     /// - Under vtable reflection ([`reflect_mode`](Self::reflect_mode) with
-    ///   `ReflectMode::VTable`), a **foreign** custom type used as a `repeated`
-    ///   element or as a `map` key or value fails to compile: codegen emits a
-    ///   `ReflectElement` or `ReflectMapKey` impl for it, which the orphan rule
-    ///   forbids for a foreign type. Wrap it in a crate-local newtype for
-    ///   those cases; singular / optional / oneof uses work directly.
+    ///   `ReflectMode::VTable`), or any reflection with message cleanup, a
+    ///   **foreign** custom type used as a `repeated` element or as a `map` key
+    ///   or value fails to compile: codegen emits a `ReflectElement`,
+    ///   `InspectElement` or `ReflectMapKey` impl for it, which the orphan rule
+    ///   forbids for a foreign type. Wrap it in a crate-local newtype, or use
+    ///   [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls) when
+    ///   the defining crate supplies those integrations. Singular / optional /
+    ///   oneof uses work directly.
     /// - **JSON of a custom string with explicit presence (proto3 or proto2
     ///   `optional`, and the edition 2023 default), in a `repeated` field, in
     ///   a oneof, or in a `map`,** serializes through the type's own `serde`
@@ -1466,7 +1533,8 @@ impl Config {
     ///   default `HashMap` container, or `Ord` for `BTreeMap`.
     /// - A `path` that is not a Rust type path like `crate::Name` (for
     ///   example `_`, `()` or `&'static [u8]`) is reported as a codegen error
-    ///   from [`compile`](Self::compile).
+    ///   from [`compile`](Self::compile). Associated-type projections and
+    ///   parenthesized type paths are supported.
     /// - A custom string type needs no native `arbitrary::Arbitrary` impl (a
     ///   generic builder handles it under `generate_arbitrary`, as a `map` key
     ///   or value too).
@@ -1482,22 +1550,33 @@ impl Config {
     /// `path` names the type exactly as its
     /// [`bytes_type_custom_in`](Self::bytes_type_custom_in) or
     /// [`string_type_custom_in`](Self::string_type_custom_in) rule does
-    /// (whitespace aside). In the generated `serde` impls, every field of that
-    /// type then serializes and deserializes through the policy: singular,
-    /// optional, repeated and oneof fields, `map` keys and values, and the
-    /// matching fields of generated views, lazy views and owned views. The
-    /// type's own `serde` impls are not consulted.
+    /// (whitespace aside). Every field of that type then serializes and
+    /// deserializes through the policy in the generated `serde` impls:
+    /// singular, optional, repeated and oneof fields, `map` keys and values,
+    /// and the matching fields of generated views, lazy views and owned views.
+    /// The type's own `serde` impls are not consulted.
     /// Generated code implements no JSON trait for the type (repeated elements
     /// and `map` values go through buffa's policy with-modules). With JSON
     /// alone, the type may therefore be defined, together with its
     /// representation and policy impls, in another crate, and separate
-    /// `compile()` runs into one crate may share it. With vtable reflection its
-    /// `repeated` and `map` uses still get per-run `ReflectElement` /
-    /// `ReflectMapKey` impls, so there it must be crate-local and generated in
-    /// one run. Call it once per type, in every `Config` that generates a field
-    /// of the type: a run that does not list it encodes those fields as plain
-    /// base64 or strings without calling the policy. Unlisted custom types keep
-    /// their existing JSON behavior.
+    /// `compile()` runs into one crate may share it. With vtable reflection,
+    /// or reflection with message cleanup, its `repeated` and `map` uses still
+    /// get per-run element impls, so there it must be crate-local and
+    /// generated in one run (or use
+    /// [`emit_custom_type_impls(false)`](Self::emit_custom_type_impls)). Call
+    /// it once per type, in every `Config` that generates a field of the type:
+    /// a run that does not list it never calls the policy (bytes fields become
+    /// plain base64; string fields use the type's own `serde` impls). Unlisted
+    /// custom types keep their existing JSON behavior.
+    ///
+    /// A policy shapes only the generated JSON and is not a confidentiality
+    /// boundary. Binary encoding, generated text format and descriptor-driven
+    /// reflection never call it: JSON produced or read through `DynamicMessage`
+    /// (including a message converted with `ReflectMessage::to_dynamic`, or with
+    /// `DynamicMessage::try_from_message`, which works whether or not
+    /// reflection is generated) encodes the field as standard base64 or a
+    /// plain string, so a policy that refuses export does not stop it and its
+    /// import checks do not run.
     ///
     /// # Limitations
     ///
@@ -1505,27 +1584,45 @@ impl Config {
     ///   compile error in the generated code, naming the trait.
     /// - A listed `string` type used as the key of a `map` with enum values
     ///   is a codegen error from [`compile`](Self::compile).
+    /// - A listed `string` type used as a `map` key must have a policy that
+    ///   round-trips, and so is injective (see the `ProtoStringJson` contract):
+    ///   otherwise import loses or alters entries. This is not checked.
     /// - A type that no effective representation rule selects is an error.
     ///   Binding and spelling errors remain errors with JSON disabled. A valid
     ///   listed type while [`generate_json`](Self::generate_json) is off
     ///   produces a `cargo:warning` because its policy is inactive.
-    /// - A policy shapes only the generated JSON and is not a confidentiality
-    ///   boundary. Binary encoding, generated text format, and
-    ///   descriptor-driven reflection never call it: JSON produced or read
-    ///   through `DynamicMessage` (including a generated message converted with
-    ///   `to_dynamic`, or with `DynamicMessage::try_from_message`, which works
-    ///   whether or not reflection is generated) encodes the field as standard
-    ///   base64 or a plain string, so a policy that refuses export does not
-    ///   stop it, and its import checks do not run. With JSON and reflection
-    ///   ([`generate_reflection`](Self::generate_reflection) or
-    ///   [`reflect_mode`](Self::reflect_mode)) both on, generated fields using a policy type
-    ///   produce one `cargo:warning` per `compile()`, naming the selected
+    /// - With JSON and reflection both on, generated fields using a policy
+    ///   type produce one `cargo:warning` per `compile()`, naming selected
     ///   types. Rules used only by another directory do not trigger it.
     #[must_use]
     pub fn json_policy_type(mut self, path: &str) -> Self {
         self.codegen_config
             .json_policy_types
             .push(path.trim().to_string());
+        self
+    }
+
+    /// Control emission of custom bytes/string element integration impls.
+    ///
+    /// Set this to `false` when shared representation types provide their
+    /// `ProtoElemJson`, `ReflectElement`, `ReflectMapKey` and `InspectElement` implementations in
+    /// their defining crate. A type listed with
+    /// [`json_policy_type`](Self::json_policy_type) needs no `ProtoElemJson`.
+    /// This permits foreign types and multiple generation calls without
+    /// orphan-rule or duplicate-impl errors. Missing traits fail
+    /// compilation; JSON policy selection is still required separately.
+    #[must_use]
+    pub fn emit_custom_type_impls(mut self, enabled: bool) -> Self {
+        self.codegen_config.emit_custom_type_impls = enabled;
+        self
+    }
+
+    /// Permit global message selectors absent from a scoped generation request.
+    /// Unmatched selectors still warn. Validate the complete project with this
+    /// disabled to catch misspelled cleanup or view-export rules as errors.
+    #[must_use]
+    pub fn allow_unmatched_message_rules(mut self, enabled: bool) -> Self {
+        self.codegen_config.allow_unmatched_message_rules = enabled;
         self
     }
 
@@ -1827,9 +1924,11 @@ impl Config {
     /// For [`RepeatedRepr::Custom`], the collection must implement
     /// `buffa::ProtoList<T>`. Unlike the scalar `string_type_custom` /
     /// `bytes_type_custom` knobs (which take a *complete* type path), this path
-    /// is a **template** with a `*` placeholder for the element type, and it must
-    /// name a **crate-local newtype** (a foreign collection cannot implement the
-    /// buffa-owned `ProtoList`).
+    /// is a **template** with a `*` placeholder for the element type. Existing
+    /// `ProtoList` implementations work through aliases and associated types.
+    /// If the defining crate provides no implementation, use a crate-local
+    /// newtype to satisfy the orphan rule. See [`RepeatedRepr::Custom`] for
+    /// the bounds required by JSON, reflection and arbitrary generation.
     ///
     /// Only the owned collection changes: the wire format is unchanged and view
     /// types still borrow `&[T]`.
@@ -1880,15 +1979,18 @@ impl Config {
     /// - The template must contain at least one `*`; a template that omits it,
     ///   or whose substitution is not a Rust type path, is reported as a
     ///   codegen error from [`compile`](Self::compile).
-    /// - The template must name a **crate-local newtype** — a foreign collection
-    ///   cannot implement the buffa-owned `ProtoList` (orphan rule). This applies
-    ///   to *every* build, not just reflection: the generated decode and clear
-    ///   code require `Field: ProtoList`.
-    /// - Under reflection / vtable the newtype must also implement
-    ///   `buffa_descriptor`'s `ReflectList` (not derivable, but a `Vec`-backed
-    ///   newtype can delegate to the inner `Vec<T>`). Under JSON it must
-    ///   implement `serde::Serialize` / `Deserialize`; under `generate_arbitrary`,
-    ///   `arbitrary::Arbitrary` (derivable on a newtype). See `buffa::ProtoList`
+    /// - The resolved collection must implement `buffa::ProtoList<T>`. An
+    ///   associated type resolving to `Vec<T>` already satisfies this; a
+    ///   foreign collection without an implementation needs a crate-local
+    ///   newtype to satisfy the orphan rule.
+    /// - Vtable reflection requires `ReflectList`; cleanup-profile borrowed
+    ///   inspection requires `InspectList`. Ordinary bridge reflection needs
+    ///   neither on the owned collection.
+    /// - JSON scalar, enum and policy helpers decode through `ProtoList<T>`
+    ///   and the element's JSON traits, without requiring the collection's
+    ///   `Deserialize`. Positions using ordinary serde instead require the
+    ///   collection's `Serialize` / `Deserialize`. See [`RepeatedRepr::Custom`]
+    ///   for the complete representation requirements and `buffa::ProtoList`
     ///   for a worked newtype example.
     #[must_use]
     pub fn repeated_type_custom_in(self, template: &str, paths: &[impl AsRef<str>]) -> Self {
@@ -3763,6 +3865,15 @@ mod tests {
     }
 
     #[test]
+    fn deny_view_json_normalizes_and_accumulates_paths() {
+        let config = Config::new()
+            .deny_view_json(&["demo.Private.", " .demo.Other "])
+            .deny_view_json(&["."])
+            .codegen_config;
+        assert_eq!(config.deny_view_json, [".demo.Private", ".demo.Other", "."]);
+    }
+
+    #[test]
     fn codec_strategy_in_normalizes_paths_and_keeps_rule_order() {
         let config = Config::new()
             .codec_strategy(CodecStrategy::Table)
@@ -4419,6 +4530,21 @@ mod tests {
 
         write_if_changed(&path, b"new").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"new");
+    }
+
+    #[test]
+    fn security_rule_normalization_never_turns_an_empty_path_into_a_catch_all() {
+        let config = Config::new()
+            .zeroize_in(&["", " . ", " demo.Record. "])
+            .deny_view_json(&["", " . ", " demo.Record. "]);
+        assert_eq!(
+            config.codegen_config.zeroize_messages,
+            ["", ".", ".demo.Record"]
+        );
+        assert_eq!(
+            config.codegen_config.deny_view_json,
+            ["", ".", ".demo.Record"]
+        );
     }
 
     #[test]

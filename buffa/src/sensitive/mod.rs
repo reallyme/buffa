@@ -4,11 +4,30 @@
 //! outgrown allocations; a map keeps keys and values in stable wipe-owned
 //! allocations so tree balancing only moves pointers.
 
+#[cfg(feature = "arbitrary")]
+#[doc(hidden)]
+pub mod arbitrary;
+#[cfg(feature = "arbitrary")]
+pub use arbitrary::GuardedArbitrary;
 mod list;
 mod map;
 pub use list::{IterMut, List};
 pub use map::{Map, MapKey};
 pub use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
+
+/// Fixed diagnostics used by generated guarded JSON visitors.
+#[cfg(feature = "json")]
+#[doc(hidden)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum JsonErrorReason {
+    /// A typed parser may reject a value before the redacting visitor runs.
+    #[error("invalid JSON for guarded message")]
+    InvalidMessage,
+    /// Unknown field names can contain caller-provided private data.
+    #[error("unknown JSON field in guarded message")]
+    UnknownField,
+}
 
 impl<T: Default + Zeroize, P: crate::ProtoBox<T>> Zeroize for crate::MessageField<T, P> {
     fn zeroize(&mut self) {

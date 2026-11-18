@@ -66,9 +66,9 @@ impl ZeroizeOnDrop for SecretBytes {}
 /// Copy one bounded field payload into a single wipe-owned allocation.
 fn read_guarded(payload: &mut FieldPayload<impl Buf>) -> Result<Zeroizing<Vec<u8>>, DecodeError> {
     let mut bytes = Zeroizing::new(Vec::new());
-    // The length is already checked against the input, and the reservation
-    // happens before any secret byte is written, so no reallocation can leave
-    // a copy behind.
+    // The length is already checked against the input (and, under generated
+    // code, the enclosing message), and the reservation happens before any
+    // secret byte is written, so no reallocation can leave a copy behind.
     bytes
         .try_reserve_exact(payload.remaining())
         .map_err(|_| DecodeError::MessageTooLarge)?;
@@ -113,12 +113,13 @@ impl ProtoBytesJson for SecretBytes {
             fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
                 let mut bytes = Zeroizing::new(Vec::new());
                 // Base64 output never exceeds the input length. Reserve once,
-                // before any secret is written, so reallocation cannot expose it.
+                // before any secret is written, so reallocation cannot expose it,
+                // then decode once into that storage.
                 bytes
                     .try_reserve_exact(value.len())
                     .map_err(|_| E::custom(GuardedJsonErrorReason::AllocationFailed))?;
                 bytes.resize(value.len(), 0);
-                let length = decode_base64_into(value, &mut bytes).map_err(E::custom)?;
+                let length = buffa::json_helpers::bytes::decode_into::<E>(value, &mut bytes)?;
                 bytes.truncate(length);
                 Ok(core::mem::take(&mut *bytes).into())
             }
@@ -131,25 +132,8 @@ impl ProtoBytesJson for SecretBytes {
     }
 }
 
-fn decode_base64_into(value: &str, output: &mut [u8]) -> Result<usize, GuardedJsonErrorReason> {
-    use base64::alphabet;
-    use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-    use base64::Engine as _;
-    const CONFIG: GeneralPurposeConfig = GeneralPurposeConfig::new()
-        .with_decode_allow_trailing_bits(true)
-        .with_decode_padding_mode(DecodePaddingMode::Indifferent);
-    let standard = GeneralPurpose::new(&alphabet::STANDARD, CONFIG);
-    let url_safe = GeneralPurpose::new(&alphabet::URL_SAFE, CONFIG);
-    standard
-        .decode_slice(value, &mut *output)
-        .or_else(|_| url_safe.decode_slice(value, output))
-        .map_err(|_| GuardedJsonErrorReason::InvalidBase64)
-}
-
 #[derive(Debug, thiserror::Error)]
 enum GuardedJsonErrorReason {
-    #[error("invalid base64 in guarded field")]
-    InvalidBase64,
     #[error("guarded JSON buffer allocation failed")]
     AllocationFailed,
 }

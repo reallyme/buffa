@@ -1,0 +1,42 @@
+syntax = "proto3";
+package cleanup_input;
+message Plain {
+  int32 count = 1;
+  bool accept = 2;
+  int32 hidden = 3;
+  int32 conditional = 4;
+  int32 conditional_default = 5;
+  int32 skipped_default = 6;
+}
+message Guarded {
+  int32 count = 1;
+  bool accept = 2;
+  int32 hidden = 3;
+  int32 conditional = 4;
+  int32 conditional_default = 5;
+  int32 skipped_default = 6;
+}
+message StrictPlain {
+  int32 count = 1;
+  bool accept = 2;
+  int32 hidden = 3;
+  int32 conditional = 4;
+  int32 conditional_default = 5;
+  int32 skipped_default = 6;
+}
+message StrictGuarded {
+  int32 count = 1;
+  bool accept = 2;
+  int32 hidden = 3;
+  int32 conditional = 4;
+  int32 conditional_default = 5;
+  int32 skipped_default = 6;
+}
+message NumericContexts {
+  optional int64 optional_number = 1;
+  repeated int64 repeated_numbers = 2;
+  map<int32, int64> mapped_numbers = 3;
+  oneof selected { int64 oneof_number = 4; }
+}
+message SkippedGuarded { int32 value = 1; }
+message ConditionalSkippedGuarded { int32 value = 1; }

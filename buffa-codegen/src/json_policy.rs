@@ -9,6 +9,21 @@ use crate::context::CodeGenContext;
 use crate::generated::descriptor::field_descriptor_proto::Type;
 use crate::CodeGenError;
 
+/// Reject before invoking the serializer, including for an empty view.
+pub(crate) fn denied_view_serialize(name: &proc_macro2::Ident) -> TokenStream {
+    quote! {
+        impl<'__a> ::serde::Serialize for #name<'__a> {
+            fn serialize<__S: ::serde::Serializer>(&self, _serializer: __S)
+                -> ::core::result::Result<__S::Ok, __S::Error>
+            {
+                Err(<__S::Error as ::serde::ser::Error>::custom(
+                    ::buffa::json_helpers::ViewJsonErrorReason::Denied
+                ))
+            }
+        }
+    }
+}
+
 /// Which policy trait a field's custom representation implements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum JsonPolicyKind {

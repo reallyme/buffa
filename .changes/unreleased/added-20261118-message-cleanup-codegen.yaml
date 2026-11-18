@@ -1,0 +1,3 @@
+kind: Added
+body: "Add opt-in recursive message/oneof/view cleanup with fail-closed representation checks, borrowed-only inspection, Drop-safe JSON/default construction and direct-to-owner collection decoding. Standard owned-view wrappers are omitted for cleanup messages and containers; generation defaults remain unchanged."
+time: 2026-11-18T22:00:00+01:00

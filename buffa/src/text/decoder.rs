@@ -632,7 +632,7 @@ impl<'a> TextDecoder<'a> {
         out: &mut Vec<T>,
         read_one: impl FnMut(&mut Self) -> Result<T, ParseError>,
     ) -> Result<(), ParseError> {
-        self.read_repeated_inner(out, read_one, false)
+        self.read_repeated_inner(|value| out.push(value), read_one, false)
     }
 
     /// Read one or more values of a repeated scalar field into `out`,
@@ -658,12 +658,44 @@ impl<'a> TextDecoder<'a> {
         out: &mut Vec<T>,
         read_one: impl FnMut(&mut Self) -> Result<T, ParseError>,
     ) -> Result<(), ParseError> {
-        self.read_repeated_inner(out, read_one, true)
+        self.read_repeated_inner(|value| out.push(value), read_one, true)
+    }
+
+    /// Decode repeated messages directly into a custom collection.
+    /// # Errors
+    /// Returns a tokenizer or element-decoding error, preserving earlier elements.
+    pub fn read_repeated_into_storage<T, C: crate::ProtoList<T>>(
+        &mut self,
+        out: &mut C,
+        read_one: impl FnMut(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<(), ParseError> {
+        self.read_repeated_inner(|value| crate::ProtoList::push(out, value), read_one, false)
+    }
+    /// Decode repeated scalars directly into a custom collection, requiring `:`.
+    /// # Errors
+    /// Returns a tokenizer or element-decoding error, preserving earlier elements.
+    pub fn read_repeated_scalar_into_storage<T, C: crate::ProtoList<T>>(
+        &mut self,
+        out: &mut C,
+        read_one: impl FnMut(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<(), ParseError> {
+        self.read_repeated_inner(|value| crate::ProtoList::push(out, value), read_one, true)
+    }
+
+    /// Decode repeated message values and pass each one directly to its owner.
+    /// # Errors
+    /// Returns a tokenizer or element-decoding error after committing earlier values.
+    pub fn read_repeated_with<T>(
+        &mut self,
+        push: impl FnMut(T),
+        read_one: impl FnMut(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<(), ParseError> {
+        self.read_repeated_inner(push, read_one, false)
     }
 
     fn read_repeated_inner<T>(
         &mut self,
-        out: &mut Vec<T>,
+        mut push: impl FnMut(T),
         mut read_one: impl FnMut(&mut Self) -> Result<T, ParseError>,
         empty_list_requires_separator: bool,
     ) -> Result<(), ParseError> {
@@ -683,7 +715,7 @@ impl<'a> TextDecoder<'a> {
             }
             loop {
                 self.charge_element::<T>()?;
-                out.push(read_one(self)?);
+                push(read_one(self)?);
                 // The tokenizer consumes the comma between elements. When
                 // there are no more elements, `ListClose` is next.
                 if self.tok.peek()?.kind == TokenKind::ListClose {
@@ -694,7 +726,7 @@ impl<'a> TextDecoder<'a> {
         }
         // Single-value form.
         self.charge_element::<T>()?;
-        out.push(read_one(self)?);
+        push(read_one(self)?);
         Ok(())
     }
 

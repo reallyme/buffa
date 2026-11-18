@@ -348,9 +348,39 @@ pub fn generate_enum(
     // the enum carries it too, like the scoped `non_snake_case` allow on
     // messages (#408). A regular `//` comment inside `quote!` is dropped,
     // which is why this note sits outside it.
+    let zeroize_impl = if ctx.config.generate_zeroize || !ctx.config.zeroize_messages.is_empty() {
+        quote! { impl ::buffa::sensitive::Zeroize for #name_ident {
+            fn zeroize(&mut self) { ::buffa::sensitive::reset_copy(self); }
+        } }
+    } else {
+        quote! {}
+    };
+    // Borrowed inspection follows the `ReflectElement` rule above: emit the
+    // element impl for every enum, whatever its openness here, because a
+    // generation that reaches this enum through `extern_path` may resolve it
+    // as closed and type it bare in a guarded list or map. The trait lives
+    // behind `buffa-descriptor`'s `zeroize` feature, so the impl still needs
+    // a generation that selects cleanup.
+    let inspect_impl = if ctx.config.generate_reflection
+        && (ctx.config.generate_zeroize || !ctx.config.zeroize_messages.is_empty())
+    {
+        crate::feature_gates::cfg_block(
+            quote! {
+                impl ::buffa_descriptor::reflect::InspectElement for #name_ident {
+                    fn as_inspect_value(&self) -> ::buffa_descriptor::reflect::InspectValueRef<'_> {
+                        ::buffa_descriptor::reflect::InspectValueRef::EnumNumber(
+                            ::buffa::Enumeration::to_i32(self),
+                        )
+                    }
+                }
+            },
+            ctx.config.feature_gates().reflect,
+        )
+    } else {
+        quote! {}
+    };
     let null_value_marker = (proto_fqn == "google.protobuf.NullValue")
         .then(|| quote! { const IS_NULL_VALUE: bool = true; });
-
     Ok(quote! {
         #enum_doc
         #[allow(non_camel_case_types)]
@@ -366,13 +396,14 @@ pub fn generate_enum(
         #alias_block
 
         #default_block
+        #zeroize_impl
+        #inspect_impl
 
         #serde_impls
 
         #deprecated_value_allow
         impl ::buffa::Enumeration for #name_ident {
             #null_value_marker
-
             fn from_i32(value: i32) -> ::core::option::Option<Self> {
                 match value {
                     #(#from_i32_arms,)*

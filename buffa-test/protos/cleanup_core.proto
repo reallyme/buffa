@@ -1,0 +1,18 @@
+syntax = "proto3";
+package cleanup_core;
+message Core {
+ uint64 handle = 1;
+ repeated double values = 2;
+ map<int32, uint64> counts = 3;
+ Core child = 4;
+ bytes key = 5;
+ string identity = 6;
+ repeated bytes keys = 7;
+ repeated string labels = 8;
+ map<string, bytes> material = 9;
+ optional int64 sequence = 10;
+ repeated State history = 11;
+ map<int32, State> states = 12;
+ oneof choice { uint64 number = 13; string label = 14; }
+}
+enum State { STATE_UNSPECIFIED = 0; STATE_ACTIVE = 1; }
