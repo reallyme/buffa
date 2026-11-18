@@ -64,6 +64,9 @@ jobs:
       - name: Tests
         run: cargo test --locked --workspace
 
+      - name: Test optional Chrono conversions
+        run: cargo test --locked -p reallyme-buffa-types --features chrono,json chrono
+
       # Guarded storage and generated integrations must also execute their
       # tests with every optional feature enabled.
       - name: Clippy (all features)
