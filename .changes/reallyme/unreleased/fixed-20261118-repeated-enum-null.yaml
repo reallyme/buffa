@@ -1,0 +1,3 @@
+kind: Fixed
+body: Reject ordinary repeated enum null elements in both JSON modes across Vec, custom and guarded collections. Preserve the explicit NullValue exception for older generated consumers using the updated canonical WKT provider through a defaulted Enumeration marker. Repeated NullValue output changes from the old enum-name spelling to canonical null in owned and borrowed JSON; nonzero unknown numbers remain numeric. Scalar, optional, map and non-human-readable serialization retain their existing behavior. External NullValue providers require regeneration or an explicit marker override, and newly generated canonical providers require the matching runtime.
+time: 2026-11-18T00:00:00Z

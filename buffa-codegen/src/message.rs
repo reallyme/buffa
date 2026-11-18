@@ -307,6 +307,9 @@ fn generate_message_with_nesting(
             &ctx.config.oneof_struct_field_attributes,
             &format!("{proto_fqn}.{oneof_name}"),
         )?;
+        if ctx.config.generate_json && ctx.zeroizes_message(proto_fqn) {
+            crate::serde_input::parse(&custom_attrs, true)?;
+        }
         let tokens = quote! {
             #rename_note
             #oneof_serde_attr
@@ -612,6 +615,10 @@ fn generate_message_with_nesting(
         CodeGenContext::matching_attributes(&ctx.config.type_attributes, proto_fqn)?;
     let custom_message_attrs =
         CodeGenContext::matching_attributes(&ctx.config.message_attributes, proto_fqn)?;
+    if ctx.config.generate_json && ctx.zeroizes_message(proto_fqn) {
+        crate::serde_input::parse(&custom_type_attrs, true)?;
+        crate::serde_input::parse(&custom_message_attrs, true)?;
+    }
     let custom_deserialize = if needs_custom_deserialize {
         crate::feature_gates::cfg_block(
             generate_custom_deserialize(
@@ -1422,7 +1429,11 @@ fn generate_custom_deserialize(
             }
         }
     } else {
+        // All accepting arms can be disabled by caller cfg_attr skips. In
+        // that configuration a strict visitor correctly rejects its first key.
+        let allow_never_loop = guarded.then(|| quote! { #[allow(clippy::never_loop)] });
         quote! {
+            #allow_never_loop
             while let Some(key) = map.next_key::<::buffa::alloc::string::String>()? {
                 #guard_key
                 #number_key
@@ -1444,8 +1455,11 @@ fn generate_custom_deserialize(
     } else {
         quote! { mut }
     };
-    let result_init =
-        quote! { let #result_mut __r = <#name_ident as ::core::default::Default>::default(); };
+    // Conditional input skips can remove every assignment after cfg expansion.
+    let allow_unused_mut = ctx
+        .zeroizes_message(proto_fqn)
+        .then(|| quote! { #[allow(unused_mut)] });
+    let result_init = quote! { #allow_unused_mut let #result_mut __r = <#name_ident as ::core::default::Default>::default(); };
     let (early_result, late_result) = if ctx.zeroizes_message(proto_fqn) {
         (result_init, quote! {})
     } else {
@@ -1459,6 +1473,20 @@ fn generate_custom_deserialize(
         ::buffa::json_helpers::reject_other_json_kinds!(
             bool, i64, u64, i128, u128, f64, str, string, bytes, byte_buf, unit, seq
         );
+    };
+    let empty_document = if guarded {
+        // Empty YAML reaches visit_none, but it still represents an empty
+        // message map. Reuse that path so caller defaults run under the same
+        // early cleanup owner instead of silently reverting to Rust defaults.
+        quote! {
+            ::serde::de::Visitor::visit_map(self,
+                ::serde::de::value::MapDeserializer::<_, __E>::new(
+                    ::core::iter::empty::<(::core::primitive::u8, ::core::primitive::u8)>()
+                )
+            )
+        }
+    } else {
+        quote! { ::core::result::Result::Ok(<#name_ident as ::core::default::Default>::default()) }
     };
     let non_snake_attr = ctx.message_non_snake_attr(msg);
     let deprecated_field_allow = deprecated_field_allow(ctx, msg, proto_fqn);
@@ -1503,7 +1531,7 @@ fn generate_custom_deserialize(
                     // `visit_none`; `deserialize_map` read it as an empty
                     // map. JSON never sends it.
                     fn visit_none<__E: ::serde::de::Error>(self) -> ::core::result::Result<#name_ident, __E> {
-                        ::core::result::Result::Ok(<#name_ident as ::core::default::Default>::default())
+                        #empty_document
                     }
 
                     fn visit_enum<__A: ::serde::de::EnumAccess<'de>>(self, tagged: __A) -> ::core::result::Result<Self::Value, __A::Error> {
@@ -1644,34 +1672,67 @@ fn custom_deser_regular_field(
         } else {
             vec![json_name.to_owned()]
         };
-        // Before opting into cleanup, a message without real oneofs used
-        // serde's derived visitor, which rejected duplicate fields (including
-        // nulls and aliases). Streaming into an early owner must preserve that
-        // validation contract. Existing oneof visitors retain last-wins for
-        // their regular fields.
-        let (var_decl, duplicate_check) = if msg.field.iter().any(is_real_oneof_member) {
-            (quote! {}, quote! {})
+        let attributes = CodeGenContext::matching_attributes(
+            &ctx.config.field_attributes,
+            &format!("{}.{}", scope.proto_fqn, field_name),
+        )?;
+        let policy = crate::serde_input::parse(&attributes, false)?;
+        let acceptance = policy.acceptance();
+        let duplicates = !msg.field.iter().any(is_real_oneof_member);
+        let track_presence = duplicates || !policy.defaults.is_empty();
+        let var_decl = if track_presence {
+            crate::serde_input::gate(acceptance.clone(), quote! { let mut #var_ident = false; })
         } else {
-            (
-                quote! {let mut #var_ident = false;},
-                quote! {
-                    if #var_ident {
-                        return Err(<__A::Error as ::serde::de::Error>::duplicate_field(#field_name));
-                    }
-                    #var_ident = true;
-                },
-            )
+            quote! {}
         };
-        return Ok(CustomDeserField {
-            var_decl,
-            field_init: quote! {},
-            accepted_keys: keys.clone(),
-            arm: quote! { #(#keys)|* => {
-                #duplicate_check
-                let value = #deser_expr;
+        let duplicate_check = duplicates.then(|| {
+            quote! {
+                if #var_ident {
+                    return Err(<__A::Error as ::serde::de::Error>::duplicate_field(#field_name));
+                }
+            }
+        });
+        let record_presence = track_presence.then(|| quote! { #var_ident = true; });
+        let assign = |value: TokenStream| {
+            quote! {
+                let value = #value;
                 ::buffa::sensitive::Zeroize::zeroize(&mut __r.#field_ident);
                 __r.#field_ident = value;
+            }
+        };
+        // Apply caller defaults only for missing/skipped fields. The cleanup
+        // owner already exists and retains every parsed value on later errors.
+        let mut field_init = TokenStream::new();
+        for default in &policy.defaults {
+            let replace = assign(default.expression());
+            let absent = quote! { if !#var_ident { #replace } };
+            let apply = match acceptance.clone() {
+                Some(condition) => {
+                    let accepted = crate::serde_input::gate(Some(condition.clone()), absent);
+                    let skipped = crate::serde_input::gate(
+                        Some(quote! { not(#condition) }),
+                        quote! { { #replace } },
+                    );
+                    quote! { #accepted #skipped }
+                }
+                None => absent,
+            };
+            field_init.extend(default.gate(quote! { { #apply } }));
+        }
+        let replace = assign(deser_expr);
+        let arm = crate::serde_input::gate(
+            acceptance,
+            quote! { #(#keys)|* => {
+                #duplicate_check
+                #record_presence
+                #replace
             } },
+        );
+        return Ok(CustomDeserField {
+            var_decl,
+            field_init,
+            accepted_keys: keys,
+            arm,
         });
     }
     // Match arm accepting both json_name and proto_name. `accepted_keys`
@@ -2358,6 +2419,11 @@ fn generate_field(
     };
     let custom_field_attrs =
         CodeGenContext::matching_attributes(&ctx.config.field_attributes, &field_fqn)?;
+    if ctx.config.generate_json && ctx.zeroizes_message(proto_fqn) {
+        // Validate before legacy default inspection can retain raw attributes
+        // in its diagnostic. Cleanup diagnostics carry fixed typed reasons.
+        crate::serde_input::parse(&custom_field_attrs, false)?;
+    }
     // Deprecation reaches a generated field from two sources: the
     // `[deprecated = true]` option, and a caller-supplied `#[deprecated]` from
     // `field_attribute` (the documented workaround for the option having been

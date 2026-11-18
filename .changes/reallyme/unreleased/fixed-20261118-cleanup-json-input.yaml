@@ -1,0 +1,3 @@
+kind: Fixed
+body: Preserve supported caller Serde defaults and input skips, including conditional attributes, when messages opt into cleanup. Reject unsupported input customizations with a fixed typed configuration error. Wipe transferred numeric JSON strings before release on both successful conversion and rejection without copying borrowed input.
+time: 2026-11-18T00:00:00Z

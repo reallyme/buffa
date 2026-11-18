@@ -686,3 +686,15 @@ mod tests {
         assert_forwards_io_source(&err);
     }
 }
+
+#[cfg(test)]
+mod cleanup_input_defaults {
+    #[test]
+    fn empty_documents_apply_caller_defaults_under_cleanup() {
+        let ordinary: buffa_test::cleanup_input::Plain = super::from_str("").unwrap();
+        let guarded: buffa_test::cleanup_input::Guarded = super::from_str("").unwrap();
+        assert_eq!(ordinary.count, 17);
+        assert_eq!(guarded.count, ordinary.count);
+        assert_eq!(guarded.skipped_default, ordinary.skipped_default);
+    }
+}

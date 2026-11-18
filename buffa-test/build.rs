@@ -261,6 +261,70 @@ fn main() {
         .compile()
         .expect("closed-enum reflection fixture generation failed");
 
+    let mut cleanup_input = buffa_build::Config::new()
+        .files(&["protos/cleanup_input.proto"])
+        .includes(&["protos/"])
+        .generate_views(false)
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .zeroize_in(&[
+            ".cleanup_input.Guarded",
+            ".cleanup_input.StrictGuarded",
+            ".cleanup_input.NumericContexts",
+        ])
+        .deny_unknown_json_fields_in(&[
+            ".cleanup_input.StrictPlain",
+            ".cleanup_input.StrictGuarded",
+        ]);
+    for name in ["Plain", "Guarded", "StrictPlain", "StrictGuarded"] {
+        let prefix = format!(".cleanup_input.{name}");
+        for (field, attribute) in [
+            ("count", "#[serde(default = \"crate::cleanup_input::custom_count\")]"),
+            ("accept", "#[serde(skip_deserializing)]"),
+            ("hidden", "#[serde(skip)]"),
+            ("conditional", "#[cfg_attr(all(), cfg_attr(feature = \"arbitrary\", serde(skip_deserializing)))]"),
+            ("conditional_default", "#[cfg_attr(all(), cfg_attr(feature = \"arbitrary\", serde(default = \"crate::cleanup_input::custom_count\")))]"),
+            ("skipped_default", "#[serde(skip_deserializing, default = \"crate::cleanup_input::custom_count\")]"),
+        ] {
+            cleanup_input = cleanup_input.field_attribute(format!("{prefix}.{field}"), attribute);
+        }
+    }
+    cleanup_input = cleanup_input
+        .zeroize_in(&[
+            ".cleanup_input.SkippedGuarded",
+            ".cleanup_input.ConditionalSkippedGuarded",
+        ])
+        .deny_unknown_json_fields_in(&[
+            ".cleanup_input.SkippedGuarded",
+            ".cleanup_input.ConditionalSkippedGuarded",
+            ".cleanup_input.NumericContexts",
+        ])
+        .field_attribute(
+            ".cleanup_input.SkippedGuarded.value",
+            "#[serde(skip_deserializing)]",
+        )
+        .field_attribute(
+            ".cleanup_input.ConditionalSkippedGuarded.value",
+            "#[cfg_attr(feature = \"arbitrary\", serde(skip_deserializing))]",
+        );
+    cleanup_input
+        .compile()
+        .expect("cleanup input policy fixture failed");
+
+    buffa_build::Config::new()
+        .files(&["protos/enum_nulls.proto"])
+        .includes(&["protos/"])
+        .generate_views(true)
+        .preserve_unknown_fields(false)
+        .generate_json(true)
+        .zeroize_in(&[".enum_nulls.Guarded"])
+        .repeated_type_custom_in(
+            "crate::repeated_type::CustomList<*>",
+            &[".enum_nulls.Custom"],
+        )
+        .compile()
+        .expect("enum null boundary fixture failed");
+
     // Separate generations share foreign representations without emitting
     // implementations for either foreign type in this consuming crate.
     for file in [

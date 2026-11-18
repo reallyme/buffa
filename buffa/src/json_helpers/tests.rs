@@ -1051,8 +1051,8 @@ fn repeated_enum_modules_deserialize_into_a_custom_list() {
 }
 
 #[test]
-fn streaming_enum_collections_preserve_ordinary_null_behavior() {
-    for source in ["null", "[]", "[null]", "[1,null,0]"] {
+fn streaming_enum_collections_reject_null_elements() {
+    for source in ["null", "[]", "[1,0]"] {
         let ordinary: Vec<crate::EnumValue<Color>> =
             repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source)).unwrap();
         let streaming: Vec<crate::EnumValue<Color>> =
@@ -1060,6 +1060,12 @@ fn streaming_enum_collections_preserve_ordinary_null_behavior() {
         assert_eq!(ordinary, streaming);
     }
     for source in ["[null]", "[1,null]"] {
+        let ordinary: Result<Vec<crate::EnumValue<Color>>, _> =
+            repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source));
+        let streaming: Result<Vec<crate::EnumValue<Color>>, _> =
+            enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source));
+        assert!(ordinary.is_err());
+        assert!(streaming.is_err());
         let ordinary: Result<Vec<Color>, _> =
             repeated_closed_enum::deserialize(&mut serde_json::Deserializer::from_str(source));
         let streaming: Result<Vec<Color>, _> =
@@ -1071,7 +1077,7 @@ fn streaming_enum_collections_preserve_ordinary_null_behavior() {
     crate::json::with_json_parse_options(
         &crate::json::JsonParseOptions::new().ignore_unknown_enum_values(true),
         || {
-            let source = r#"[null,"UNKNOWN",1]"#;
+            let source = r#"["UNKNOWN",1]"#;
             let ordinary: Vec<crate::EnumValue<Color>> =
                 repeated_enum::deserialize(&mut serde_json::Deserializer::from_str(source))
                     .unwrap();
@@ -1079,7 +1085,7 @@ fn streaming_enum_collections_preserve_ordinary_null_behavior() {
                 enum_list::open::deserialize(&mut serde_json::Deserializer::from_str(source))
                     .unwrap();
             assert_eq!(ordinary, streaming);
-            assert_eq!(streaming.len(), 2);
+            assert_eq!(streaming.len(), 1);
         },
     );
 }

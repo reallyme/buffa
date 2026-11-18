@@ -414,6 +414,9 @@ fn collect_variant_info(
             let variant_fqn = format!("{proto_fqn}.{oneof_name}.{proto_name}");
             let custom_attrs =
                 CodeGenContext::matching_attributes(&ctx.config.field_attributes, &variant_fqn)?;
+            if ctx.config.generate_json && ctx.zeroizes_message(proto_fqn) {
+                crate::serde_input::parse(&custom_attrs, true)?;
+            }
             // Recursive variants never make it into the resolved unboxed set
             // (see `resolve_unboxed_variants`), so a variant that an
             // *exact-path* rule names but that is still boxed can only have
@@ -692,6 +695,10 @@ pub fn generate_oneof_enum(
     };
     let custom_oneof_attrs =
         CodeGenContext::matching_attributes(&ctx.config.oneof_attributes, &oneof_fqn)?;
+    if ctx.config.generate_json && ctx.zeroizes_message(proto_fqn) {
+        crate::serde_input::parse(&custom_type_attrs, true)?;
+        crate::serde_input::parse(&custom_oneof_attrs, true)?;
+    }
 
     // Variants whose field is `[debug_redact = true]` print a placeholder
     // instead of their payload. The `Debug` derive is swapped for a manual

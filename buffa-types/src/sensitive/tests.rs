@@ -97,6 +97,32 @@ fn null_value_collection_elements_are_retained_as_numeric_zero() {
     .unwrap();
     assert_eq!(values.len(), 2);
     assert!(values.iter().all(|value| value.to_i32() == 0));
+    let ordinary: Vec<Null> = buffa::json_helpers::repeated_enum::deserialize(
+        &mut serde_json::Deserializer::from_str("[null,0,99]"),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(buffa::json_helpers::EnumSeqJson(&ordinary)).unwrap(),
+        serde_json::json!([null, null, 99])
+    );
+    let closed: Vec<crate::google::protobuf::NullValue> =
+        buffa::json_helpers::repeated_closed_enum::deserialize(
+            &mut serde_json::Deserializer::from_str("[null,0]"),
+        )
+        .unwrap();
+    let encoded = serde_json::to_value(buffa::json_helpers::ClosedEnumSeqJson(&closed)).unwrap();
+    assert_eq!(encoded, serde_json::json!([null, null]));
+    let scalar: Null = 0.into();
+    assert_eq!(
+        serde_json::to_value(scalar).unwrap(),
+        serde_json::json!("NULL_VALUE")
+    );
+    let streamed: Vec<crate::google::protobuf::NullValue> =
+        buffa::json_helpers::enum_list::closed::deserialize(
+            &mut serde_json::Deserializer::from_str("[null,0]"),
+        )
+        .unwrap();
+    assert_eq!(streamed, closed);
     let values: buffa::sensitive::Map<i32, Null> =
         buffa::json_helpers::guarded_enum::map_open::deserialize(
             &mut serde_json::Deserializer::from_str(r#"{"01":null}"#),

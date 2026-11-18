@@ -39,6 +39,9 @@ pub(crate) mod impl_message;
 pub(crate) mod impl_text;
 pub(crate) mod imports;
 pub(crate) mod json_policy;
+mod serde_input;
+
+pub use serde_input::ErrorReason as CleanupJsonAttributeErrorReason;
 pub(crate) mod lazy_view;
 pub(crate) mod message;
 pub(crate) mod oneof;
@@ -6110,6 +6113,11 @@ pub enum CodeGenError {
     /// Native adapter metadata failed validation; input values are redacted.
     #[error(transparent)]
     Adapter(#[from] adapters::AdapterError),
+
+    /// A cleanup JSON visitor cannot preserve a caller input policy.
+    #[error(transparent)]
+    CleanupJsonAttribute(#[from] CleanupJsonAttributeErrorReason),
+
     /// A view-export restriction matches no known message.
     #[error("deny_view_json rule '{rule}' matches no known message")]
     ViewJsonRuleMatchedNothing { rule: String },

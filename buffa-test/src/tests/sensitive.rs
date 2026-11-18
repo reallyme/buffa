@@ -596,9 +596,10 @@ fn cleanup_builders_avoid_owned_struct_updates() {
     assert_eq!(value.child.handle, 9);
     assert_eq!(&*value.embedding, &[1.25, 2.5]);
     assert!(!format!("{value:?}").contains("42"));
-    let null: Record = serde_json::from_str(r#"{"statusHistory":["STATUS_VALID",null]}"#).unwrap();
-    assert_eq!(null.status_history.len(), 2);
-    assert_eq!(null.status_history[1].to_i32(), 0);
+    assert!(serde_json::from_str::<Record>(r#"{"statusHistory":["STATUS_VALID",null]}"#).is_err());
+    let zero: Record = serde_json::from_str(r#"{"statusHistory":["STATUS_VALID",0]}"#).unwrap();
+    assert_eq!(zero.status_history.len(), 2);
+    assert_eq!(zero.status_history[1].to_i32(), 0);
     assert!(serde_json::from_str::<Record>(
         r#"{"statusHistory":["STATUS_VALID",9223372036854775807]}"#,
     )

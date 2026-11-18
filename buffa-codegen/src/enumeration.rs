@@ -380,6 +380,8 @@ pub fn generate_enum(
     } else {
         quote! {}
     };
+    let null_value_marker = (proto_fqn == "google.protobuf.NullValue")
+        .then(|| quote! { const IS_NULL_VALUE: bool = true; });
     Ok(quote! {
         #enum_doc
         #[allow(non_camel_case_types)]
@@ -402,6 +404,7 @@ pub fn generate_enum(
 
         #deprecated_value_allow
         impl ::buffa::Enumeration for #name_ident {
+            #null_value_marker
             fn from_i32(value: i32) -> ::core::option::Option<Self> {
                 match value {
                     #(#from_i32_arms,)*

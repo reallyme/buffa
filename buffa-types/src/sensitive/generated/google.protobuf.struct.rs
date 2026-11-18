@@ -38,6 +38,7 @@ impl ::buffa_descriptor::reflect::InspectElement for NullValue {
     }
 }
 impl ::buffa::Enumeration for NullValue {
+    const IS_NULL_VALUE: bool = true;
     fn from_i32(value: i32) -> ::core::option::Option<Self> {
         match value {
             0i32 => ::core::option::Option::Some(Self::NULL_VALUE),

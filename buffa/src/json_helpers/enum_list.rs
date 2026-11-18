@@ -9,7 +9,7 @@ use serde::{
 };
 
 #[derive(Debug, thiserror::Error)]
-enum ErrorReason {
+pub(super) enum ErrorReason {
     #[error("unknown protobuf enum value")]
     Unknown,
     #[error("protobuf enum number is outside i32 range")]
@@ -33,7 +33,7 @@ pub(super) struct EnumSeed<E> {
     null_policy: NullPolicy,
     marker: PhantomData<fn() -> E>,
 }
-impl<E> EnumSeed<E> {
+impl<E: crate::Enumeration> EnumSeed<E> {
     pub(super) fn new(closed: bool) -> Self {
         Self {
             closed,
@@ -42,7 +42,19 @@ impl<E> EnumSeed<E> {
             marker: PhantomData,
         }
     }
-    pub(super) fn open_collection() -> Self {
+    pub(super) fn collection(closed: bool) -> Self {
+        Self {
+            null_policy: if E::IS_NULL_VALUE {
+                NullPolicy::Zero
+            } else {
+                NullPolicy::Reject
+            },
+            ..Self::new(closed)
+        }
+    }
+    #[cfg(feature = "zeroize")]
+    pub(super) fn open_map() -> Self {
+        // Preserve map parsing policy independently of repeated elements.
         Self {
             null_policy: NullPolicy::Zero,
             ..Self::new(false)
@@ -140,8 +152,8 @@ pub mod open {
     use super::*;
     /// Decode an enum array or null, applying the configured unknown-name policy.
     /// # Errors
-    /// Null elements retain the ordinary open-enum mapping to numeric zero.
-    /// Returns the deserializer's error for malformed or out-of-range elements.
+    /// Rejects null elements unless the enum explicitly represents NullValue;
+    /// malformed or out-of-range elements are rejected in either parse mode.
     pub fn deserialize<
         'de,
         E: crate::Enumeration,
@@ -163,7 +175,8 @@ pub mod open {
             }
             fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut source: A) -> Result<C, A::Error> {
                 let mut out = C::default();
-                while let Some(value) = source.next_element_seed(EnumSeed::<E>::open_collection())?
+                while let Some(value) =
+                    source.next_element_seed(EnumSeed::<E>::collection(false))?
                 {
                     if let Some(value) = value {
                         crate::ProtoList::push(&mut out, value);
@@ -200,7 +213,7 @@ pub mod closed {
             }
             fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut source: A) -> Result<C, A::Error> {
                 let mut out = C::default();
-                while let Some(value) = source.next_element_seed(EnumSeed::<E>::new(true))? {
+                while let Some(value) = source.next_element_seed(EnumSeed::<E>::collection(true))? {
                     if let Some(crate::EnumValue::Known(value)) = value {
                         crate::ProtoList::push(&mut out, value);
                     }

@@ -600,3 +600,11 @@ in JSON, the typed parser preserves that legal name and rejects scalar roots.
 Failures at this exceptional boundary use the fixed `InvalidMessage` reason;
 carrier-specific error categories and locations are not retained. As with other
 Serde input, the carrier owns its parsing buffers and temporary error storage.
+
+### Caller JSON input attributes
+
+Cleanup-enabled messages honor regular-field `serde(default)`, `serde(default = "path")`, `serde(skip)` and `serde(skip_deserializing)`, including nested `cfg_attr` conditions. Missing or skipped fields receive their configured defaults while the cleanup owner remains active. Skipped fields are unknown input under strict parsing. Custom decoders, aliases, renaming, flattening, field removal and container/oneof input attributes are rejected with `CodeGenError::CleanupJsonAttribute` rather than silently ignored; use the supported representation and JSON-policy configuration instead. The serialization-only field attributes `skip_serializing`, `skip_serializing_if` and `serialize_with` continue to apply to the derived serializer. Unsupported conditional input attributes are rejected regardless of the current Cargo features, because generation cannot evaluate the consumer's configuration.
+
+### Repeated enum nulls
+
+Ordinary repeated enum elements reject JSON null in both strict and lenient modes; whole-field null still means an empty collection. `Enumeration::IS_NULL_VALUE` identifies the explicit `google.protobuf.NullValue` exception. Generation sets this semantic marker only for that exact protobuf name, and the default is false for existing handwritten implementations. Upgrading the canonical well-known-type provider preserves the exception in older generated message and view code without regenerating every consumer. Separately generated or handwritten NullValue providers need regeneration or an explicit marker override; the marker is trusted metadata from their owner, not identity inferred from names or values. Newly generated canonical providers require a runtime defining the marker. Repeated-field serializers render zero-valued NullValue elements as JSON null, while nonzero unknown numbers retain their numeric form. This correction is limited to collection elements: scalar, optional, map and non-human-readable serialization keep their existing behavior.

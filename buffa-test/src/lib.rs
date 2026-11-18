@@ -1511,3 +1511,18 @@ impl buffa_descriptor::reflect::InspectElement for guarded_repr::SecretBytes {
         buffa_descriptor::reflect::InspectValueRef::Bytes(self.as_ref())
     }
 }
+
+/// Caller JSON input policies must survive selecting recursive cleanup.
+pub mod cleanup_input {
+    buffa::include_proto!("cleanup_input");
+    pub(crate) fn custom_count() -> i32 {
+        17
+    }
+}
+
+/// Repeated enum null boundaries across ordinary and custom collections.
+// The existing enum generator emits manual Default implementations.
+#[allow(clippy::derivable_impls)]
+pub mod enum_nulls {
+    buffa::include_proto!("enum_nulls");
+}

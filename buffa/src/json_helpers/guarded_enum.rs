@@ -133,7 +133,7 @@ pub mod map_open {
         D: Deserializer<'de>,
     {
         input.deserialize_any(EnumMapSeed::<E, C, EnumValue<E>> {
-            token: EnumSeed::open_collection(),
+            token: EnumSeed::open_map(),
             project: Some,
             marker: PhantomData,
         })

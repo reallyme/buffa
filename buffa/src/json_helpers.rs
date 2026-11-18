@@ -1287,8 +1287,8 @@ fn try_deserialize_enum<T: serde::de::DeserializeOwned>(
 ///
 /// When `ignore_unknown_enum_values` is active, unknown enum string values
 /// are silently skipped instead of producing an error. In default mode this
-/// behaves identically to the standard `Vec<EnumValue<E>>` deserialization
-/// with null→empty-vec handling.
+/// accepts names and integers, rejecting null elements except for enums
+/// explicitly representing NullValue. Whole-field null remains empty.
 pub mod repeated_enum {
     use alloc::vec::Vec;
     use serde::{Deserializer, Serializer};
@@ -1297,7 +1297,19 @@ pub mod repeated_enum {
         value: &[crate::EnumValue<E>],
         s: S,
     ) -> Result<S::Ok, S::Error> {
-        serde::Serialize::serialize(value, s)
+        if !E::IS_NULL_VALUE || !s.is_human_readable() {
+            return serde::Serialize::serialize(value, s);
+        }
+        use serde::ser::SerializeSeq as _;
+        let mut sequence = s.serialize_seq(Some(value.len()))?;
+        for element in value {
+            if element.to_i32() == 0 {
+                sequence.serialize_element(&())?;
+            } else {
+                sequence.serialize_element(element)?;
+            }
+        }
+        sequence.end()
     }
 
     pub fn deserialize<'de, E, C, D>(d: D) -> Result<C, D::Error>
@@ -1326,6 +1338,11 @@ pub mod repeated_enum {
             ) -> Result<Vec<crate::EnumValue<E>>, A::Error> {
                 let mut out = Vec::with_capacity(super::clamp_size_hint(seq.size_hint()));
                 while let Some(super::BufferedValue(raw)) = seq.next_element()? {
+                    if raw.is_null() && !E::IS_NULL_VALUE {
+                        return Err(serde::de::Error::custom(
+                            super::enum_list::ErrorReason::Null,
+                        ));
+                    }
                     match super::try_deserialize_enum::<crate::EnumValue<E>>(raw) {
                         Ok(Some(v)) => out.push(v),
                         Ok(None) => continue,
@@ -1617,6 +1634,15 @@ macro_rules! int_serde_module {
                     fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<$int_type, E> {
                         $parse_str(v).ok_or_else(|| E::custom(JsonValueError::$reason))
                     }
+                    fn visit_string<E: serde::de::Error>(
+                        self,
+                        value: alloc::string::String,
+                    ) -> Result<$int_type, E> {
+                        // A transferred token is ours to erase even if parsing fails.
+                        #[cfg(feature = "zeroize")]
+                        let value = zeroize::Zeroizing::new(value);
+                        self.visit_str(&value)
+                    }
                     visit_wide_ints!(JsonValueError::$reason);
                     crate::reject_other_json_kinds!(bytes, byte_buf);
                 }
@@ -1778,6 +1804,15 @@ pub mod float {
                 }
             }
 
+            fn visit_string<E: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<f32, E> {
+                #[cfg(feature = "zeroize")]
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
+            }
+
             fn visit_f32<E: serde::de::Error>(self, v: f32) -> Result<f32, E> {
                 Ok(v)
             }
@@ -1863,6 +1898,15 @@ pub mod double {
                         _ => Err(E::custom(super::JsonValueError::Double)),
                     },
                 }
+            }
+
+            fn visit_string<E: serde::de::Error>(
+                self,
+                value: alloc::string::String,
+            ) -> Result<f64, E> {
+                #[cfg(feature = "zeroize")]
+                let value = zeroize::Zeroizing::new(value);
+                self.visit_str(&value)
             }
 
             fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<f64, E> {
@@ -2917,9 +2961,14 @@ pub mod repeated_closed_enum {
         s: S,
     ) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeSeq;
+        let null_sentinel = E::IS_NULL_VALUE && s.is_human_readable();
         let mut seq = s.serialize_seq(Some(value.len()))?;
         for v in value {
-            seq.serialize_element(&crate::json_helpers::EnumProtoNameRef(v))?;
+            if null_sentinel && v.to_i32() == 0 {
+                seq.serialize_element(&())?;
+            } else {
+                seq.serialize_element(&crate::json_helpers::EnumProtoNameRef(v))?;
+            }
         }
         seq.end()
     }
@@ -2950,6 +2999,15 @@ pub mod repeated_closed_enum {
             ) -> Result<Vec<E>, A::Error> {
                 let mut out = Vec::with_capacity(super::clamp_size_hint(seq.size_hint()));
                 while let Some(super::BufferedValue(raw)) = seq.next_element()? {
+                    if raw.is_null() && E::IS_NULL_VALUE {
+                        let value = E::from_i32(0).ok_or_else(|| {
+                            <A::Error as serde::de::Error>::custom(
+                                super::enum_list::ErrorReason::Unknown,
+                            )
+                        })?;
+                        out.push(value);
+                        continue;
+                    }
                     match super::try_deserialize_closed_enum::<E>(&raw) {
                         Ok(Some(v)) => out.push(v),
                         Ok(None) => continue,
